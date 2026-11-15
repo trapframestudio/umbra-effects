@@ -1,0 +1,1193 @@
+# kidfx snapshot: every particle file in gamedata/particles, its class and the SHA-1 of its
+# bytes with the stock shader line (zgo\particle_* read as particles\*). tests/zgo_test_kidfx.lua
+# checks the files against it. Refresh with: python3 tools/zgo_kidfx/kidfx_pe.py apply
+# path	class	stock shader	sha1	reason
+hit_fx/hit_flesh_00.pg	group	-	6dfe21b534036f2cb70104b575c8268394070f53	particle group: no shader of its own
+hit_fx/hit_flesh_01.pg	group	-	6dfe21b534036f2cb70104b575c8268394070f53	particle group: no shader of its own
+hit_fx/hit_flesh_02.pg	group	-	6dfe21b534036f2cb70104b575c8268394070f53	particle group: no shader of its own
+hit_fx/hit_flesh_02a.pg	group	-	6dfe21b534036f2cb70104b575c8268394070f53	particle group: no shader of its own
+hit_fx/hit_flesh_headshot.pg	group	-	6dfe21b534036f2cb70104b575c8268394070f53	particle group: no shader of its own
+srbd/effects/burst/srbd_hit_blood_drops_hd_dust_18.pe	gore	particles\blend	a92ff5aea01076957cc45c986cacb42bd5d174ff	name says blood
+srbd/effects/burst/srbd_hit_impact_blood_02.pe	gore	particles\blend	4c25a16f623a7abd04c82a793ab615cf5966e435	name says blood
+srbd/effects/burst/srbd_hit_impact_blood_03.pe	gore	particles\blend	b6f665b3de7ed75e3c1c18c17ecf23cc57e6b30d	name says blood
+srbd/effects/burst/srbd_hit_impact_blood_10.pe	gore	particles\blend	ebb51c644995c4c98e2f62c57162d9882826dab1	name says blood
+srbd/effects/burst/srbd_hit_impact_blood_11.pe	gore	particles\blend	564274a5a610bf6ac45b63c370fac33a0f147bef	name says blood
+srbd/effects/burst/srbd_hit_impact_blood_30.pe	gore	particles\blend	f113a6988219841fc2958405a3b1b000e06302eb	name says blood
+srbd/effects/burst/srbd_hit_impact_blood_31.pe	gore	particles\blend	a5e20f8ce99af58a03d35a63fab6a94b18d3a67e	name says blood
+srbd/effects/burst/srbd_hit_impact_blood_33.pe	gore	particles\blend	20d2833486dfdbf67b1ffe08d8948c3eba94b268	name says blood
+srbd/effects/burst/srbd_hit_impact_blood_34.pe	gore	particles\blend	7d104afa0d71617f76c31485a90daa54c2ab9113	name says blood
+srbd/effects/cloud/smoke_point_blood_wisp.pe	gore	particles\blend	55c72b14ad2da149f43a01b5a5a44bc07f7d5b0f	name says blood
+srbd/effects/cloud/smoke_point_brick_cloud.pe	clean	particles\blend	0147c94afc38eb18a113aacfc3503cb691754e9f	name says smoke
+srbd/effects/cloud/smoke_point_concrete_cloud.pe	clean	particles\alpha_add	2760d666b78f1c4392c2b6ea97e659cbbf6741cf	name says smoke
+srbd/effects/cloud/srbd_hit_blood_drops_hd_dust_02_a.pe	gore	particles\blend	888fae7464428c1fe56e998138b25dd810d46da8	name says blood
+srbd/effects/cloud/srbd_hit_impact_blood_04.pe	gore	particles\blend	c9e1ba41dfe9e13386a05dd87d7420fc2b2727ba	name says blood
+srbd/effects/cloud/srbd_hit_impact_blood_05.pe	gore	particles\blend	4b3a40bf746e9a34688b01e482661d0de82c6f95	name says blood
+srbd/effects/cloud/srbd_hit_impact_blood_20.pe	gore	particles\blend	eecfff12f17f4ce4e00808c1d5b15f98bf3d4dcd	name says blood
+srbd/effects/cloud/srbd_hit_impact_blood_23.pe	gore	particles\blend	5f93db1e3baff32ebf54a3adf95ef74f514a0cdd	name says blood
+srbd/effects/cloud/srbd_hit_impact_blood_25.pe	gore	particles\blend	1842d02864ba7b8238a3cf14d08252f642a1f9d1	name says blood
+srbd/effects/cloud/srbd_hit_impact_blood_26.pe	gore	particles\blend	9b4056f399ad60fe301e083a2a35d4d0f4a29ad3	name says blood
+srbd/effects/cloud/srbd_hit_impact_blood_29.pe	gore	particles\blend	f5e7ead912b42fc98ac1799f47d4774b95c092e9	name says blood
+srbd/effects/debris/srbd_armor_thin_expl_fallout4_debris_05.pe	clean	particles\blend	30e25537d9ccf570af1dd650952158a6889e2501	name says armor
+srbd/effects/debris/srbd_armor_wide_expl_fallout4_debris_02.pe	clean	particles\blend	44e7762b0213a79e67fe45f56ad510bf657d587b	name says armor
+srbd/effects/debris/srbd_brain.pe	gore	particles\blend	1948db63a15f25dfdcd07609ca665fc282eef797	name says brain
+srbd/effects/debris/srbd_brain_light.pe	gore	particles\blend	53af004122bbfdc1cefb41bccc987ec8a28acc57	name says brain
+srbd/effects/debris/srbd_expl_fallout4_debris_16_srbd_gore_heavy.pe	gore	particles\blend	80067d763e87375312ad18d23e724300929136bc	name says gore
+srbd/effects/debris/srbd_expl_fallout4_debris_16_srbd_gore_heavy_00.pe	gore	particles\blend	6406cba85ddaf85c351e53d7ed967ece0d2ee671	name says gore
+srbd/effects/debris/srbd_expl_fallout4_debris_17_00.pe	gore	particles\blend	7bd992a5ff20b60eb71f6a35ed92d9ec2f721fc6	no marker in name or texture crysis_3\dirt_b, but it fades to blood red (0.27, 0.15, 0.15)
+srbd/effects/debris/srbd_flesh.pe	gore	particles\blend	756ab16977506ac49c36ba1534776992fb2006fa	name says flesh
+srbd/effects/debris/srbd_flesh_expl_fallout4_debris_02.pe	gore	particles\add	93b3d6b79df44d03da4ff1cfb90efa8f980b4fa6	name says flesh
+srbd/effects/debris/srbd_flesh_light.pe	gore	particles\blend	5fa8dca610114ffc4c5f8e8efc0e146cfbf707ac	name says flesh
+srbd/effects/debris/srbd_flesh_light_skin.pe	gore	particles\blend	856ef97efb8d27af692674009cba8819bb03857f	name says flesh
+srbd/effects/debris/srbd_flesh_thin_expl_fallout4_debris_05.pe	gore	particles\blend	9b875c9d3ae438e5d43eca236326e02ea5ac14d3	name says flesh
+srbd/effects/debris/srbd_flesh_wide_expl_fallout4_debris_02.pe	gore	particles\set	e879c6bb9110e24aaba934a7002ca9f6bffd5593	name says flesh
+srbd/effects/debris/srbd_gore_thin_expl_fallout4_debris_05.pe	gore	particles\set	568b8c6bc8f81c9da8d51a05d9cb9d826b2766b8	name says gore
+srbd/effects/debris/srbd_gore_wide_expl_fallout4_debris_02.pe	gore	particles\blend	f754d388a61444e6ecc9fdbb55aee215e7e1d066	name says gore
+srbd/effects/debris/srbd_hair_32.pe	gore	particles\blend	e521026650524180430f2ca82ade4e80b7ad8524	name says hair
+srbd/effects/debris/srbd_hair_4.pe	gore	effects\rain	350f4c72d3b39a239d5b31b6468e99455148286e	name says hair; gory, but its shader effects\rain has no kid-mode copy: stays visible in kid mode
+srbd/effects/debris/srbd_hair_64.pe	gore	particles\blend	d6e26e5681058e46f76a70fa0c89c2c0c0e3024c	name says hair
+srbd/effects/debris/srbd_hit_debris_glass_unused.pe	clean	particles\blend	c9b6a25c2474bdb5917a223aac43d4d59e870045	name says glass
+srbd/effects/debris/srbd_hit_impact_blood_32.pe	gore	particles\blend	88802c53135b162db35882085120529c2220275b	name says blood
+srbd/effects/debris/srbd_skin.pe	gore	particles\blend	6406cba85ddaf85c351e53d7ed967ece0d2ee671	name says skin
+srbd/effects/debris/srbd_skin_32.pe	gore	particles\blend	82031ff4aef87b8d748f066980811e2438b16e47	name says skin
+srbd/effects/debris/srbd_skin_64.pe	gore	particles\blend	02837c198c8a9d7a32f147d4d60ce76c75dabe19	name says skin
+srbd/effects/debris/srbd_skin_64_fast.pe	gore	particles\blend	ddd823d563f63384b7707e5a98e9a69d1d8aba30	name says skin
+srbd/effects/dust/srbd_hit_hd_metal_puff_02.pe	clean	particles\blend	dab816d26a4dad16133aa4d97c4609e205fcf100	name says metal
+srbd/effects/dust/srbd_hit_impact_blood_00.pe	gore	particles\blend	fa05b4120954937b212d52e63e3d9a8c8a59a943	name says blood
+srbd/effects/dust/srbd_hit_impact_blood_06.pe	gore	particles\blend	e869386e59ced347ac869fe3e36b1f19eb33d035	name says blood
+srbd/effects/dust/srbd_hit_impact_blood_07.pe	gore	particles\blend	009aebedafda994c71d4117c00667341f0b6c9df	name says blood
+srbd/effects/dust/srbd_hit_impact_blood_08.pe	gore	particles\blend	abeab470d013e0ed86cf06e43cdc846c05024cd3	name says blood
+srbd/effects/dust/srbd_hit_impact_blood_12.pe	gore	particles\blend	9aaab7474cef80c9b9e960801809cb5a9fc310c1	name says blood
+srbd/effects/dust/srbd_hit_impact_smoke_00.pe	clean	particles\alpha_add	e428fbf8080cf0e893ed645cc610de17b8eee54d	name says smoke
+srbd/effects/dust/srbd_hit_impact_smoke_01.pe	clean	particles\alpha_add	aea73aa1b5f85ee7f42e6cd298ba94c54cb143be	name says smoke
+srbd/effects/dust/srbd_hit_impact_smoke_02.pe	clean	particles\alpha_add	0af610b0f8c1dacc64e686aa33f94ff4eac3559b	name says smoke
+srbd/effects/dust/srbd_hit_impact_smoke_03.pe	clean	particles\blend	524630df47425169c66070374e02812348340bdb	name says smoke
+srbd/effects/dust/srbd_hit_impact_smoke_high.pe	clean	particles\alpha_add	5805ff1616a92471ded3fd931a9f56d042e53468	name says smoke
+srbd/effects/dust/srbd_hit_impact_smoke_points.pe	clean	particles\blend	2a73ddc539464507c3adb027ff6864c554610523	name says smoke
+srbd/effects/fingers/smoke_point_blood_circle.pe	gore	particles\blend	c41a10202382d996b4a36d6658449907b3a433fe	name says blood
+srbd/effects/fingers/smoke_point_blood_fingers.pe	gore	particles\blend	74e4935c2cfcaf3e283de828854cc8b6d7abad10	name says blood
+srbd/effects/fingers/smoke_point_blood_fingers_short.pe	gore	particles\blend	6a08a7f4a01245cf0b921010bc2ccecebefda02b	name says blood
+srbd/effects/fingers/smoke_point_blood_gush.pe	gore	particles\blend	95f179005a984b27e9593fb92b41045d3a334a76	name says blood
+srbd/effects/fingers/smoke_point_blood_mist.pe	gore	particles\blend	f0e952ecaef5b714bdc9a69e2fa8ab78f13d03a0	name says blood
+srbd/effects/fingers/smoke_point_concrete_fingers.pe	clean	particles\blend	b444b33e42535f1212a327cad0093cc381b9c241	name says smoke
+srbd/effects/fingers/srbd_smoke_point_blood_fingers_short.pe	gore	particles\blend	6a08a7f4a01245cf0b921010bc2ccecebefda02b	name says blood
+srbd/effects/fingers/srbd_smoke_point_concrete_fingers.pe	clean	particles\blend	b444b33e42535f1212a327cad0093cc381b9c241	name says smoke
+srbd/effects/hfx/body_impact_sparks_00.pe	clean	particles\add	83f9eb44b82eaf4107758fd3723125f0e686ec8f	name says spark
+srbd/effects/hfx/body_impact_sparks_01.pe	clean	particles\blend	69f0735e1da7ea25a491f5bb934176577f2e1c30	name says spark
+srbd/effects/hfx/body_impact_sparks_02.pe	clean	particles\blend	529db4447511a6771ebbc03b60c53eb84bcd848a	name says spark
+srbd/effects/hfx/body_impact_sparks_03.pe	clean	particles\alpha_add	ce517607a6d3866dff5475fc0f82ec384062ac3c	name says spark
+srbd/effects/hfx/body_impact_sparks_04.pe	clean	particles\blend	3f75605f851104e93f79486d566350af534e42c5	name says spark
+srbd/effects/hfx/body_impact_sparks_05.pe	clean	particles\blend	ee7c0de23b1a607cf79c7c778579d5ff64733fde	name says spark
+srbd/effects/hfx/body_impact_sparks_06.pe	clean	particles\blend	e8b3fc091816d8b3bc1ca6725805aa95ecfdde32	name says spark
+srbd/effects/hfx/body_impact_sparks_07.pe	clean	particles\add	e5cb19eb2266e725b5c6e5178997c079721e82ad	name says spark
+srbd/effects/hfx/body_impact_sparks_08.pe	clean	particles\add	7c2a3b072972b917484a10a373bc63fca75cb187	name says spark
+srbd/effects/hfx/body_impact_sparks_09.pe	clean	particles\alpha_add	6e64e32644fb7687d73251c7ad7f8c82089c98aa	name says spark
+srbd/effects/hfx/body_impact_sparks_10.pe	clean	particles\add	2b22bebe93aeeb68caad31a065703c606b541124	name says spark
+srbd/effects/hfx/body_impact_sparks_11.pe	clean	particles\alpha_add	f003a3db5192675751b0d13d64c3391c2ea2e0af	name says spark
+srbd/effects/hfx/body_impact_sparks_12.pe	clean	particles\alpha_add	0d20b15df3f0061b47fb25a554965ae800b914e3	name says spark
+srbd/effects/hfx/body_impact_sparks_13.pe	clean	particles\xdistort	43f105642faa7d7e686392cf2e396abca19ac0e2	name says spark
+srbd/effects/hfx/body_impact_sparks_14.pe	clean	particles\add	34888e2de35d209f73358c4d758ba61776af2017	name says spark
+srbd/effects/hfx/body_impact_sparks_15.pe	clean	particles\add	6b6357905ede5f9fab87c5c12868260c2476cfd5	name says spark
+srbd/effects/hfx/body_impact_sparks_16.pe	clean	particles\add	7b1bf899068cbcb206a48ca97dd18bbe0c64bf0a	name says spark
+srbd/effects/hfx/body_impact_sparks_17.pe	clean	particles\blend	b70363aae5e91d6bc4d75420dcd7da0b03c09bac	name says spark
+srbd/effects/hfx/body_impact_sparks_18.pe	clean	particles\alpha_add	55bb44b4753e87b380988bed45a542dd406d56f7	name says spark
+srbd/effects/hfx/body_impact_sparks_19.pe	clean	particles\blend	af25c99cb5f892ac68b1c42ea15c5fedec413e42	name says spark
+srbd/effects/hfx/hit_hd_concrete_puff_00.pe	clean	particles\alpha_add	87995bb90ebb4249fabc92ee61c34c92c2fecb1e	name says concrete
+srbd/effects/hfx/hit_hd_concrete_puff_01.pe	clean	particles\alpha_add	b60ee20190e2c867bd42d4fda7c85c2540807ee6	name says concrete
+srbd/effects/hfx/hit_hd_concrete_puff_02.pe	clean	particles\alpha_add	84a350ede8c328af586f4036afe2f3b37b405639	name says concrete
+srbd/effects/hfx/hit_hd_concrete_puff_03.pe	clean	particles\alpha_add	dbabcfcb1aec74c31c1eb9b3a4bee17a9f9b8fd6	name says concrete
+srbd/effects/hfx/hit_hd_dirt_center.pe	clean	particles\blend	90e1c590441a60c37f53cff8fabf44e33d598dbb	name says dirt
+srbd/effects/hfx/hit_hd_dirt_fly_00.pe	clean	particles\blend	f9a793bd267509ae561adf8b25ccd04ecdc3b793	name says dirt
+srbd/effects/hfx/hit_hd_dirt_fly_01.pe	clean	particles\blend	79edcfde20fa5e1b9816668f399aeb0a2c0a932e	name says dirt
+srbd/effects/hfx/hit_hd_farcry4_puff_grey_base.pe	clean	particles\blend	d6b184d405ed276b48dcab428c4e40986ae88596	name says puff_grey
+srbd/effects/hfx/hit_hd_farcry4_puff_grey_fingers.pe	clean	particles\blend	0b152e6eb7e5242599ef1ca2f89e871e3c028d76	name says puff_grey
+srbd/effects/hfx/hit_hd_metal_puff_00.pe	clean	particles\blend	6fb54c0c55aac9e3348bca023a14b8b2f2a0fbaa	name says metal
+srbd/effects/hfx/hit_hd_pieces_sparks_03.pe	clean	particles\alpha_add	a150d2e424832b485ec6816e36e4171c920ceefb	name says spark
+srbd/effects/hfx/hit_hd_pieces_sparks_06.pe	clean	particles\alpha_add	8302912075761effe35be2e7af287219858245ca	name says spark
+srbd/effects/hfx/hit_impact_dust_concrete.pe	clean	particles\blend	de79de5b8a006e73fb3e2569a558d0febb4af558	name says dust
+srbd/effects/hfx/hit_impact_sparks_dist.pe	clean	particles\xdistort	30bef2f5f3e1bc6a633477804fdbc0efc1cf2f6c	name says spark
+srbd/effects/hfx/hit_stucco_inner.pe	clean	particles\blend	13d6abcbb7f7750c2fb1cf48f08aac6a98b3bb48	name says stucco
+srbd/effects/hfx/linger_clear.pe	clean	particles\blend	29cabe2bc1d497fa34f01773f5f9272481e251d3	name says linger
+srbd/effects/hfx/smoke_point_concrete_fingers.pe	clean	particles\blend	b444b33e42535f1212a327cad0093cc381b9c241	name says smoke
+srbd/effects/hfx/smoke_point_pilot.pe	gore	particles\add	1e231b0e9b34af3401a9b3cbe5c090f05fbd9704	additive glow tinted blood red (0.45, 0, 0), played by the flesh-hit groups srbd\srbd_hit_flesh_02a and srbd\headshot\srbd_head_dust: reads as a blood puff
+srbd/effects/misc/srbd_linger_blur.pe	clean	particles\xdistort	a57b296201bfeb49053c99a697aef8d93c740839	name says linger
+srbd/effects/misc/srbd_smoke_point_pilot_omni.pe	gore	particles\add	ffdd9584543092d2408e04afe10e028f4b4fc50d	additive glow tinted blood red (0.45, 0, 0), played by the flesh-hit groups srbd\srbd_hit_flesh_02a and srbd\headshot\srbd_head_dust: reads as a blood puff
+srbd/effects/splash/srbd_hit_impact_blood_19.pe	gore	particles\blend	6c7f576cc96f56a3370e7fa2900d45dc64429c60	name says blood
+srbd/effects/splash/srbd_hit_impact_blood_21.pe	gore	particles\blend	2ea18a6a512d278ef581188f897fc73b8ef13aee	name says blood
+srbd/effects/splash/srbd_hit_impact_blood_22.pe	gore	particles\blend	fcb19f3adc092cd99991bf321acc9c4c826ec4b7	name says blood
+srbd/effects/splash/srbd_hit_impact_blood_24.pe	gore	particles\blend	c3333c6207ce215113a91e404b2805cf0d4bd2ef	name says blood
+srbd/effects/splash/srbd_hit_impact_blood_27.pe	gore	particles\blend	f0e88a074ae0a48cada2010c649dc8e8444a5714	name says blood
+srbd/effects/splash/srbd_hit_impact_blood_28.pe	gore	particles\blend	f26d27ca19b4a849334b965140feba58933b104b	name says blood
+srbd/effects/tear/srbd_body_tear_blood_18.pe	gore	particles\blend	ac03008fd97391ca2ad91c6bc9719cf1c8c2a426	name says blood
+srbd/effects/tear/srbd_hit_impact_blood_01.pe	gore	particles\blend	fd012dc0ae1c601f5515835f7e49a02e48c7b9b5	name says blood
+srbd/effects/tear/srbd_hit_impact_blood_14.pe	gore	particles\blend	1d427d361a1fb2ed2e40eb3622dd72300d97c503	name says blood
+srbd/effects/test/srbd_blood_neck_splash.pe	gore	particles\blend	5fdc09a57ae89f829c164154ed66fd0a90a9f0e2	name says blood
+srbd/effects/test/srbd_blood_neck_splurt.pe	gore	particles\blend	1d4a493607714992e09e97a985f2772545ea294e	name says blood
+srbd/effects/test/srbd_blood_pointer.pe	gore	particles\blend	ec6cb6e5fb40112f818f2bd9b3337eb71cd3f65c	name says blood
+srbd/effects/test/srbd_exit_random_big.pe	gore	particles\blend	1d81566f300ba7ca7588973c0b6da49f75dd35fd	name says exit
+srbd/fingers/fractional/1/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	cb0e8c5a6a35b83164211b373462bbfb20d71d1a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	5f91a522b8eecbaf284c9ef21819273753454f72	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/1/srbd_finger_tracer_up.pe	carrier	particles\blend	f46be5b2c81630d3c7789ef27687ce53ceda47c3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/1/srbd_hit_finger_out.pg	group	-	cd76c10676f6e4fba6197b47b05b729f2c07ed53	particle group: no shader of its own
+srbd/fingers/fractional/1/1/srbd_hit_finger_out_armor.pg	group	-	1a7f3946de8517125a54891c60ca40ed4e52614e	particle group: no shader of its own
+srbd/fingers/fractional/1/1/srbd_hit_finger_out_up.pg	group	-	bf6d1741bd32f67d1f880f1833582ce4016f83c1	particle group: no shader of its own
+srbd/fingers/fractional/1/1/srbd_hit_finger_out_up_armor.pg	group	-	2191ef98d88787722636427719fcd3f499f50e05	particle group: no shader of its own
+srbd/fingers/fractional/1/1/srbd_hit_finger_up.pg	group	-	6bb5de8c9f390c9961364fde6cf2a48d14a60b8b	particle group: no shader of its own
+srbd/fingers/fractional/1/1/srbd_hit_finger_up_armor.pg	group	-	674f07161b6a28af1ca209e527ae58a658e4bb7e	particle group: no shader of its own
+srbd/fingers/fractional/1/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	614d1bceb3d6363080200c74b54b054a887a79d0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	437ad1e017950c4d65e2c9b6b01f5f9850315845	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/10/srbd_finger_tracer_up.pe	carrier	particles\blend	f2eb81606fcdc6bba0791f940f10bde77d5506ea	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/10/srbd_hit_finger_out.pg	group	-	0aad624931cafb8ebcb553355b230689ccf7ed5a	particle group: no shader of its own
+srbd/fingers/fractional/1/10/srbd_hit_finger_out_armor.pg	group	-	257295da4b1e22277965ea3589c4bf53bd4ff3a8	particle group: no shader of its own
+srbd/fingers/fractional/1/10/srbd_hit_finger_out_up.pg	group	-	891451b079dc2fde7e465cc42c68175abbc57a78	particle group: no shader of its own
+srbd/fingers/fractional/1/10/srbd_hit_finger_out_up_armor.pg	group	-	cf5334fc277dc15555ad4716b96442e515f2d05c	particle group: no shader of its own
+srbd/fingers/fractional/1/10/srbd_hit_finger_up.pg	group	-	c550286b62fd726368a8caa03e3a3eecff7969ab	particle group: no shader of its own
+srbd/fingers/fractional/1/10/srbd_hit_finger_up_armor.pg	group	-	a498da68f606756cf9da2dddc163fca01705ff50	particle group: no shader of its own
+srbd/fingers/fractional/1/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	068c4a50e7c0d1d3b1328cdf41740aef0cc298bb	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	f892283b0cf6306219ecd3cb0e73d90393d410fa	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/2/srbd_finger_tracer_up.pe	carrier	particles\blend	30dcc8a385e673082b08f1423d3c497289f2c825	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/2/srbd_hit_finger_out.pg	group	-	4c61cea5523b58e918e7cdf395c378fd4124cad3	particle group: no shader of its own
+srbd/fingers/fractional/1/2/srbd_hit_finger_out_armor.pg	group	-	9bf2856bc4c8bf16574410526be4521edc840319	particle group: no shader of its own
+srbd/fingers/fractional/1/2/srbd_hit_finger_out_up.pg	group	-	ee37b6ff6b640ed81bdfef0a06e57ecf2add0b06	particle group: no shader of its own
+srbd/fingers/fractional/1/2/srbd_hit_finger_out_up_armor.pg	group	-	6147f34d69bc3b4e1e3849ed565830faddfc6c37	particle group: no shader of its own
+srbd/fingers/fractional/1/2/srbd_hit_finger_up.pg	group	-	4a19da788dd96410837f33097acff242b49aab5a	particle group: no shader of its own
+srbd/fingers/fractional/1/2/srbd_hit_finger_up_armor.pg	group	-	9a700f3f0220b1d4c00187d19e74d1b253d49dca	particle group: no shader of its own
+srbd/fingers/fractional/1/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	725e6b27bdbea0d58a682a072dfbd19e78fc6c0b	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	d3a3418f3ba0199c8b0ae8d4eda87eca35c5e4ce	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/3/srbd_finger_tracer_up.pe	carrier	particles\blend	7d95d31712abf8e495bdad40688d9699326cbbae	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/3/srbd_hit_finger_out.pg	group	-	eadffe05b775cf0039ea2aa83a3a756c4fecd10d	particle group: no shader of its own
+srbd/fingers/fractional/1/3/srbd_hit_finger_out_armor.pg	group	-	8e8f17166de9ca81755ed110ba86d378a581e656	particle group: no shader of its own
+srbd/fingers/fractional/1/3/srbd_hit_finger_out_up.pg	group	-	ab856839c5f0e3629252917e10f2599ab708e23e	particle group: no shader of its own
+srbd/fingers/fractional/1/3/srbd_hit_finger_out_up_armor.pg	group	-	a8ec7f0b1a2073160e672b0895fff86d7dd0b969	particle group: no shader of its own
+srbd/fingers/fractional/1/3/srbd_hit_finger_up.pg	group	-	6bb3803db6b7e94d2ccf266489c905609d1d64cd	particle group: no shader of its own
+srbd/fingers/fractional/1/3/srbd_hit_finger_up_armor.pg	group	-	67a122b757edaecc6afd9d02a5fd746f8e1ca26e	particle group: no shader of its own
+srbd/fingers/fractional/1/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	7bc50af8ff84311613d663a53b54a8d37ed4507b	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	4b5ca2784f326b31301362eb2288a6a1b7f0508f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/4/srbd_finger_tracer_up.pe	carrier	particles\blend	9715ce5a9552ac12ef7fd55609d1b2ef8e2820b3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/4/srbd_hit_finger_out.pg	group	-	a361194700abe20e2749957dc8fcd0f64829141f	particle group: no shader of its own
+srbd/fingers/fractional/1/4/srbd_hit_finger_out_armor.pg	group	-	234621059aedfb218180fa2576b014db6741f4db	particle group: no shader of its own
+srbd/fingers/fractional/1/4/srbd_hit_finger_out_up.pg	group	-	5f178d65b8a78f9b096e29142e7faf8b4ba13f2e	particle group: no shader of its own
+srbd/fingers/fractional/1/4/srbd_hit_finger_out_up_armor.pg	group	-	242bbcf9ecdfa634ddf72874703791ecdec13a60	particle group: no shader of its own
+srbd/fingers/fractional/1/4/srbd_hit_finger_up.pg	group	-	d718e01d9dd433e2b072cee10642d3370a04a89a	particle group: no shader of its own
+srbd/fingers/fractional/1/4/srbd_hit_finger_up_armor.pg	group	-	6adddbf6658fc6c5dd35de8cd740bd59f0f3f775	particle group: no shader of its own
+srbd/fingers/fractional/1/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	7550b5a3ab715bd91405e33362005384a7a6f127	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	2a76a38984067b3641943efbf2abfd1057920bf4	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/5/srbd_finger_tracer_up.pe	carrier	particles\blend	b62fc6f847901e780bc86e95f695c8db4a64abe3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/5/srbd_hit_finger_out.pg	group	-	27d75d264c5dc0c4c707340c573f7ccb77e4799c	particle group: no shader of its own
+srbd/fingers/fractional/1/5/srbd_hit_finger_out_armor.pg	group	-	c80de112566ae050e1a2fd5692ae052dd069f12c	particle group: no shader of its own
+srbd/fingers/fractional/1/5/srbd_hit_finger_out_up.pg	group	-	4d6a9297afe43981f60b4f93c13b68995ae46bf5	particle group: no shader of its own
+srbd/fingers/fractional/1/5/srbd_hit_finger_out_up_armor.pg	group	-	1b5fd245588ba064507cfcf0557a8a4751c9dc89	particle group: no shader of its own
+srbd/fingers/fractional/1/5/srbd_hit_finger_up.pg	group	-	1006672aac2c943f873dddf1aed19b6bff86782c	particle group: no shader of its own
+srbd/fingers/fractional/1/5/srbd_hit_finger_up_armor.pg	group	-	8cd54cd445dbb35e485d03e3b85ae04aaa80b217	particle group: no shader of its own
+srbd/fingers/fractional/1/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	d41e6a1f8240aa84ca0497634b62b46e042927e7	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	15162c412d7de5201c2996c9a06126eae76de9c2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/6/srbd_finger_tracer_up.pe	carrier	particles\blend	6a4484cc7ef78f6969c8dfcee2d527465b8b71a2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/6/srbd_hit_finger_out.pg	group	-	aae8c62c2a2a2b0584f1048e488ce82f6d556df5	particle group: no shader of its own
+srbd/fingers/fractional/1/6/srbd_hit_finger_out_armor.pg	group	-	05b0401cd12a3e0101fa958bac051ec6f1e1ca2b	particle group: no shader of its own
+srbd/fingers/fractional/1/6/srbd_hit_finger_out_up.pg	group	-	3fe35f5dd5de332a610dbd4c4ebab336e4294f70	particle group: no shader of its own
+srbd/fingers/fractional/1/6/srbd_hit_finger_out_up_armor.pg	group	-	f6edc3c8858e53f9e0ebeff81d2c72619e72f094	particle group: no shader of its own
+srbd/fingers/fractional/1/6/srbd_hit_finger_up.pg	group	-	3c3dc7a975ab666e395bfb477e6a140262828f92	particle group: no shader of its own
+srbd/fingers/fractional/1/6/srbd_hit_finger_up_armor.pg	group	-	5db13dcecf94358a3d0a35056ddbd2e5288f41a1	particle group: no shader of its own
+srbd/fingers/fractional/1/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	d7b15dc372b36ceb142fc9aa6a85fb233daa2c36	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	ca3ae360d8fb55f368f7b574b6e41b92cb63b435	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/7/srbd_finger_tracer_up.pe	carrier	particles\blend	239e0062154690cd16c477b0ebf017555128206a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/7/srbd_hit_finger_out.pg	group	-	e9ad823bde763607bbc04c1d0485044e8cf43685	particle group: no shader of its own
+srbd/fingers/fractional/1/7/srbd_hit_finger_out_armor.pg	group	-	c31567cd034e283e67bfa1660681c4b08a4e9e19	particle group: no shader of its own
+srbd/fingers/fractional/1/7/srbd_hit_finger_out_up.pg	group	-	e63f0ca4d4e3fc7819b16637d7c76a67e9b4cd8a	particle group: no shader of its own
+srbd/fingers/fractional/1/7/srbd_hit_finger_out_up_armor.pg	group	-	9d65e1c9847c83f71bca8ff8a57e4c4a51b711b6	particle group: no shader of its own
+srbd/fingers/fractional/1/7/srbd_hit_finger_up.pg	group	-	446b9259fabfdbff037847bc13453c8b72522c9f	particle group: no shader of its own
+srbd/fingers/fractional/1/7/srbd_hit_finger_up_armor.pg	group	-	598462f1c91874f6369cf99efde681dcc6f7324c	particle group: no shader of its own
+srbd/fingers/fractional/1/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	9a8d3884b84eb3ed5c6e9780e2ed4b7ff87d60eb	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	56cb80cc9984f9c745fdacadf2e0b37a9490e721	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/8/srbd_finger_tracer_up.pe	carrier	particles\blend	802ae94f1b763d2ff749a3404f4a281a272a90d0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/8/srbd_hit_finger_out.pg	group	-	e0adf26d2e42ffbd04aa930b9629f5f5cf32b4d9	particle group: no shader of its own
+srbd/fingers/fractional/1/8/srbd_hit_finger_out_armor.pg	group	-	8a40432fad2c5113862ff2f939733fb37a895043	particle group: no shader of its own
+srbd/fingers/fractional/1/8/srbd_hit_finger_out_up.pg	group	-	7ecacfb3eab33d0b23718dba2d32ceed817a9279	particle group: no shader of its own
+srbd/fingers/fractional/1/8/srbd_hit_finger_out_up_armor.pg	group	-	7fd19da4926cbc3b28082f8ed7f54ea45778e40f	particle group: no shader of its own
+srbd/fingers/fractional/1/8/srbd_hit_finger_up.pg	group	-	b0320e65e64bdaa49c7c45fc6df8caf04f35e58a	particle group: no shader of its own
+srbd/fingers/fractional/1/8/srbd_hit_finger_up_armor.pg	group	-	0b1f11e073b7b33ec893f7cd5811652075853b85	particle group: no shader of its own
+srbd/fingers/fractional/1/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	ce71cc67ce7dad06dc1bfb55e314f4c12086e874	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	31ab0a3a4e783ec4171826dc2846a3a815b70667	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/9/srbd_finger_tracer_up.pe	carrier	particles\blend	6e90feab87727b76b600f48d7841cbde3007480f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/1/9/srbd_hit_finger_out.pg	group	-	64a52c1c0f3e67395a02b3812b3cf5be8b398654	particle group: no shader of its own
+srbd/fingers/fractional/1/9/srbd_hit_finger_out_armor.pg	group	-	dcc4e40ce6eca4827425bf4e2d98b82750a0646c	particle group: no shader of its own
+srbd/fingers/fractional/1/9/srbd_hit_finger_out_up.pg	group	-	5053322af04233b1df95e1143a7da791bc2a2437	particle group: no shader of its own
+srbd/fingers/fractional/1/9/srbd_hit_finger_out_up_armor.pg	group	-	511d824b361975b21be2b2519495b1dd219ab170	particle group: no shader of its own
+srbd/fingers/fractional/1/9/srbd_hit_finger_up.pg	group	-	95606a8a2af6aeb7f593b34e896c76e7752a1dc5	particle group: no shader of its own
+srbd/fingers/fractional/1/9/srbd_hit_finger_up_armor.pg	group	-	6a45406cfc6ecd6308415bf7c229992e83ec4db7	particle group: no shader of its own
+srbd/fingers/fractional/1/smoke_point_blood_fingers_short.pe	gore	particles\blend	ccc6804004c44488df113716c1e2711ecf1bf915	name says blood
+srbd/fingers/fractional/1/smoke_point_fingers_short.pe	clean	particles\blend	50a3eceea5fb8ba6faacaf75e6a1ccb1b96aa5a8	name says smoke
+srbd/fingers/fractional/10/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	987265a758e93b4a025edad42696cbc882e6754d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	ca82f284bab53bd406221d9bf2e69ccd44420283	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/1/srbd_finger_tracer_up.pe	carrier	particles\blend	356a12b2ab67bb39d6f72c0f0a7f45198bcbca2b	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/1/srbd_hit_finger_out.pg	group	-	fd5c67fe04be10016c6954b1a1424040e2a1d79e	particle group: no shader of its own
+srbd/fingers/fractional/10/1/srbd_hit_finger_out_armor.pg	group	-	f973c4aa15f7de39ec2125abca62049511c36d28	particle group: no shader of its own
+srbd/fingers/fractional/10/1/srbd_hit_finger_out_up.pg	group	-	964bd887f4ace98489e4349186317cac7ad0db8b	particle group: no shader of its own
+srbd/fingers/fractional/10/1/srbd_hit_finger_out_up_armor.pg	group	-	832e97dcff4ed41163e14fc0a7eb2c4b33ab5386	particle group: no shader of its own
+srbd/fingers/fractional/10/1/srbd_hit_finger_up.pg	group	-	53a2f586ca06fac7259929038ef1403927bce870	particle group: no shader of its own
+srbd/fingers/fractional/10/1/srbd_hit_finger_up_armor.pg	group	-	1c604beb751b134e2b3ad66d8b7bf924775da375	particle group: no shader of its own
+srbd/fingers/fractional/10/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	af91414bff9e4b16c4740b5ae71ed33edb760210	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	f17f8374e3b3e532516de703293c0d482128a4c9	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/10/srbd_finger_tracer_up.pe	carrier	particles\blend	f05fff7036dc3c3253d2b17f931f19a37c77916c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/10/srbd_hit_finger_out.pg	group	-	801af722184ac162cd11f5544f7e4d15ddd8f045	particle group: no shader of its own
+srbd/fingers/fractional/10/10/srbd_hit_finger_out_armor.pg	group	-	d8db934da77b678c7755b3db65fa64c89078029f	particle group: no shader of its own
+srbd/fingers/fractional/10/10/srbd_hit_finger_out_up.pg	group	-	d9ec687b513c5b258a7b5db2b550f66e7f867e29	particle group: no shader of its own
+srbd/fingers/fractional/10/10/srbd_hit_finger_out_up_armor.pg	group	-	4441682919e8e8c7f317e4e72d78382616c55e53	particle group: no shader of its own
+srbd/fingers/fractional/10/10/srbd_hit_finger_up.pg	group	-	a271de7797879a01694e7b0b8731fa584a17821c	particle group: no shader of its own
+srbd/fingers/fractional/10/10/srbd_hit_finger_up_armor.pg	group	-	20b23a32d91611da7b3ad3f23d07dd4e9fd5f5f6	particle group: no shader of its own
+srbd/fingers/fractional/10/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	30051a438472e29e549544971eb095a02e7a2e4f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	94d0d240dc4e1eea8aba49173224915302160d86	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/2/srbd_finger_tracer_up.pe	carrier	particles\blend	984d773c5a1bd24b3c21c8df10ac614c5997ca1e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/2/srbd_hit_finger_out.pg	group	-	c43de90075877b2b9fa5cad31d5d83187c1b1e7b	particle group: no shader of its own
+srbd/fingers/fractional/10/2/srbd_hit_finger_out_armor.pg	group	-	83dec1c5f06d17be22093be46a05b604c17cfc54	particle group: no shader of its own
+srbd/fingers/fractional/10/2/srbd_hit_finger_out_up.pg	group	-	9f29dda130bbdac3f77f766cbbf255119ad96a3e	particle group: no shader of its own
+srbd/fingers/fractional/10/2/srbd_hit_finger_out_up_armor.pg	group	-	0ef500633ee1eca7d892e94d393e960f2aae00d4	particle group: no shader of its own
+srbd/fingers/fractional/10/2/srbd_hit_finger_up.pg	group	-	0720ffbdca34794fb5aa4cabfbe86b06105b9346	particle group: no shader of its own
+srbd/fingers/fractional/10/2/srbd_hit_finger_up_armor.pg	group	-	a8c41e26d8b0e3ff2d9dd0b40882871c79f851ae	particle group: no shader of its own
+srbd/fingers/fractional/10/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	e4e1f45e16192b2041abe6c701b1838d8d9b2af5	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	f48d403c423b5e065955223ddd0d1e80396d58dc	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/3/srbd_finger_tracer_up.pe	carrier	particles\blend	525cf635234bbb9f37215600674c67b8dc058164	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/3/srbd_hit_finger_out.pg	group	-	6bf7fa1d8d92968147f4a7a0337671046a788f7f	particle group: no shader of its own
+srbd/fingers/fractional/10/3/srbd_hit_finger_out_armor.pg	group	-	1d8f7725efec017b5c1c6fb93a179ef2698789bb	particle group: no shader of its own
+srbd/fingers/fractional/10/3/srbd_hit_finger_out_up.pg	group	-	90582cdee5da4520550fb1e9c26624f30444c050	particle group: no shader of its own
+srbd/fingers/fractional/10/3/srbd_hit_finger_out_up_armor.pg	group	-	33274c4117a383f828b21d3844e76292e9f2a0fa	particle group: no shader of its own
+srbd/fingers/fractional/10/3/srbd_hit_finger_up.pg	group	-	1fe2f24c48dd8efea27cf563ab69cfdec1d18ac3	particle group: no shader of its own
+srbd/fingers/fractional/10/3/srbd_hit_finger_up_armor.pg	group	-	fc07ed7edab7bd7da362ce67ef7b536e5bcc9c7c	particle group: no shader of its own
+srbd/fingers/fractional/10/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	172352e65a0186eec72a5c705bed3789d63787a8	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	0dd67b490eca9d650ec8eee1d01d9ca52ef5d62d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/4/srbd_finger_tracer_up.pe	carrier	particles\blend	40b51a5cda7bd455b4f1791de1b2f8b609e86fc4	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/4/srbd_hit_finger_out.pg	group	-	d0f1177b7def45494b56ef72ff953771a03b8903	particle group: no shader of its own
+srbd/fingers/fractional/10/4/srbd_hit_finger_out_armor.pg	group	-	dce3924d4b3dc68ee4b8d67430fbd7f947bbcc8d	particle group: no shader of its own
+srbd/fingers/fractional/10/4/srbd_hit_finger_out_up.pg	group	-	25551c6926a5a531fa748d677de756f26ba6346a	particle group: no shader of its own
+srbd/fingers/fractional/10/4/srbd_hit_finger_out_up_armor.pg	group	-	bb2691a68730c22e4c7ddaa795a3e9d1e67bef23	particle group: no shader of its own
+srbd/fingers/fractional/10/4/srbd_hit_finger_up.pg	group	-	6590447c18172698867527489c575cae7152c1fb	particle group: no shader of its own
+srbd/fingers/fractional/10/4/srbd_hit_finger_up_armor.pg	group	-	e321b31b108f111a9290653e681da4157b8ac59c	particle group: no shader of its own
+srbd/fingers/fractional/10/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	039a0738d144074ce2602118c605ff3ea9fdbfd2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	d4d80a3a7d4fbbdf1daab19be250651d05dff8bd	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/5/srbd_finger_tracer_up.pe	carrier	particles\blend	040ed9961026901e82e8c24d6f2e805b72bbca75	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/5/srbd_hit_finger_out.pg	group	-	178412a60a6896835ee382e22befccb45eb4a345	particle group: no shader of its own
+srbd/fingers/fractional/10/5/srbd_hit_finger_out_armor.pg	group	-	89866f93361e8762db64148b82d4e13e5c8cc60d	particle group: no shader of its own
+srbd/fingers/fractional/10/5/srbd_hit_finger_out_up.pg	group	-	52f39d530e02f8f561e86b4080b35496b8936177	particle group: no shader of its own
+srbd/fingers/fractional/10/5/srbd_hit_finger_out_up_armor.pg	group	-	82b488923cca454a1f67c46d4379fb6e8293a5db	particle group: no shader of its own
+srbd/fingers/fractional/10/5/srbd_hit_finger_up.pg	group	-	cbfa99b437c5f288919e505edadbcd3af46a8fb5	particle group: no shader of its own
+srbd/fingers/fractional/10/5/srbd_hit_finger_up_armor.pg	group	-	2d46a29fb9bb576f5649b835a7be2c5b77372a71	particle group: no shader of its own
+srbd/fingers/fractional/10/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	f6a94aa166f037463aee87ff55be5127c874e407	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	484b8e1c825e9c093c48324248e88d7490532522	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/6/srbd_finger_tracer_up.pe	carrier	particles\blend	5cc46d99ef194f790ab8948c8f454062b9c5ce60	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/6/srbd_hit_finger_out.pg	group	-	d7145e91bc7020efc960aa64f4b6dac8175af765	particle group: no shader of its own
+srbd/fingers/fractional/10/6/srbd_hit_finger_out_armor.pg	group	-	4ec5b970a9fcb181b1d9188b7ccfaa78fdd3d547	particle group: no shader of its own
+srbd/fingers/fractional/10/6/srbd_hit_finger_out_up.pg	group	-	7dc69df0e4c4070d200f3d91014447b675c68430	particle group: no shader of its own
+srbd/fingers/fractional/10/6/srbd_hit_finger_out_up_armor.pg	group	-	1454797212657d407ac1a509c02d9a3830b18710	particle group: no shader of its own
+srbd/fingers/fractional/10/6/srbd_hit_finger_up.pg	group	-	b593587f3f088f3b234643f31fb9fc199bec36de	particle group: no shader of its own
+srbd/fingers/fractional/10/6/srbd_hit_finger_up_armor.pg	group	-	c12926bbed50e2950b453af35ae1dd2e1caf90ef	particle group: no shader of its own
+srbd/fingers/fractional/10/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	8860d53953bdd830fdcef8f084373048dc310221	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	e9bb15f1f9c70c7ca2cd0101aac309d7bb0b3b6a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/7/srbd_finger_tracer_up.pe	carrier	particles\blend	e6f6d0fb673d6c66fd2879a60999b7abe5cb108f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/7/srbd_hit_finger_out.pg	group	-	78c882b8185ee5be890c995ed537ad8002d4cd04	particle group: no shader of its own
+srbd/fingers/fractional/10/7/srbd_hit_finger_out_armor.pg	group	-	9289646c7f73562e90e8e7b067985be18cc887c0	particle group: no shader of its own
+srbd/fingers/fractional/10/7/srbd_hit_finger_out_up.pg	group	-	77aa69e5f8b9987a08c9ad40e03115a4e120fe13	particle group: no shader of its own
+srbd/fingers/fractional/10/7/srbd_hit_finger_out_up_armor.pg	group	-	176e3f996b16f0a3216ed2b63fa801149e774f5f	particle group: no shader of its own
+srbd/fingers/fractional/10/7/srbd_hit_finger_up.pg	group	-	4de8746f1ed815e0d461610c6aca543ccf9b03a8	particle group: no shader of its own
+srbd/fingers/fractional/10/7/srbd_hit_finger_up_armor.pg	group	-	f1eb4bacc5bb8244d4870af558f5c3c0105fa070	particle group: no shader of its own
+srbd/fingers/fractional/10/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	f74e9f7924c3b87fee29d1e26cbf8f415031a34d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	366b8d22903e58e4ac4c449daf9cff71b8ccc06b	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/8/srbd_finger_tracer_up.pe	carrier	particles\blend	33f9850d54f5024e4334911adfeec8881ef665e5	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/8/srbd_hit_finger_out.pg	group	-	2642e29392febd95c572e85455dd626559696b1c	particle group: no shader of its own
+srbd/fingers/fractional/10/8/srbd_hit_finger_out_armor.pg	group	-	a65868ce8959d26356ad3c52c024bbc2615357d0	particle group: no shader of its own
+srbd/fingers/fractional/10/8/srbd_hit_finger_out_up.pg	group	-	67eaf3b8103a248068cdf8e5ac044f7cd0a6facb	particle group: no shader of its own
+srbd/fingers/fractional/10/8/srbd_hit_finger_out_up_armor.pg	group	-	c80284df10fdc26157461e2388c36d7de7fe7f29	particle group: no shader of its own
+srbd/fingers/fractional/10/8/srbd_hit_finger_up.pg	group	-	30c595ab5a7dbb4aa91a961fe1992b630cda4db6	particle group: no shader of its own
+srbd/fingers/fractional/10/8/srbd_hit_finger_up_armor.pg	group	-	d3c7c873451cc63467a328aa691f57cf29101199	particle group: no shader of its own
+srbd/fingers/fractional/10/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	63c9b09328dd9d9c7331199f2cccbdd086ee2c23	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	af5cd78d7133db66baee742c9ffa8fef62c46bc6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/9/srbd_finger_tracer_up.pe	carrier	particles\blend	d201c1492e6a2213f5dfd5ce8c9ceaf1ce98a4a9	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/10/9/srbd_hit_finger_out.pg	group	-	10fe99a6be6d96f985ab10f496ee18a0432b039e	particle group: no shader of its own
+srbd/fingers/fractional/10/9/srbd_hit_finger_out_armor.pg	group	-	3b59c162ef37998926bd9c39717bdf1fd4413055	particle group: no shader of its own
+srbd/fingers/fractional/10/9/srbd_hit_finger_out_up.pg	group	-	bc1a34d9f7f3c35211821cf5416e63aaaa73eef0	particle group: no shader of its own
+srbd/fingers/fractional/10/9/srbd_hit_finger_out_up_armor.pg	group	-	adac18d497325863a28939a4f7061cc2e7eea64e	particle group: no shader of its own
+srbd/fingers/fractional/10/9/srbd_hit_finger_up.pg	group	-	b147b26d406afe1d0ca86fba0e413c8a1fefced1	particle group: no shader of its own
+srbd/fingers/fractional/10/9/srbd_hit_finger_up_armor.pg	group	-	f981a9d366097f7d19d0a77c739e1aa17bb88c47	particle group: no shader of its own
+srbd/fingers/fractional/10/smoke_point_blood_fingers_short.pe	gore	particles\blend	1c3d13f28cb56147c71a43d71e89ca0f52a5b4ee	name says blood
+srbd/fingers/fractional/10/smoke_point_fingers_short.pe	clean	particles\blend	d83260c03c1bc9d628f62de98907fad4bcd9bf4f	name says smoke
+srbd/fingers/fractional/2/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	276f68bb08e2f508edae58f25ca78e2299f005be	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	8cc4f2da9c1b8350212fdc5133eaf3932b98d79c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/1/srbd_finger_tracer_up.pe	carrier	particles\blend	826fc1071fb78ec9b8ea0bb319e541ba7d6cafb0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/1/srbd_hit_finger_out.pg	group	-	e2243be2f74165616a3a57fc48582e6f836e06f2	particle group: no shader of its own
+srbd/fingers/fractional/2/1/srbd_hit_finger_out_armor.pg	group	-	a69ab94a8e4e87b9b87e9e622e66a92fc5a0b8f6	particle group: no shader of its own
+srbd/fingers/fractional/2/1/srbd_hit_finger_out_up.pg	group	-	d8036bc87491a85606e9fdc06f5e03f740b0649d	particle group: no shader of its own
+srbd/fingers/fractional/2/1/srbd_hit_finger_out_up_armor.pg	group	-	1586d35348ec1d090956495eedcce5043ada2c27	particle group: no shader of its own
+srbd/fingers/fractional/2/1/srbd_hit_finger_up.pg	group	-	1dfa6fa8ab673996d8bb2a0fcb5307729bdb2386	particle group: no shader of its own
+srbd/fingers/fractional/2/1/srbd_hit_finger_up_armor.pg	group	-	369bc4effe1de71ca448bbfe5d755cddb260927c	particle group: no shader of its own
+srbd/fingers/fractional/2/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	0720ead879703ef6ff5db84a8b6b1f3fa4fad1d6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	847827e70d8f0d86bbaf072fab7277e2f10e11db	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/10/srbd_finger_tracer_up.pe	carrier	particles\blend	a575a4a0440f3a827845e2d10314fe58f5e600f4	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/10/srbd_hit_finger_out.pg	group	-	e6095981e8a1402b75266dafcb4254dc7b58baca	particle group: no shader of its own
+srbd/fingers/fractional/2/10/srbd_hit_finger_out_armor.pg	group	-	b539693c88205a23518f7aca2252d954dbf37ea0	particle group: no shader of its own
+srbd/fingers/fractional/2/10/srbd_hit_finger_out_up.pg	group	-	aa5d09621aa6ff7075c33b980fd1a3f77837b7d2	particle group: no shader of its own
+srbd/fingers/fractional/2/10/srbd_hit_finger_out_up_armor.pg	group	-	366e47c67615e21418b5dd9482f7747abcc0b2aa	particle group: no shader of its own
+srbd/fingers/fractional/2/10/srbd_hit_finger_up.pg	group	-	2c21ef47f33512416f4ff711ca5b3dee3d886767	particle group: no shader of its own
+srbd/fingers/fractional/2/10/srbd_hit_finger_up_armor.pg	group	-	642826a76e15b440292f729f814d89f0a666c436	particle group: no shader of its own
+srbd/fingers/fractional/2/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	1fd0480ea19a2a6ba0ec3db38f2f70f7c0dc5b25	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	6631d31d78f7f2751eabca0449ffb5cc360665f6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/2/srbd_finger_tracer_up.pe	carrier	particles\blend	6c9511c0d045ed5bdc74fe244a84dc337494cd4c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/2/srbd_hit_finger_out.pg	group	-	e525717457cefddf59560cf1747a817e7f36103f	particle group: no shader of its own
+srbd/fingers/fractional/2/2/srbd_hit_finger_out_armor.pg	group	-	1e574aac88402b90e67a7ea609d5ee8561dcf4fb	particle group: no shader of its own
+srbd/fingers/fractional/2/2/srbd_hit_finger_out_up.pg	group	-	e4b7c6822efc3af80109875805ddc21769c0e21a	particle group: no shader of its own
+srbd/fingers/fractional/2/2/srbd_hit_finger_out_up_armor.pg	group	-	df3566105f8ba69150d0d7550c91d6a66535f859	particle group: no shader of its own
+srbd/fingers/fractional/2/2/srbd_hit_finger_up.pg	group	-	29976bd9b6d90ddaf617c859b6deea180530ecab	particle group: no shader of its own
+srbd/fingers/fractional/2/2/srbd_hit_finger_up_armor.pg	group	-	da98b33ad21da262a58fbaddd362d3992feae788	particle group: no shader of its own
+srbd/fingers/fractional/2/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	d95bb232858e31dba53e6ab47945dbb1a128c385	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	bd231d9b78bb9e1270d6eab5003e64d4ce56e137	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/3/srbd_finger_tracer_up.pe	carrier	particles\blend	d15f0765bd1d579a9c5f82e528bac1f37c1942d8	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/3/srbd_hit_finger_out.pg	group	-	1144f3aa1d41e0c9d2053ed50d2286a9b6e2d9e4	particle group: no shader of its own
+srbd/fingers/fractional/2/3/srbd_hit_finger_out_armor.pg	group	-	06a22e6234facba8128a2e096deaf55c38c3bd09	particle group: no shader of its own
+srbd/fingers/fractional/2/3/srbd_hit_finger_out_up.pg	group	-	f4a9896fa3990bd613dd9707f8dcca6751878d04	particle group: no shader of its own
+srbd/fingers/fractional/2/3/srbd_hit_finger_out_up_armor.pg	group	-	aabb137f034ebb6a9f9aa4cbe45b9dc1e864ab98	particle group: no shader of its own
+srbd/fingers/fractional/2/3/srbd_hit_finger_up.pg	group	-	c86baac9a41f755eb975fd74327fec41806627a6	particle group: no shader of its own
+srbd/fingers/fractional/2/3/srbd_hit_finger_up_armor.pg	group	-	b73bf0247ec1da251ac0848bc815eb5020b450d9	particle group: no shader of its own
+srbd/fingers/fractional/2/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	258238675231fd1166e30dcb8719d3c2c3991fa2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	90b89d1cb2e7dfa27b28355e52d94e857b02f605	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/4/srbd_finger_tracer_up.pe	carrier	particles\blend	f0340b4ae686c7a6a2f6bc7c73c61bc7937f8f12	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/4/srbd_hit_finger_out.pg	group	-	52b97ff51127c2dd58ce17c3a7e6591681308694	particle group: no shader of its own
+srbd/fingers/fractional/2/4/srbd_hit_finger_out_armor.pg	group	-	270b5c25ef650797922b383e18d680ea3b181d8b	particle group: no shader of its own
+srbd/fingers/fractional/2/4/srbd_hit_finger_out_up.pg	group	-	04509eea65780b099605e6a91150947aed95ab73	particle group: no shader of its own
+srbd/fingers/fractional/2/4/srbd_hit_finger_out_up_armor.pg	group	-	b018908cf10e5149adf25a2ddd8137ad23fc81f5	particle group: no shader of its own
+srbd/fingers/fractional/2/4/srbd_hit_finger_up.pg	group	-	b149ed25a17d5a9d122e0c938a06040346b5611c	particle group: no shader of its own
+srbd/fingers/fractional/2/4/srbd_hit_finger_up_armor.pg	group	-	540071ac5bdd89994775e026ea0f7feda57c0608	particle group: no shader of its own
+srbd/fingers/fractional/2/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	04e0ad7c1043457b7013bc7db9838cb34c5cfc20	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	446c0100f4dc330cc39b3ddd27b40537140d7ebc	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/5/srbd_finger_tracer_up.pe	carrier	particles\blend	70a05d1b30c58f0bd0c43c90e6d2032c419a14c7	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/5/srbd_hit_finger_out.pg	group	-	b211eefa29a0397e33811684b34963b90827ba7c	particle group: no shader of its own
+srbd/fingers/fractional/2/5/srbd_hit_finger_out_armor.pg	group	-	fce94b76794a3f32050892672f7c743969b4e51f	particle group: no shader of its own
+srbd/fingers/fractional/2/5/srbd_hit_finger_out_up.pg	group	-	26e77af55629ab7b0deaf99455dbb60d9929ab0b	particle group: no shader of its own
+srbd/fingers/fractional/2/5/srbd_hit_finger_out_up_armor.pg	group	-	7a0782651818e07c76cfeebaac7d9aa07098812d	particle group: no shader of its own
+srbd/fingers/fractional/2/5/srbd_hit_finger_up.pg	group	-	ec5ad9d2fb966e0a6c6c63dc5363014c032477f1	particle group: no shader of its own
+srbd/fingers/fractional/2/5/srbd_hit_finger_up_armor.pg	group	-	6919c39e6750bcd48072c93d9af232242278a6cb	particle group: no shader of its own
+srbd/fingers/fractional/2/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	4074296eb1d6dbefb240f23133f38c9ad8464199	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	5a5c33042e195ea474789c0133290546297c8dc6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/6/srbd_finger_tracer_up.pe	carrier	particles\blend	610daca37fd8ce1d53dcc6f203981d198fc095be	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/6/srbd_hit_finger_out.pg	group	-	b7a47653f4174de1f23ed94618cbdc08a8e0e612	particle group: no shader of its own
+srbd/fingers/fractional/2/6/srbd_hit_finger_out_armor.pg	group	-	7bce0b1fc4122ed9e6fee2ce2ae60c6a63a8069a	particle group: no shader of its own
+srbd/fingers/fractional/2/6/srbd_hit_finger_out_up.pg	group	-	38e4d2178d38bbe589fdfd5251172b570910dd08	particle group: no shader of its own
+srbd/fingers/fractional/2/6/srbd_hit_finger_out_up_armor.pg	group	-	8ff174f506f69ce2d363c4a882b2129228a62d71	particle group: no shader of its own
+srbd/fingers/fractional/2/6/srbd_hit_finger_up.pg	group	-	c6c25cd3c986f8c766436376de7ca89221be57ce	particle group: no shader of its own
+srbd/fingers/fractional/2/6/srbd_hit_finger_up_armor.pg	group	-	55c1de1bc2e543554e98e91505c10b8b3b48e4dc	particle group: no shader of its own
+srbd/fingers/fractional/2/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	886698668ebb9b2fc7f1bf4e9771c20a14bb6c8d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	524fd72d670add92e0202bbee5353fe3421d3e32	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/7/srbd_finger_tracer_up.pe	carrier	particles\blend	61b76baaf47d397c870550d4638da279acc8d084	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/7/srbd_hit_finger_out.pg	group	-	96847fa693de387dc3130b9b1ba29ec619d4b25a	particle group: no shader of its own
+srbd/fingers/fractional/2/7/srbd_hit_finger_out_armor.pg	group	-	0c32e927994f3706827bb315573726c49b3173c0	particle group: no shader of its own
+srbd/fingers/fractional/2/7/srbd_hit_finger_out_up.pg	group	-	df930c9f5b295a1c91d2899285343020e56e0638	particle group: no shader of its own
+srbd/fingers/fractional/2/7/srbd_hit_finger_out_up_armor.pg	group	-	e514158641346fc30d1a0a963d4236279af07a8c	particle group: no shader of its own
+srbd/fingers/fractional/2/7/srbd_hit_finger_up.pg	group	-	883f1a370c5e7f803f569ff8aed6d7d4e490f844	particle group: no shader of its own
+srbd/fingers/fractional/2/7/srbd_hit_finger_up_armor.pg	group	-	e9834d36fab62157fc5d712e59a1c296ffae94fb	particle group: no shader of its own
+srbd/fingers/fractional/2/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	f750c48cc87db7e5a3328c99c058dcca19350ab0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	7f7f92ac7c615221470be2d280fdd86dab42bc98	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/8/srbd_finger_tracer_up.pe	carrier	particles\blend	c67cca8b5e7a7aa95c4daaf2bef4c58e3d45e96a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/8/srbd_hit_finger_out.pg	group	-	0f78ed69ea27dfdcfdccd0939d3f721779c9fb6a	particle group: no shader of its own
+srbd/fingers/fractional/2/8/srbd_hit_finger_out_armor.pg	group	-	b353b10f92e6600d4aeaef989c085312300b16a9	particle group: no shader of its own
+srbd/fingers/fractional/2/8/srbd_hit_finger_out_up.pg	group	-	6a90fd74c53a0b90cddaa1e71aef1ba4ee795cf2	particle group: no shader of its own
+srbd/fingers/fractional/2/8/srbd_hit_finger_out_up_armor.pg	group	-	18cf5dc00bc79a3a4dcea293493fc1d8085bfc58	particle group: no shader of its own
+srbd/fingers/fractional/2/8/srbd_hit_finger_up.pg	group	-	ac48d49bc9d6f0f8769fe3573be3c7a68384c69b	particle group: no shader of its own
+srbd/fingers/fractional/2/8/srbd_hit_finger_up_armor.pg	group	-	3445d43596a5c9a5d73a72068632e6ed1f044e4c	particle group: no shader of its own
+srbd/fingers/fractional/2/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	2255104dd93002657b93e6d3336824b55aa7625a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	2fa7ad84295882e62522d8cc561880213a8601a6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/9/srbd_finger_tracer_up.pe	carrier	particles\blend	8ec86379b1eba78d5877c1be3c3f27b6f9e6cd3a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/2/9/srbd_hit_finger_out.pg	group	-	e4253ecca2057c5861d0bc7b11d06ef5154f1405	particle group: no shader of its own
+srbd/fingers/fractional/2/9/srbd_hit_finger_out_armor.pg	group	-	530cf3f7425304b0c3016607faf5c605ddd9ab89	particle group: no shader of its own
+srbd/fingers/fractional/2/9/srbd_hit_finger_out_up.pg	group	-	1eb526e6b1ef36b6992e2aef7c92876da8638825	particle group: no shader of its own
+srbd/fingers/fractional/2/9/srbd_hit_finger_out_up_armor.pg	group	-	efd7c5e23cf9ac10abfea82ee95104a645649d9b	particle group: no shader of its own
+srbd/fingers/fractional/2/9/srbd_hit_finger_up.pg	group	-	cecc2121a8fef728e6553f013827d31bf4be1224	particle group: no shader of its own
+srbd/fingers/fractional/2/9/srbd_hit_finger_up_armor.pg	group	-	afb33f9092723904ddc44af9999637523b13ea93	particle group: no shader of its own
+srbd/fingers/fractional/2/smoke_point_blood_fingers_short.pe	gore	particles\blend	093527a901f620db44841b5801e7c49962b8e8be	name says blood
+srbd/fingers/fractional/2/smoke_point_fingers_short.pe	clean	particles\blend	43f56a4a607c5447d328b7c4b528be9074ef1fbd	name says smoke
+srbd/fingers/fractional/3/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	31cc4201b672ed7c6d2b9a746fa00a0fb6ed0887	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	3553385987034db4909e22a2aa9c9da50e9ed501	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/1/srbd_finger_tracer_up.pe	carrier	particles\blend	bbc80b133ec9f0aaa285782744fe1aa67ce797c8	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/1/srbd_hit_finger_out.pg	group	-	2466b543c6668186a447b907f57ad67d7f33a5aa	particle group: no shader of its own
+srbd/fingers/fractional/3/1/srbd_hit_finger_out_armor.pg	group	-	ec19682ddbaabf0121d004207769a5a9f5d00994	particle group: no shader of its own
+srbd/fingers/fractional/3/1/srbd_hit_finger_out_up.pg	group	-	826fde04650651ad9d64398898dce4e3f3f8d082	particle group: no shader of its own
+srbd/fingers/fractional/3/1/srbd_hit_finger_out_up_armor.pg	group	-	1bea130be1303bf1c72f900be5b672e1a0218ff3	particle group: no shader of its own
+srbd/fingers/fractional/3/1/srbd_hit_finger_up.pg	group	-	6f82c4154a09e99c9a9345fb4c20477b55a5dee8	particle group: no shader of its own
+srbd/fingers/fractional/3/1/srbd_hit_finger_up_armor.pg	group	-	d07cfc3e5c543f7c004d879c659cdc3cb0431fe5	particle group: no shader of its own
+srbd/fingers/fractional/3/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	94fedce322cc8aac54130bf426ac5c0dd75d11aa	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	b2664197fd7f0c7cdc02e7d86da9dfc8462260e3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/10/srbd_finger_tracer_up.pe	carrier	particles\blend	d51158f2e7c1468f32228717d06ed6e75972784f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/10/srbd_hit_finger_out.pg	group	-	b1714875ed668635fd70314dcd4817765c19eb28	particle group: no shader of its own
+srbd/fingers/fractional/3/10/srbd_hit_finger_out_armor.pg	group	-	c9e73418a11bbbfb2f6712b3c135bacb10d5e8a6	particle group: no shader of its own
+srbd/fingers/fractional/3/10/srbd_hit_finger_out_up.pg	group	-	86d2dc0560dfe68550e374a5466baa77aef81d56	particle group: no shader of its own
+srbd/fingers/fractional/3/10/srbd_hit_finger_out_up_armor.pg	group	-	a09e8086f8ee248bf8fe08926a3a689bcfd6b5b8	particle group: no shader of its own
+srbd/fingers/fractional/3/10/srbd_hit_finger_up.pg	group	-	11bdf23e4c75bdd8d13d915a1d484801e5981498	particle group: no shader of its own
+srbd/fingers/fractional/3/10/srbd_hit_finger_up_armor.pg	group	-	0ed7bd67cd0c1df00abbcb2eadf6d85e6526dca8	particle group: no shader of its own
+srbd/fingers/fractional/3/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	bb0c9b5c9f48868bc11abe28cc5d95e6eff00825	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	b9c8a87e10bc9866fbc1d4ca34982e63ceae847e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/2/srbd_finger_tracer_up.pe	carrier	particles\blend	7ea694af92d1189c8b8dba798f9e4171b86955bf	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/2/srbd_hit_finger_out.pg	group	-	14fa6a4fd1c4e0a6c33eb40ad02347c71c32fd1f	particle group: no shader of its own
+srbd/fingers/fractional/3/2/srbd_hit_finger_out_armor.pg	group	-	56e8e791bbb5202f03a5e635d08b4e9eeec1c33d	particle group: no shader of its own
+srbd/fingers/fractional/3/2/srbd_hit_finger_out_up.pg	group	-	85e42b7884bed179feb7b52f2b1fa36653ac3bb2	particle group: no shader of its own
+srbd/fingers/fractional/3/2/srbd_hit_finger_out_up_armor.pg	group	-	f09147e3c1efa5a3ed1494ddd3e7b96d8e95345b	particle group: no shader of its own
+srbd/fingers/fractional/3/2/srbd_hit_finger_up.pg	group	-	39bae2263ba9d7dbc777b77160d45821eadaeee9	particle group: no shader of its own
+srbd/fingers/fractional/3/2/srbd_hit_finger_up_armor.pg	group	-	83d1cbc548070603d3629610a81c37527cb8aa0f	particle group: no shader of its own
+srbd/fingers/fractional/3/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	ca447c3de19fb25a2193c8dd1f20f22ef7e0be72	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	ef97e5e0da27de102efd2ea4d59ee002289c15cc	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/3/srbd_finger_tracer_up.pe	carrier	particles\blend	e95b672da82756797eb257e6b038a30633a2bb48	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/3/srbd_hit_finger_out.pg	group	-	a2a8237ad1e5f15cbd67c7c4df4d5bfc8e168dab	particle group: no shader of its own
+srbd/fingers/fractional/3/3/srbd_hit_finger_out_armor.pg	group	-	b4b3e3f8de9e84e5b0b4b04f1ed4f379234c7f39	particle group: no shader of its own
+srbd/fingers/fractional/3/3/srbd_hit_finger_out_up.pg	group	-	c7a31abc86a89c4057a1ea945346742cc90efd78	particle group: no shader of its own
+srbd/fingers/fractional/3/3/srbd_hit_finger_out_up_armor.pg	group	-	295e500cb9991f7b0a9f2939216aa3c7b315d40c	particle group: no shader of its own
+srbd/fingers/fractional/3/3/srbd_hit_finger_up.pg	group	-	9ed42c3f45a9a47248f7529d9cf412ae64eeb7a3	particle group: no shader of its own
+srbd/fingers/fractional/3/3/srbd_hit_finger_up_armor.pg	group	-	2145f63bdd6ead50c43f555e0046a061a645d294	particle group: no shader of its own
+srbd/fingers/fractional/3/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	97c8542c51b7cc0d2481ca868cb1265198fc2763	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	16a2813ea3e70c12236141c3b4eac0ba33fee806	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/4/srbd_finger_tracer_up.pe	carrier	particles\blend	ffcd1f4b9c4841ac110964d9a4521b58692c60a7	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/4/srbd_hit_finger_out.pg	group	-	ec5d4376665b106e4dc48a1583409872efb86f71	particle group: no shader of its own
+srbd/fingers/fractional/3/4/srbd_hit_finger_out_armor.pg	group	-	1d8f0c05190098ba70b0fcc2e21d150421a98acf	particle group: no shader of its own
+srbd/fingers/fractional/3/4/srbd_hit_finger_out_up.pg	group	-	054cd19fe2c2fe3fa716d9be952672618e9b4eb1	particle group: no shader of its own
+srbd/fingers/fractional/3/4/srbd_hit_finger_out_up_armor.pg	group	-	0272780b1507cbf13931908fd5efa73c36f08d64	particle group: no shader of its own
+srbd/fingers/fractional/3/4/srbd_hit_finger_up.pg	group	-	a1019017d0b7990e9f1b4f6a2901b7d4e867635a	particle group: no shader of its own
+srbd/fingers/fractional/3/4/srbd_hit_finger_up_armor.pg	group	-	1e986f6cf31276ce19663c469951b7028ece49fb	particle group: no shader of its own
+srbd/fingers/fractional/3/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	daca214388a4d60d3e700681c14db09634005776	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	783a4c08bc424db49a6e721852f8dac50e781d4f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/5/srbd_finger_tracer_up.pe	carrier	particles\blend	db09908e3838cec2a55add67e924c60de9a9c440	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/5/srbd_hit_finger_out.pg	group	-	25e66ed9f04e69a4544bde94443be82589ca10e7	particle group: no shader of its own
+srbd/fingers/fractional/3/5/srbd_hit_finger_out_armor.pg	group	-	35db3a5e5211fa35aa8fdbdb07355964cc6757b0	particle group: no shader of its own
+srbd/fingers/fractional/3/5/srbd_hit_finger_out_up.pg	group	-	526ec7f4c0e18400de3a1c30df9bda13088b1d97	particle group: no shader of its own
+srbd/fingers/fractional/3/5/srbd_hit_finger_out_up_armor.pg	group	-	c8064140050724e8886b5cdd03a6ea93098c865e	particle group: no shader of its own
+srbd/fingers/fractional/3/5/srbd_hit_finger_up.pg	group	-	baab0a6b23e020994d3aa21c61b5094a82ef3e04	particle group: no shader of its own
+srbd/fingers/fractional/3/5/srbd_hit_finger_up_armor.pg	group	-	24053e46aba1c1c568e5f796c5608802cb0e3926	particle group: no shader of its own
+srbd/fingers/fractional/3/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	f984c1f46b177ee35298cfb28b6122c94fb47a4e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	70687b646488662185f14cc95b3e7bf63a48a75f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/6/srbd_finger_tracer_up.pe	carrier	particles\blend	6beea9d7b10ceac443a6801dc4c03f2f4c804074	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/6/srbd_hit_finger_out.pg	group	-	cd66fac3176f711b4e733d178270ed6f29144bdd	particle group: no shader of its own
+srbd/fingers/fractional/3/6/srbd_hit_finger_out_armor.pg	group	-	f4ee8318b9c1728f3c328b6acafb003ae8349e28	particle group: no shader of its own
+srbd/fingers/fractional/3/6/srbd_hit_finger_out_up.pg	group	-	d4a922c1de9e5de0943fc6de333a4c8925769313	particle group: no shader of its own
+srbd/fingers/fractional/3/6/srbd_hit_finger_out_up_armor.pg	group	-	e451c969ab75627b55245ecda243956201183193	particle group: no shader of its own
+srbd/fingers/fractional/3/6/srbd_hit_finger_up.pg	group	-	de7260b89690e157c500ebc3c5c493dad5d6cc84	particle group: no shader of its own
+srbd/fingers/fractional/3/6/srbd_hit_finger_up_armor.pg	group	-	8cf4f3460ed2aabec75f6d172251c0c7a03098a5	particle group: no shader of its own
+srbd/fingers/fractional/3/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	6720566a8d99fd7b97994b39403d98516771c1b6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	deb4f34aa9170d1bd5c817a357111a134d6c8ff1	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/7/srbd_finger_tracer_up.pe	carrier	particles\blend	1d46bd92a881351f7df0000ac5fc439d87327d0d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/7/srbd_hit_finger_out.pg	group	-	3e3873d73df37b8676cf061c5dde547439262379	particle group: no shader of its own
+srbd/fingers/fractional/3/7/srbd_hit_finger_out_armor.pg	group	-	542e05ae2bb33ca90c74e8d5bab818d605a893e9	particle group: no shader of its own
+srbd/fingers/fractional/3/7/srbd_hit_finger_out_up.pg	group	-	bcb8a59274bbae93583162e2b5f388f563e263ed	particle group: no shader of its own
+srbd/fingers/fractional/3/7/srbd_hit_finger_out_up_armor.pg	group	-	18a520dce56171115e1caee53e5326c7fb1a8fdd	particle group: no shader of its own
+srbd/fingers/fractional/3/7/srbd_hit_finger_up.pg	group	-	a5509d5742f0f0421c84ad44ccf3eeb70933c6f0	particle group: no shader of its own
+srbd/fingers/fractional/3/7/srbd_hit_finger_up_armor.pg	group	-	65054724d2d1d426ff250de6de89795d13f67323	particle group: no shader of its own
+srbd/fingers/fractional/3/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	a98f76a637b9b0b25a6c11d4cf0850ebf0e58278	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	010047f6d53351648006ceec2a10f101e02243dd	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/8/srbd_finger_tracer_up.pe	carrier	particles\blend	bb403c89cda6b78ebdfeeaedcea8d75d639e6f57	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/8/srbd_hit_finger_out.pg	group	-	fcf8cac733599f4f1732c4019fe6f73212de117b	particle group: no shader of its own
+srbd/fingers/fractional/3/8/srbd_hit_finger_out_armor.pg	group	-	67b3c5216c3154f117b707717e6c525bc1bd0e17	particle group: no shader of its own
+srbd/fingers/fractional/3/8/srbd_hit_finger_out_up.pg	group	-	e8a9b06ea2a2ced33a6a16e79833a8b33833ccc6	particle group: no shader of its own
+srbd/fingers/fractional/3/8/srbd_hit_finger_out_up_armor.pg	group	-	0653d4130d7f363bf4b88db4d6164fa95098b43b	particle group: no shader of its own
+srbd/fingers/fractional/3/8/srbd_hit_finger_up.pg	group	-	a20e7ad79eda22b019cffbe767b237db36b3a49f	particle group: no shader of its own
+srbd/fingers/fractional/3/8/srbd_hit_finger_up_armor.pg	group	-	de4a26409427507b7783d80cadaa171e798c81ca	particle group: no shader of its own
+srbd/fingers/fractional/3/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	47d3b5f66a64a102b4da724d95d040224d6239c2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	75ac772c4f4d155675836dd475b4e94fde090a22	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/9/srbd_finger_tracer_up.pe	carrier	particles\blend	de6ad99622ad495306b588ed35642233df601759	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/3/9/srbd_hit_finger_out.pg	group	-	3dbb0bf0474f0b995f9925d04cb3f76d059d066c	particle group: no shader of its own
+srbd/fingers/fractional/3/9/srbd_hit_finger_out_armor.pg	group	-	0580d67040d63b785e45eee0f74fc243d0275b2f	particle group: no shader of its own
+srbd/fingers/fractional/3/9/srbd_hit_finger_out_up.pg	group	-	50972b51560e2d4016764113721a4331f74c54a8	particle group: no shader of its own
+srbd/fingers/fractional/3/9/srbd_hit_finger_out_up_armor.pg	group	-	d817a9e47addabd6e748752266b82e49d696d1ac	particle group: no shader of its own
+srbd/fingers/fractional/3/9/srbd_hit_finger_up.pg	group	-	0bd5a04dfcfd9e741cacdfccaf8888027db26fc5	particle group: no shader of its own
+srbd/fingers/fractional/3/9/srbd_hit_finger_up_armor.pg	group	-	b9fe655ebd3e77ea7e1bf30cf591ba4a19c86da2	particle group: no shader of its own
+srbd/fingers/fractional/3/smoke_point_blood_fingers_short.pe	gore	particles\blend	619954af5d8bda074abb55ed875785040372c07b	name says blood
+srbd/fingers/fractional/3/smoke_point_fingers_short.pe	clean	particles\blend	057812fa49ab4b9c27cd95fa5f3235c237c52664	name says smoke
+srbd/fingers/fractional/4/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	ef04a825ab469d59247cc5e9494afa6f9b04659e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	008f733e2520e3322657731e70ea5125898ff444	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/1/srbd_finger_tracer_up.pe	carrier	particles\blend	a0e2a9b6e99ea95c4af1570e76c6a0ecd9f27747	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/1/srbd_hit_finger_out.pg	group	-	0e53e55f4961fa7e5e84e31fa0b2691c14b40af4	particle group: no shader of its own
+srbd/fingers/fractional/4/1/srbd_hit_finger_out_armor.pg	group	-	946427659b6db40e94264f14d3d025779cbafdff	particle group: no shader of its own
+srbd/fingers/fractional/4/1/srbd_hit_finger_out_up.pg	group	-	4948eded39f06f51b8a2952afd1e4e98241e8d49	particle group: no shader of its own
+srbd/fingers/fractional/4/1/srbd_hit_finger_out_up_armor.pg	group	-	456b8765075f4e01552b5775b703c414aa8a1366	particle group: no shader of its own
+srbd/fingers/fractional/4/1/srbd_hit_finger_up.pg	group	-	7963984bdba403f4c3d9fa7d5be20e7e3eac09ac	particle group: no shader of its own
+srbd/fingers/fractional/4/1/srbd_hit_finger_up_armor.pg	group	-	8388233feab051c66b75885993ac821b09f9cf85	particle group: no shader of its own
+srbd/fingers/fractional/4/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	225aa20178e397c084456d12b45ab19341ed2077	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	436e567c9691f2864f0e7360d5662928f52adff8	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/10/srbd_finger_tracer_up.pe	carrier	particles\blend	c85d5a7ba92ee6eaa27b22f49447339ce97301f4	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/10/srbd_hit_finger_out.pg	group	-	fae2da0411869259b79a7cfe152f9687fbeebe42	particle group: no shader of its own
+srbd/fingers/fractional/4/10/srbd_hit_finger_out_armor.pg	group	-	89294cae621611bf453ac868b8db23f0b08aadcb	particle group: no shader of its own
+srbd/fingers/fractional/4/10/srbd_hit_finger_out_up.pg	group	-	3a9e99f31b71bbd8caa4fd073947beb6267d21a3	particle group: no shader of its own
+srbd/fingers/fractional/4/10/srbd_hit_finger_out_up_armor.pg	group	-	a5811fedaa36acffccf07604703c009183e5685e	particle group: no shader of its own
+srbd/fingers/fractional/4/10/srbd_hit_finger_up.pg	group	-	dc8505cb1f0601d8db97c7bf5682f6c6841eece7	particle group: no shader of its own
+srbd/fingers/fractional/4/10/srbd_hit_finger_up_armor.pg	group	-	cddbb5c051984737e9a5cc005e69a8ae5a9f8641	particle group: no shader of its own
+srbd/fingers/fractional/4/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	a26f754b8663b601b33e4043ddfbd0913320c2e9	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	6526ae13acecaa75bb3e020f3c91ef5c9b65d155	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/2/srbd_finger_tracer_up.pe	carrier	particles\blend	f64bd438afc281660808705f05292a2e65d99163	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/2/srbd_hit_finger_out.pg	group	-	8fe17c09bef49e4d3fa42951f165860801cb1464	particle group: no shader of its own
+srbd/fingers/fractional/4/2/srbd_hit_finger_out_armor.pg	group	-	8965e9ea682805e85d21f305e0037993a357175c	particle group: no shader of its own
+srbd/fingers/fractional/4/2/srbd_hit_finger_out_up.pg	group	-	3eddb3c7af5637afa5ebb2b44d08369bb0e75c0d	particle group: no shader of its own
+srbd/fingers/fractional/4/2/srbd_hit_finger_out_up_armor.pg	group	-	52d566c1c5ea7abb25b7de0eae6d5872eb1412ff	particle group: no shader of its own
+srbd/fingers/fractional/4/2/srbd_hit_finger_up.pg	group	-	74f4ddc96843b70aba42f3c6d6adc009adf3d71a	particle group: no shader of its own
+srbd/fingers/fractional/4/2/srbd_hit_finger_up_armor.pg	group	-	65772a8321b55740d17b15b01ca5873abef5d205	particle group: no shader of its own
+srbd/fingers/fractional/4/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	abb9b9159f6a6238aac9aedb3ce48272f2816a97	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	a5830b51a9beac5605b4f47c1e38ec27ec6067d1	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/3/srbd_finger_tracer_up.pe	carrier	particles\blend	22a88ccebf1c0e89b05119f9a95dccc807169d9c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/3/srbd_hit_finger_out.pg	group	-	3df492f5d321a58e353e49df9224e28a4360e3e9	particle group: no shader of its own
+srbd/fingers/fractional/4/3/srbd_hit_finger_out_armor.pg	group	-	dad77e8ae6c8b9e90e32d5eacba4b5c0042c2a0d	particle group: no shader of its own
+srbd/fingers/fractional/4/3/srbd_hit_finger_out_up.pg	group	-	874850512df0384a0edd8db9fc91be76031056d6	particle group: no shader of its own
+srbd/fingers/fractional/4/3/srbd_hit_finger_out_up_armor.pg	group	-	ec230caeeec6e89dbde4056c86d979be28eb0053	particle group: no shader of its own
+srbd/fingers/fractional/4/3/srbd_hit_finger_up.pg	group	-	37c6bc70b4588e41e467a2ef322e1e6a4d0d22a2	particle group: no shader of its own
+srbd/fingers/fractional/4/3/srbd_hit_finger_up_armor.pg	group	-	c8b95324e763beeb6a90077cbcdab25ee8d8f617	particle group: no shader of its own
+srbd/fingers/fractional/4/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	ea5f02731c594e1090cfc9f7cf9a2b0542cf00cb	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	984987cb44fafe95b13d9c72cae632f861b09c5f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/4/srbd_finger_tracer_up.pe	carrier	particles\blend	9c64ce3fb70294c3bc71cef2b91db60de23ee707	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/4/srbd_hit_finger_out.pg	group	-	5bf1d2a35336005a6fa5b60a1ecc926ca3e39c25	particle group: no shader of its own
+srbd/fingers/fractional/4/4/srbd_hit_finger_out_armor.pg	group	-	924ca61541d22d17412b1518a55ba66462167c44	particle group: no shader of its own
+srbd/fingers/fractional/4/4/srbd_hit_finger_out_up.pg	group	-	52f8ceef5d860c55d73b1cbcb1420a761fac678b	particle group: no shader of its own
+srbd/fingers/fractional/4/4/srbd_hit_finger_out_up_armor.pg	group	-	c13caf9f56a2ae71077ab7c83648af9c5ab5350c	particle group: no shader of its own
+srbd/fingers/fractional/4/4/srbd_hit_finger_up.pg	group	-	94ef845c6ff95ef67a27c6a1cfdc432a5141dc7e	particle group: no shader of its own
+srbd/fingers/fractional/4/4/srbd_hit_finger_up_armor.pg	group	-	d06d6bab1d01374ed9dfca6205d86ac882b16f9e	particle group: no shader of its own
+srbd/fingers/fractional/4/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	5bea30aea30ddfb754429c947cd518e019822740	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	4419fa32ae68489ea2c260cb8ded24ce1fa6a0e9	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/5/srbd_finger_tracer_up.pe	carrier	particles\blend	73ca2d0ab380018a5ed0d47296eeb9ba50301c16	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/5/srbd_hit_finger_out.pg	group	-	b5c19d15931e2db12c52e51415f17ba3c24dbc92	particle group: no shader of its own
+srbd/fingers/fractional/4/5/srbd_hit_finger_out_armor.pg	group	-	597d0520233b3afaafd3c293053dc4d832cfd4ff	particle group: no shader of its own
+srbd/fingers/fractional/4/5/srbd_hit_finger_out_up.pg	group	-	48c7f61809e70779b9c251518225a4536e88d95b	particle group: no shader of its own
+srbd/fingers/fractional/4/5/srbd_hit_finger_out_up_armor.pg	group	-	e09cd83510134a775a796bbbc30e9e3e13498861	particle group: no shader of its own
+srbd/fingers/fractional/4/5/srbd_hit_finger_up.pg	group	-	6da8a389ead9377fc43917e0189213c62de2b949	particle group: no shader of its own
+srbd/fingers/fractional/4/5/srbd_hit_finger_up_armor.pg	group	-	73e01559992f8eaf494bd87702aec3dad9cf023c	particle group: no shader of its own
+srbd/fingers/fractional/4/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	6dd1898ab6416f4808cc21a1b05d7e94e3bbeb9a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	79d6b40a49009fcdfd8f61f9acf7b77dce97dee2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/6/srbd_finger_tracer_up.pe	carrier	particles\blend	42f36faf220115d30da8a1972d6f9819034a86c3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/6/srbd_hit_finger_out.pg	group	-	b4cd9a56b6483ed79ccae3969f94e366e01c1ed6	particle group: no shader of its own
+srbd/fingers/fractional/4/6/srbd_hit_finger_out_armor.pg	group	-	bb611221ba0bf2abaea4f35df96a2427678d6505	particle group: no shader of its own
+srbd/fingers/fractional/4/6/srbd_hit_finger_out_up.pg	group	-	41ac6e8a95ff6317ee7d5b83d900df031e35ec33	particle group: no shader of its own
+srbd/fingers/fractional/4/6/srbd_hit_finger_out_up_armor.pg	group	-	c7f5376345e32f19b6b1f4a7e81074ef8f700364	particle group: no shader of its own
+srbd/fingers/fractional/4/6/srbd_hit_finger_up.pg	group	-	ecb9b9b5a03691caf78dc1fa790004e8a0497a84	particle group: no shader of its own
+srbd/fingers/fractional/4/6/srbd_hit_finger_up_armor.pg	group	-	d0a2442fe24ac547e98378ff0c3a7d0eceeff48b	particle group: no shader of its own
+srbd/fingers/fractional/4/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	10e5834a31b8c2822819f0655895673da6ea96c0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	461ea4a063df5b4ba3b7239f204f91c271d67542	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/7/srbd_finger_tracer_up.pe	carrier	particles\blend	78ad4eeb5a11691d0ec9fd1652bd75631d788b90	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/7/srbd_hit_finger_out.pg	group	-	b2e8a2e346a226bf9d7bb411341c4a604ec18cb9	particle group: no shader of its own
+srbd/fingers/fractional/4/7/srbd_hit_finger_out_armor.pg	group	-	be747d4e974f2fe36fba9da5ac53e2b7a931a338	particle group: no shader of its own
+srbd/fingers/fractional/4/7/srbd_hit_finger_out_up.pg	group	-	7ce5ea67bc562433f1ba016b0ee5c3e5cc380c15	particle group: no shader of its own
+srbd/fingers/fractional/4/7/srbd_hit_finger_out_up_armor.pg	group	-	7036377752ed5340ebc96175a83d8ff111522f09	particle group: no shader of its own
+srbd/fingers/fractional/4/7/srbd_hit_finger_up.pg	group	-	cfdec266a00b6146c7a3b3a3a7ea5c37162995e5	particle group: no shader of its own
+srbd/fingers/fractional/4/7/srbd_hit_finger_up_armor.pg	group	-	c59698936978b24373f667439bcd6d8187ce680a	particle group: no shader of its own
+srbd/fingers/fractional/4/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	55f6ae9f09d865f1c4276e230306bac868bbeb2f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	019a20766b7343df6f50ac43ffe98418f8aae5a3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/8/srbd_finger_tracer_up.pe	carrier	particles\blend	b235251892903c7568958686f2c028b2da3f6fe3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/8/srbd_hit_finger_out.pg	group	-	1d9777b9784f217d7de8a02167cde0148f256008	particle group: no shader of its own
+srbd/fingers/fractional/4/8/srbd_hit_finger_out_armor.pg	group	-	ab774d32d81609c47968ba7e0d8c175a7d7264a3	particle group: no shader of its own
+srbd/fingers/fractional/4/8/srbd_hit_finger_out_up.pg	group	-	c5d783c5285aa4e7c8402f391a00a3284f4c25dd	particle group: no shader of its own
+srbd/fingers/fractional/4/8/srbd_hit_finger_out_up_armor.pg	group	-	70c31a61bb0959b510f4bd21a5a81cedbf82434b	particle group: no shader of its own
+srbd/fingers/fractional/4/8/srbd_hit_finger_up.pg	group	-	a3ee3043a0b6f5905573405481f5a4e7264a7b15	particle group: no shader of its own
+srbd/fingers/fractional/4/8/srbd_hit_finger_up_armor.pg	group	-	9e641eb0446d1437e8a580f40d13670d7ff597ba	particle group: no shader of its own
+srbd/fingers/fractional/4/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	25d16396e68fbae686ccd831b686fb1e7cb7d515	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	4b291183c9bd275d5d7ab3282846ebbc4b9ffc6a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/9/srbd_finger_tracer_up.pe	carrier	particles\blend	c5a277f682ca1647215f756935e96d53a6327e02	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/4/9/srbd_hit_finger_out.pg	group	-	ad78563d0169761bd3608fa7733557205a124866	particle group: no shader of its own
+srbd/fingers/fractional/4/9/srbd_hit_finger_out_armor.pg	group	-	4c079ab1b67e94b28641589298dd3fdb8ba8b7f0	particle group: no shader of its own
+srbd/fingers/fractional/4/9/srbd_hit_finger_out_up.pg	group	-	fc5c07e890466cbdcfa2b9bf2fa9c2e3718daaa8	particle group: no shader of its own
+srbd/fingers/fractional/4/9/srbd_hit_finger_out_up_armor.pg	group	-	83ac82b19bbd630ee99ef0ba16764134cbceec81	particle group: no shader of its own
+srbd/fingers/fractional/4/9/srbd_hit_finger_up.pg	group	-	2fe29a025261a0f978ec110b07a4ed7b6b9b7757	particle group: no shader of its own
+srbd/fingers/fractional/4/9/srbd_hit_finger_up_armor.pg	group	-	30ad8fe9605670d345effe8c5962b9e57c200e6b	particle group: no shader of its own
+srbd/fingers/fractional/4/smoke_point_blood_fingers_short.pe	gore	particles\blend	9326ef17f025d142bf3c9ca450924b9eb8bfd0f4	name says blood
+srbd/fingers/fractional/4/smoke_point_fingers_short.pe	clean	particles\blend	e2211d17a4b50e41b99c4a8cb9ed950574e76169	name says smoke
+srbd/fingers/fractional/5/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	575ee839d78e8d3d22209d19077dc16bf1723e26	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	d9c87114099db6a5ebbd3068aa35b12de9b20c42	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/1/srbd_finger_tracer_up.pe	carrier	particles\blend	7c0add94eaf22ef7fca7b8c867d3c40f3787d22f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/1/srbd_hit_finger_out.pg	group	-	4e9e60a4b3228a3691f249b6c966ec7d698c4272	particle group: no shader of its own
+srbd/fingers/fractional/5/1/srbd_hit_finger_out_armor.pg	group	-	13a6b4dd55f06b0fcabb829409aac48b339d4a3f	particle group: no shader of its own
+srbd/fingers/fractional/5/1/srbd_hit_finger_out_up.pg	group	-	bbafafa4c3243a8c25223f86b0bfa6cfa2b13a47	particle group: no shader of its own
+srbd/fingers/fractional/5/1/srbd_hit_finger_out_up_armor.pg	group	-	5d9247be6f678cb1863953e651811e54fb7612fe	particle group: no shader of its own
+srbd/fingers/fractional/5/1/srbd_hit_finger_up.pg	group	-	2236f78caa0c3d9bb8a8001c7fdbca035989510d	particle group: no shader of its own
+srbd/fingers/fractional/5/1/srbd_hit_finger_up_armor.pg	group	-	e879a9430444232eb947bce57256d6c99ada85db	particle group: no shader of its own
+srbd/fingers/fractional/5/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	2689ee2aa69f669b25b85c5fa61482c7ee95d48c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	1dbfc019e885329b1940f80a92a1858de0a4aea1	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/10/srbd_finger_tracer_up.pe	carrier	particles\blend	d76dc6244300623553e230f2421a37aa9fc0361a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/10/srbd_hit_finger_out.pg	group	-	13cbb6956907ae86ae8137ff8fa4d3a545adec97	particle group: no shader of its own
+srbd/fingers/fractional/5/10/srbd_hit_finger_out_armor.pg	group	-	089d0f92166d6bbc602e08d256a0885d8421898e	particle group: no shader of its own
+srbd/fingers/fractional/5/10/srbd_hit_finger_out_up.pg	group	-	18c22b62715c070105e3d1175f8a79e661c0ac54	particle group: no shader of its own
+srbd/fingers/fractional/5/10/srbd_hit_finger_out_up_armor.pg	group	-	2bc54036dd6d12a44f7d1d597ebd5ed249d048e4	particle group: no shader of its own
+srbd/fingers/fractional/5/10/srbd_hit_finger_up.pg	group	-	3e4a8fa19a31b51cd3a975535de625fe1d0539b8	particle group: no shader of its own
+srbd/fingers/fractional/5/10/srbd_hit_finger_up_armor.pg	group	-	3a3952e61aaec453d7d80f06469cb79d25a24f37	particle group: no shader of its own
+srbd/fingers/fractional/5/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	275d252426c7b919209ba0a8a7e035666515fc48	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	2d49c34a490b9224467a93d82f0a7ab8bb17d8c3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/2/srbd_finger_tracer_up.pe	carrier	particles\blend	e45f8ddcd8c0ed43378c3d538672b6945a13cad4	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/2/srbd_hit_finger_out.pg	group	-	2472890a492f9ee97e45657133685032775f5cbf	particle group: no shader of its own
+srbd/fingers/fractional/5/2/srbd_hit_finger_out_armor.pg	group	-	d74ce0d45a0ad8810732a86a963049c629a4a144	particle group: no shader of its own
+srbd/fingers/fractional/5/2/srbd_hit_finger_out_up.pg	group	-	a9a2af465e39698b3dd80f08ccfd1d614d0bc0ab	particle group: no shader of its own
+srbd/fingers/fractional/5/2/srbd_hit_finger_out_up_armor.pg	group	-	b040b09499ab36df5c8885c6b915fc0ae4805094	particle group: no shader of its own
+srbd/fingers/fractional/5/2/srbd_hit_finger_up.pg	group	-	7986d831ccd5c5f640f32a85fcaecd490c03936d	particle group: no shader of its own
+srbd/fingers/fractional/5/2/srbd_hit_finger_up_armor.pg	group	-	0c02b2a5a038fb5e7e54be24bf423395d287287c	particle group: no shader of its own
+srbd/fingers/fractional/5/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	f8f1c8ea2128b4262ba9529299f60ecfeb4c8e7e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	bb2f32a30ad7d99261ebde090b8f0deadd86d7a2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/3/srbd_finger_tracer_up.pe	carrier	particles\blend	ddf81b36ad33ac018a8fe31590fb055510125da7	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/3/srbd_hit_finger_out.pg	group	-	4d9f6c93a24f841e9b6266e0140f44b12ca041fb	particle group: no shader of its own
+srbd/fingers/fractional/5/3/srbd_hit_finger_out_armor.pg	group	-	c982c439384b6488ee2d8cf668463748d9b7cd34	particle group: no shader of its own
+srbd/fingers/fractional/5/3/srbd_hit_finger_out_up.pg	group	-	f670c1ed74c71ea4c9c74c3e8bcd8656d0bfbe2c	particle group: no shader of its own
+srbd/fingers/fractional/5/3/srbd_hit_finger_out_up_armor.pg	group	-	fcaadcefda09e92bfc05bc11cc0938e6e1525130	particle group: no shader of its own
+srbd/fingers/fractional/5/3/srbd_hit_finger_up.pg	group	-	3bda8a1293bcc00409352e012d0b20dc34780380	particle group: no shader of its own
+srbd/fingers/fractional/5/3/srbd_hit_finger_up_armor.pg	group	-	389fab8d0b5e815c95b8c7d6f5d13ef918aeadfb	particle group: no shader of its own
+srbd/fingers/fractional/5/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	508bf3051dc091e3b80f8efcaf86a05a6c5d5560	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	8687fc09e94f2afc372823464ce40d5e25b5ce09	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/4/srbd_finger_tracer_up.pe	carrier	particles\blend	b1f9ee0e7ecd8959853abf51c5a0b70f27ad836c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/4/srbd_hit_finger_out.pg	group	-	d2b22aedd272d7ea496885fb2ad86c88ad11e08d	particle group: no shader of its own
+srbd/fingers/fractional/5/4/srbd_hit_finger_out_armor.pg	group	-	a11f90d8e560fc2f42ba453039b62d047d3a8851	particle group: no shader of its own
+srbd/fingers/fractional/5/4/srbd_hit_finger_out_up.pg	group	-	219b0ae9cddbb60b0aa1caf93ed628ba54b6a9d2	particle group: no shader of its own
+srbd/fingers/fractional/5/4/srbd_hit_finger_out_up_armor.pg	group	-	9458ec6c354915e722e0bdde5baf81eaa431a177	particle group: no shader of its own
+srbd/fingers/fractional/5/4/srbd_hit_finger_up.pg	group	-	7a16b7baf67051d7fa6b19588c6c09df037c9c2f	particle group: no shader of its own
+srbd/fingers/fractional/5/4/srbd_hit_finger_up_armor.pg	group	-	c8f681a8fc2cb885fb91204861ba5e0d803f888f	particle group: no shader of its own
+srbd/fingers/fractional/5/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	2b88991904c2b0c9bdcf586bc3862429e464d97e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	0a049f0a15a2b9379125cd038232c9e7dce32016	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/5/srbd_finger_tracer_up.pe	carrier	particles\blend	a1d407bac8cfeec5de885b4255a00c37e929959d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/5/srbd_hit_finger_out.pg	group	-	2de0133a63e35cf0f698179e1cdaac06dc5200bc	particle group: no shader of its own
+srbd/fingers/fractional/5/5/srbd_hit_finger_out_armor.pg	group	-	8702cb149229dd7b8f0ad08138feb511b588d5bb	particle group: no shader of its own
+srbd/fingers/fractional/5/5/srbd_hit_finger_out_up.pg	group	-	66a54fbb4884eb653a853d57fbde19adfd7392d9	particle group: no shader of its own
+srbd/fingers/fractional/5/5/srbd_hit_finger_out_up_armor.pg	group	-	7e67ea7d03faf9d289c7fb2ec7dce327ec513960	particle group: no shader of its own
+srbd/fingers/fractional/5/5/srbd_hit_finger_up.pg	group	-	384a8bd733dcafb5d9e27b7a6ad81eb2fa3aabb7	particle group: no shader of its own
+srbd/fingers/fractional/5/5/srbd_hit_finger_up_armor.pg	group	-	07935f0f8b721fd9b965386eded9d1244847e478	particle group: no shader of its own
+srbd/fingers/fractional/5/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	62b9fe7487a0009cf6f9db6594d29079d70ff1c6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	7fb0520b96941d2dcfd74d13bf2287423e2bac24	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/6/srbd_finger_tracer_up.pe	carrier	particles\blend	a61ff94045c320898048843e7d6683ab04c1cc06	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/6/srbd_hit_finger_out.pg	group	-	43e28d31da55ebd24082b9bf34df8dca6a2fed85	particle group: no shader of its own
+srbd/fingers/fractional/5/6/srbd_hit_finger_out_armor.pg	group	-	963d840eab5a20ef427bfc36d7924298fd0d8fd1	particle group: no shader of its own
+srbd/fingers/fractional/5/6/srbd_hit_finger_out_up.pg	group	-	5baf7ef72f48996a430d91f634f7c6a9eb8b4362	particle group: no shader of its own
+srbd/fingers/fractional/5/6/srbd_hit_finger_out_up_armor.pg	group	-	150af24b38e7e2cf8bf36706412fd4c0a18ae805	particle group: no shader of its own
+srbd/fingers/fractional/5/6/srbd_hit_finger_up.pg	group	-	6ffd5346e377abacb2b6dee1f7838809febd24d6	particle group: no shader of its own
+srbd/fingers/fractional/5/6/srbd_hit_finger_up_armor.pg	group	-	5077104a103320c7326ee12b7ab27c20f4d360f0	particle group: no shader of its own
+srbd/fingers/fractional/5/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	a662746f5aade83f52dd77f0fa53dea4f6494447	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	0ec02dbd7b57cfe3a2b4bdbad262450c93879901	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/7/srbd_finger_tracer_up.pe	carrier	particles\blend	1570cc8b6323684f11c854ea85f577327876f70b	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/7/srbd_hit_finger_out.pg	group	-	3945c5c171dc50f5b81c82bfe96bb363b82e1170	particle group: no shader of its own
+srbd/fingers/fractional/5/7/srbd_hit_finger_out_armor.pg	group	-	5b68669535d0e7ad974e55e18b3b8bb844981098	particle group: no shader of its own
+srbd/fingers/fractional/5/7/srbd_hit_finger_out_up.pg	group	-	ebfb19786727ccd49545865dc388af0cf7a3f3f6	particle group: no shader of its own
+srbd/fingers/fractional/5/7/srbd_hit_finger_out_up_armor.pg	group	-	0ce2dfe914c1d3ee82f324e36bc43b3102922cc8	particle group: no shader of its own
+srbd/fingers/fractional/5/7/srbd_hit_finger_up.pg	group	-	504b54dc8fd356f06bbf4f38f4467dcc8a2b50e2	particle group: no shader of its own
+srbd/fingers/fractional/5/7/srbd_hit_finger_up_armor.pg	group	-	04b579d7e0be31eb1b29d6d64e5612c474b61bfb	particle group: no shader of its own
+srbd/fingers/fractional/5/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	5d99181e97b1b1c7edb5dab49a3665b0c7bebcdf	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	1c16bf866098ba8d07607f28206c53ad19a768a3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/8/srbd_finger_tracer_up.pe	carrier	particles\blend	39ed18ec42bac105bfbbc84e3ce81eff9e5ae1a5	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/8/srbd_hit_finger_out.pg	group	-	b49ec7f51b2e3bb0988436ed252117ef06e791f3	particle group: no shader of its own
+srbd/fingers/fractional/5/8/srbd_hit_finger_out_armor.pg	group	-	b228994b241080404325381275c8c37f4683a11b	particle group: no shader of its own
+srbd/fingers/fractional/5/8/srbd_hit_finger_out_up.pg	group	-	120d91ff2998439400665e56c657fca038aeb5ef	particle group: no shader of its own
+srbd/fingers/fractional/5/8/srbd_hit_finger_out_up_armor.pg	group	-	7551ddc82f08085cb53ca766d4cab8d9d0c4cb86	particle group: no shader of its own
+srbd/fingers/fractional/5/8/srbd_hit_finger_up.pg	group	-	321f2198cb7940daa0915ffece7feded039204f1	particle group: no shader of its own
+srbd/fingers/fractional/5/8/srbd_hit_finger_up_armor.pg	group	-	b10a5a5d6c075aeb1e3042a16f4337902cee9799	particle group: no shader of its own
+srbd/fingers/fractional/5/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	18eb8055468111bac4e4adf6d9f3fbb94f6922bd	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	dac03b8283114324558daf16ae11964d04ea5df6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/9/srbd_finger_tracer_up.pe	carrier	particles\blend	28b2d3473d0687e97fd8dcc3ce23edf991ae01fa	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/5/9/srbd_hit_finger_out.pg	group	-	224af2b3a67194fcdd14f2a824e206ed825e1af9	particle group: no shader of its own
+srbd/fingers/fractional/5/9/srbd_hit_finger_out_armor.pg	group	-	a6059bbe0d7c184ecbba1765ea1e542f91def169	particle group: no shader of its own
+srbd/fingers/fractional/5/9/srbd_hit_finger_out_up.pg	group	-	33d56b548df32644bb2ad1b43fa967cddb1c8299	particle group: no shader of its own
+srbd/fingers/fractional/5/9/srbd_hit_finger_out_up_armor.pg	group	-	c8aa418aed0543a97884e73333d20037c1fcbbaf	particle group: no shader of its own
+srbd/fingers/fractional/5/9/srbd_hit_finger_up.pg	group	-	7fdad09c9b07ca6dc4b20c2cb4a00cd9ec64ac45	particle group: no shader of its own
+srbd/fingers/fractional/5/9/srbd_hit_finger_up_armor.pg	group	-	86546e41d6b394222ae0c066907a71f125cda98f	particle group: no shader of its own
+srbd/fingers/fractional/5/smoke_point_blood_fingers_short.pe	gore	particles\blend	bc20de71d745f46ae7174a42be2a7cf447994f75	name says blood
+srbd/fingers/fractional/5/smoke_point_fingers_short.pe	clean	particles\blend	becb223b9cc7600c7f64722c1d7d26fc78f54b36	name says smoke
+srbd/fingers/fractional/6/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	a33a67a81d74939ac0861cfd369f3bd3da0eedeb	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	d37ed23c5f1ac07bacdb74af8a8874b35b1fdce6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/1/srbd_finger_tracer_up.pe	carrier	particles\blend	ca180488744badab469cb78b05a1e708aeeff4ab	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/1/srbd_hit_finger_out.pg	group	-	f2fcf3eff6e5125373b4f07238cb79fe2e40f869	particle group: no shader of its own
+srbd/fingers/fractional/6/1/srbd_hit_finger_out_armor.pg	group	-	a20e005fed7eb5685da527ad039bcb7631bf99a9	particle group: no shader of its own
+srbd/fingers/fractional/6/1/srbd_hit_finger_out_up.pg	group	-	ab3c0980c83aeb1ac871936f9eb691bc35d85b74	particle group: no shader of its own
+srbd/fingers/fractional/6/1/srbd_hit_finger_out_up_armor.pg	group	-	bf56a40912eda959e1038cc99b529341e91a5bfa	particle group: no shader of its own
+srbd/fingers/fractional/6/1/srbd_hit_finger_up.pg	group	-	56c93cfc6f5a0f3a75a41efa172aafc9f38f1f55	particle group: no shader of its own
+srbd/fingers/fractional/6/1/srbd_hit_finger_up_armor.pg	group	-	c569f4f70e74994b33af7c814a77f88ce8644b17	particle group: no shader of its own
+srbd/fingers/fractional/6/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	7bb8cbf9249a88aded356f609a55161aa639e8e9	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	0088c6b987915d11fc690282352472962906f6bb	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/10/srbd_finger_tracer_up.pe	carrier	particles\blend	0caa3619fc6c5e161128dc4590ca48454988e6df	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/10/srbd_hit_finger_out.pg	group	-	4ea1e33b7b26a6e26526431b80b61d3bf1f51aba	particle group: no shader of its own
+srbd/fingers/fractional/6/10/srbd_hit_finger_out_armor.pg	group	-	15c7a1106990dc3e7944ff4484e35bdbdb414528	particle group: no shader of its own
+srbd/fingers/fractional/6/10/srbd_hit_finger_out_up.pg	group	-	0218b1f919b987580a867c27753f8ae8cd7f4457	particle group: no shader of its own
+srbd/fingers/fractional/6/10/srbd_hit_finger_out_up_armor.pg	group	-	068aa963117775c08e8b7e0b02c78c281a49e256	particle group: no shader of its own
+srbd/fingers/fractional/6/10/srbd_hit_finger_up.pg	group	-	f50fd1dadd2c5823a8d526fdd1a6d08c3d63bdf1	particle group: no shader of its own
+srbd/fingers/fractional/6/10/srbd_hit_finger_up_armor.pg	group	-	616dab8a2e612e77cc23ab75f231f79251276312	particle group: no shader of its own
+srbd/fingers/fractional/6/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	15016da509e5042511028b3c51c36bfa262bd273	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	1d7e098d27dfad61b44bd490af56a2c8448ec9a8	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/2/srbd_finger_tracer_up.pe	carrier	particles\blend	477f9b3990b68438655701ebc86ba3632e8e12fc	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/2/srbd_hit_finger_out.pg	group	-	6c56d04eb1152e9a8c4285e347956c427e16fa8a	particle group: no shader of its own
+srbd/fingers/fractional/6/2/srbd_hit_finger_out_armor.pg	group	-	25145b794fc9e97e592d1b78e2d9b7d20889bef3	particle group: no shader of its own
+srbd/fingers/fractional/6/2/srbd_hit_finger_out_up.pg	group	-	5aeece686fc126d00ab4b45b1c175b2ef55c9773	particle group: no shader of its own
+srbd/fingers/fractional/6/2/srbd_hit_finger_out_up_armor.pg	group	-	bad6c641c63ea1008da6d9613d5c7ed027b06135	particle group: no shader of its own
+srbd/fingers/fractional/6/2/srbd_hit_finger_up.pg	group	-	7033c03da7b5ba2905a44d18c7a7cf27cdb12d84	particle group: no shader of its own
+srbd/fingers/fractional/6/2/srbd_hit_finger_up_armor.pg	group	-	96e682db4a4d64dad28406858bc150fc15ee1d23	particle group: no shader of its own
+srbd/fingers/fractional/6/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	f96707b8f654a5eaa45629cfebd4712eff988c3e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	d71abadeed4a77f6ab0dcee79d5e18bf0a72f14d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/3/srbd_finger_tracer_up.pe	carrier	particles\blend	095a4597bfe0e867889ae6a5269f63fa0271bffe	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/3/srbd_hit_finger_out.pg	group	-	34b85ffaec2ff952b6f93a544b283811155821df	particle group: no shader of its own
+srbd/fingers/fractional/6/3/srbd_hit_finger_out_armor.pg	group	-	a6e9e08431b86adf8670cd0f1244c8cdedabf0d1	particle group: no shader of its own
+srbd/fingers/fractional/6/3/srbd_hit_finger_out_up.pg	group	-	b4f805e9937d80ac18a743dc51d26ba5e78460ef	particle group: no shader of its own
+srbd/fingers/fractional/6/3/srbd_hit_finger_out_up_armor.pg	group	-	731e33f29a96bb08805129a41cdd9cb81fd884b5	particle group: no shader of its own
+srbd/fingers/fractional/6/3/srbd_hit_finger_up.pg	group	-	12a1649bce572b5c3a343b4c379a3cda2036fecf	particle group: no shader of its own
+srbd/fingers/fractional/6/3/srbd_hit_finger_up_armor.pg	group	-	226629cbabd7f339094b37aaeb8de3a5cfd45095	particle group: no shader of its own
+srbd/fingers/fractional/6/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	ed8a6692e0430c7fa35b10439231c7b02bc51fb0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	08f5f6e06210b63997aed00277d66287bbe91788	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/4/srbd_finger_tracer_up.pe	carrier	particles\blend	b44a7c50175e0e2570598179bf2e129277822a5a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/4/srbd_hit_finger_out.pg	group	-	1e012e6be5609c46d1023b2caa4e66649b4dd8e4	particle group: no shader of its own
+srbd/fingers/fractional/6/4/srbd_hit_finger_out_armor.pg	group	-	eff47e39ad77bdc96ca1338d6db2fd938bcd7b17	particle group: no shader of its own
+srbd/fingers/fractional/6/4/srbd_hit_finger_out_up.pg	group	-	8c8411039ed52e8cd1f32f157a30ed8cb016288f	particle group: no shader of its own
+srbd/fingers/fractional/6/4/srbd_hit_finger_out_up_armor.pg	group	-	6c7365e54c056d4264b79f64d891020e1f1272d0	particle group: no shader of its own
+srbd/fingers/fractional/6/4/srbd_hit_finger_up.pg	group	-	98d7c95d3919469dbb623449696313b35a057305	particle group: no shader of its own
+srbd/fingers/fractional/6/4/srbd_hit_finger_up_armor.pg	group	-	ac0a113fc769595eba5898f53c25196afa7663b3	particle group: no shader of its own
+srbd/fingers/fractional/6/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	8be2dc62c69d8ed1e2fea86d13c85f14ee5ba7d2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	219f4355418303068f2763c810b47de108ced3ed	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/5/srbd_finger_tracer_up.pe	carrier	particles\blend	2f221f305a7a47272d73a1bd843ce902e4dfae46	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/5/srbd_hit_finger_out.pg	group	-	99ba37155885732dac52bf3ff01dd63f61963c57	particle group: no shader of its own
+srbd/fingers/fractional/6/5/srbd_hit_finger_out_armor.pg	group	-	5428c0f263f8e3b96bd6f888236b983844ad6132	particle group: no shader of its own
+srbd/fingers/fractional/6/5/srbd_hit_finger_out_up.pg	group	-	eae93dc47daf0884fc4f2f40185a8e4bfccc0484	particle group: no shader of its own
+srbd/fingers/fractional/6/5/srbd_hit_finger_out_up_armor.pg	group	-	ac2d019f3b8173ef007b26e3c5a6f2b222156f51	particle group: no shader of its own
+srbd/fingers/fractional/6/5/srbd_hit_finger_up.pg	group	-	850f4b2dc9284905ef05612456230494f7e30e20	particle group: no shader of its own
+srbd/fingers/fractional/6/5/srbd_hit_finger_up_armor.pg	group	-	6999709d1a8c150ce9cc1624a987f4c30a99cc54	particle group: no shader of its own
+srbd/fingers/fractional/6/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	043b8b77745f7d3950ef68d574e2bbd97a54a72e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	39b4627da0fe6f334349b4efec15da10f57d06a1	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/6/srbd_finger_tracer_up.pe	carrier	particles\blend	364734b10ef39d9907987c371ab853d4f6ff7564	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/6/srbd_hit_finger_out.pg	group	-	6d3604327fb7954abf7580cd9973333c91ebba42	particle group: no shader of its own
+srbd/fingers/fractional/6/6/srbd_hit_finger_out_armor.pg	group	-	1d1567090912df21b50eea760936b56214adc849	particle group: no shader of its own
+srbd/fingers/fractional/6/6/srbd_hit_finger_out_up.pg	group	-	00dd59048f900c0f610133373f7914b6be7e90f7	particle group: no shader of its own
+srbd/fingers/fractional/6/6/srbd_hit_finger_out_up_armor.pg	group	-	f21baecdc06b5fdae43c7852fdeac498f27af568	particle group: no shader of its own
+srbd/fingers/fractional/6/6/srbd_hit_finger_up.pg	group	-	636f7867f1dd1bc8fc00630e66cc9797f199cd34	particle group: no shader of its own
+srbd/fingers/fractional/6/6/srbd_hit_finger_up_armor.pg	group	-	9eb610409f556f15d5d24cc605d58059bb572a9c	particle group: no shader of its own
+srbd/fingers/fractional/6/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	59679c8e53a30b90df0206dc04c14429ef02d1f5	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	bf9c951bd112183e3687415f6eec508f4964a1cc	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/7/srbd_finger_tracer_up.pe	carrier	particles\blend	2b44959a359822fa8632a879f415ca77fc84ccb8	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/7/srbd_hit_finger_out.pg	group	-	efb67afd8c89d572c5bd499d8fab4fb62b1ee3cb	particle group: no shader of its own
+srbd/fingers/fractional/6/7/srbd_hit_finger_out_armor.pg	group	-	ef783038d859740bf43fdfcec2bebdddfb735846	particle group: no shader of its own
+srbd/fingers/fractional/6/7/srbd_hit_finger_out_up.pg	group	-	0a4431523e72ada283dcda7b4cac201e5598a0ed	particle group: no shader of its own
+srbd/fingers/fractional/6/7/srbd_hit_finger_out_up_armor.pg	group	-	1f0755b3a4cb16a4c5975f6b0ec7c45221878e32	particle group: no shader of its own
+srbd/fingers/fractional/6/7/srbd_hit_finger_up.pg	group	-	76cae6f6b624bd10369aeb25a83f68b825071c79	particle group: no shader of its own
+srbd/fingers/fractional/6/7/srbd_hit_finger_up_armor.pg	group	-	dc3b674bf303c6234ce1a8cc999eeebb520e0744	particle group: no shader of its own
+srbd/fingers/fractional/6/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	26a07a0601472438b91399d4fca671f0982c7305	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	8f2500303de33fd4ce198daaa8a16e2029c06c4f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/8/srbd_finger_tracer_up.pe	carrier	particles\blend	ebb809bc2396ad3e1a5d9bce20d8d7ff5d15a10e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/8/srbd_hit_finger_out.pg	group	-	1b6e0b8abbfb2d1debf66d1af89bf26cff9c5d6f	particle group: no shader of its own
+srbd/fingers/fractional/6/8/srbd_hit_finger_out_armor.pg	group	-	ead78cbee29820bc74ab3ee75c68c71e05ce17d8	particle group: no shader of its own
+srbd/fingers/fractional/6/8/srbd_hit_finger_out_up.pg	group	-	a663d35aadf091a21a7a867a56674332e25cf041	particle group: no shader of its own
+srbd/fingers/fractional/6/8/srbd_hit_finger_out_up_armor.pg	group	-	4f27fa4189f85db244c1fb99aaeb3c09f3d1c46c	particle group: no shader of its own
+srbd/fingers/fractional/6/8/srbd_hit_finger_up.pg	group	-	dc0cbcc910837e5adbd46c921be768f22468bb44	particle group: no shader of its own
+srbd/fingers/fractional/6/8/srbd_hit_finger_up_armor.pg	group	-	0b0591e302c39d611bbdc3e9dcbae19499169995	particle group: no shader of its own
+srbd/fingers/fractional/6/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	94beb9f6baff35cc155433e063e824a1f924ca7e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	cf65ebc1591d5c1b1e74a98762b073e18351a1de	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/9/srbd_finger_tracer_up.pe	carrier	particles\blend	2b5bda26f65eef999cf624219387ffa7b6f30e19	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/6/9/srbd_hit_finger_out.pg	group	-	e2f9f87cfab59e79417ec6042ff1d4b21a469775	particle group: no shader of its own
+srbd/fingers/fractional/6/9/srbd_hit_finger_out_armor.pg	group	-	254a2928ed010874d733ae155586aa7e89bc1425	particle group: no shader of its own
+srbd/fingers/fractional/6/9/srbd_hit_finger_out_up.pg	group	-	db714b1780bf9ac1fdc7fb2ceb6f7a02938b05d1	particle group: no shader of its own
+srbd/fingers/fractional/6/9/srbd_hit_finger_out_up_armor.pg	group	-	ed39a7735b7be0d58f418a8fcc54c790e874846f	particle group: no shader of its own
+srbd/fingers/fractional/6/9/srbd_hit_finger_up.pg	group	-	649c4ca354dbddf102831519b7190aafe2eb0734	particle group: no shader of its own
+srbd/fingers/fractional/6/9/srbd_hit_finger_up_armor.pg	group	-	21294f30bf2645909db462e75008b2d9b401527b	particle group: no shader of its own
+srbd/fingers/fractional/6/smoke_point_blood_fingers_short.pe	gore	particles\blend	4f8776d23f828d75ec1b5f2071220524d8691efc	name says blood
+srbd/fingers/fractional/6/smoke_point_fingers_short.pe	clean	particles\blend	572e5a0491251240086c9d9070a711b4425d5fd8	name says smoke
+srbd/fingers/fractional/7/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	a9749fb5df85de540c4894db834e1c8ff8f5d6ae	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	9cb54b107f40c5a6bf5026e203044a5049c09f0a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/1/srbd_finger_tracer_up.pe	carrier	particles\blend	0bd0e45960ed6cc038bdc6ff6c9c6c500bebb932	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/1/srbd_hit_finger_out.pg	group	-	98770fae3f0956f60574f12f2e36272dffcbebad	particle group: no shader of its own
+srbd/fingers/fractional/7/1/srbd_hit_finger_out_armor.pg	group	-	478f6f6fa7b10db3cdeb16d1b7da4016ab272e79	particle group: no shader of its own
+srbd/fingers/fractional/7/1/srbd_hit_finger_out_up.pg	group	-	fa53e628b7ae8a9031af896a259f06e10b8c0891	particle group: no shader of its own
+srbd/fingers/fractional/7/1/srbd_hit_finger_out_up_armor.pg	group	-	2fa6e434c13e48f2c765d4eed261b911cfb7e212	particle group: no shader of its own
+srbd/fingers/fractional/7/1/srbd_hit_finger_up.pg	group	-	5fc71350d699f0525e7f1d76d57d78b218716dcc	particle group: no shader of its own
+srbd/fingers/fractional/7/1/srbd_hit_finger_up_armor.pg	group	-	43aad00c3836cd53344b9f87d72acc408ef67b66	particle group: no shader of its own
+srbd/fingers/fractional/7/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	7a5089595f32a5966771534bc77ab8db3f66ee51	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	2aed9bca08acaf2c536c0dbd56dee428a127f004	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/10/srbd_finger_tracer_up.pe	carrier	particles\blend	2611b6bc7dd54863d0abe5a59df45fc8a2eb10c4	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/10/srbd_hit_finger_out.pg	group	-	d4c7b9c1921cc9fb77ac626b805be08a880d208b	particle group: no shader of its own
+srbd/fingers/fractional/7/10/srbd_hit_finger_out_armor.pg	group	-	bbcb31501ded59569f2ac174c1b8cfb726bac209	particle group: no shader of its own
+srbd/fingers/fractional/7/10/srbd_hit_finger_out_up.pg	group	-	a04a996329f582129376c8dd504e3fe371cd0212	particle group: no shader of its own
+srbd/fingers/fractional/7/10/srbd_hit_finger_out_up_armor.pg	group	-	f9603f9e90afe242261ddacdf16e09f18f5b0da3	particle group: no shader of its own
+srbd/fingers/fractional/7/10/srbd_hit_finger_up.pg	group	-	cbedd41fd6171e7b563cd8208120c0ea59bc26c5	particle group: no shader of its own
+srbd/fingers/fractional/7/10/srbd_hit_finger_up_armor.pg	group	-	7aa2e7f5800949a94ea9e2d93c1d5c054220b777	particle group: no shader of its own
+srbd/fingers/fractional/7/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	1f6368a6177a696d04b51be7bca58f47435801d9	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	54e6ded0fab1dacc47a44c563fb8684f163d130d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/2/srbd_finger_tracer_up.pe	carrier	particles\blend	e6ff18f74c96c946cad8912daab9bb2ac8e669fd	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/2/srbd_hit_finger_out.pg	group	-	3bada6972b826ace1f016cb3b60d4513d4e4841b	particle group: no shader of its own
+srbd/fingers/fractional/7/2/srbd_hit_finger_out_armor.pg	group	-	8ca14ebfe4a8c8f5a2a81a7168883e0e14efa441	particle group: no shader of its own
+srbd/fingers/fractional/7/2/srbd_hit_finger_out_up.pg	group	-	e8fc7f9134c5aeac4e0250580284205b0f300e3c	particle group: no shader of its own
+srbd/fingers/fractional/7/2/srbd_hit_finger_out_up_armor.pg	group	-	74b6fc2f89748eab77721da10bd8a8fadaababde	particle group: no shader of its own
+srbd/fingers/fractional/7/2/srbd_hit_finger_up.pg	group	-	0bc518f207f326994179b4c2b13e0e1f25c105db	particle group: no shader of its own
+srbd/fingers/fractional/7/2/srbd_hit_finger_up_armor.pg	group	-	e55353ba1710fbd4a8527411e756f0a517b9ad49	particle group: no shader of its own
+srbd/fingers/fractional/7/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	5ee3addc8209a688b83c44695c5b59b8b6be6bfd	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	5dec5d0670a014339f5ef7ae47d6944f53d962f6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/3/srbd_finger_tracer_up.pe	carrier	particles\blend	8d1f1ec320fcc163613311f734f0a83e3b14051a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/3/srbd_hit_finger_out.pg	group	-	3a0146d86f9b5d69128b445db816161a7d21514e	particle group: no shader of its own
+srbd/fingers/fractional/7/3/srbd_hit_finger_out_armor.pg	group	-	2d5a3c897a17bc4f3d895e5a6253f8bc99d66765	particle group: no shader of its own
+srbd/fingers/fractional/7/3/srbd_hit_finger_out_up.pg	group	-	cfe517932bcabb3f2798e1c4c383072d993f6392	particle group: no shader of its own
+srbd/fingers/fractional/7/3/srbd_hit_finger_out_up_armor.pg	group	-	24d8ec5c0eaa8fb3c66144f98636d4923418076c	particle group: no shader of its own
+srbd/fingers/fractional/7/3/srbd_hit_finger_up.pg	group	-	45fc76b7b4321e34ff0ae003bae1ba1c6de1251f	particle group: no shader of its own
+srbd/fingers/fractional/7/3/srbd_hit_finger_up_armor.pg	group	-	76395358059e30983bcb6dca9e8dc7a80302000b	particle group: no shader of its own
+srbd/fingers/fractional/7/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	aa95f04e717d03868f659168439c13aae7d6dc58	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	3edc809ba512fa5208024d8c0986df78b71b8195	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/4/srbd_finger_tracer_up.pe	carrier	particles\blend	f0935f4802233d162bf4e875720eac55f8c14ccd	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/4/srbd_hit_finger_out.pg	group	-	94dd8756324923b58fcbd8b33095a0ccc37607fa	particle group: no shader of its own
+srbd/fingers/fractional/7/4/srbd_hit_finger_out_armor.pg	group	-	9a81bbcd834d60441e8c6e12d1214e855f4825ce	particle group: no shader of its own
+srbd/fingers/fractional/7/4/srbd_hit_finger_out_up.pg	group	-	e989c55f1c9921b1ce0fb555fe596f6011a3c4e6	particle group: no shader of its own
+srbd/fingers/fractional/7/4/srbd_hit_finger_out_up_armor.pg	group	-	abb96f8036cd425b7d4dfd7137d9717075cb3f66	particle group: no shader of its own
+srbd/fingers/fractional/7/4/srbd_hit_finger_up.pg	group	-	07ea15750e7092fac0190eb496cdffc92292a862	particle group: no shader of its own
+srbd/fingers/fractional/7/4/srbd_hit_finger_up_armor.pg	group	-	82240218066d1496eb9c49784129187fdf62262b	particle group: no shader of its own
+srbd/fingers/fractional/7/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	6463e344336ae091890b28e096af4f2010a4cbae	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	e58da2a41dc9f4f33f86254df812a3fd1e7d9cf0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/5/srbd_finger_tracer_up.pe	carrier	particles\blend	dca26a86344bd8828fccfbc6c65e9a5663737e50	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/5/srbd_hit_finger_out.pg	group	-	cfe1aa2c724b303d8d7159eff97c3c8b7ad579d7	particle group: no shader of its own
+srbd/fingers/fractional/7/5/srbd_hit_finger_out_armor.pg	group	-	f7d7d169c96abf3d71df6500a24b94ccdd059c11	particle group: no shader of its own
+srbd/fingers/fractional/7/5/srbd_hit_finger_out_up.pg	group	-	255efe664c4a788d9fe2cd12d07d6d743bf3cec7	particle group: no shader of its own
+srbd/fingers/fractional/7/5/srbd_hit_finger_out_up_armor.pg	group	-	75142a7ccde9aac0bb155918ccf57ee1fde0955b	particle group: no shader of its own
+srbd/fingers/fractional/7/5/srbd_hit_finger_up.pg	group	-	2900e5a5e5ea757f72346230eda1fc7901abc9a2	particle group: no shader of its own
+srbd/fingers/fractional/7/5/srbd_hit_finger_up_armor.pg	group	-	721e0658286dee71be3e810c5ddeea825aec7782	particle group: no shader of its own
+srbd/fingers/fractional/7/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	ddde4fba6b34a54937b813599179a6b8e0d07f8e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	540cedca42ca531476fa0d25169a99e2e02e37a0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/6/srbd_finger_tracer_up.pe	carrier	particles\blend	da21f03bac2b72cd6a77c48bd67caba74a5789f6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/6/srbd_hit_finger_out.pg	group	-	862760edd47925d6fd90d610654ab6862fc44566	particle group: no shader of its own
+srbd/fingers/fractional/7/6/srbd_hit_finger_out_armor.pg	group	-	ae6f66709c96c71814ad97fe6e973abb6f485826	particle group: no shader of its own
+srbd/fingers/fractional/7/6/srbd_hit_finger_out_up.pg	group	-	5bc55e88956d82573f44bc449c17f2cf938d46c3	particle group: no shader of its own
+srbd/fingers/fractional/7/6/srbd_hit_finger_out_up_armor.pg	group	-	b6dd1f48171b6c94d7385c53526350c98b46ee32	particle group: no shader of its own
+srbd/fingers/fractional/7/6/srbd_hit_finger_up.pg	group	-	555aa75b8ad6290b860e698b7bbfe6f051d3b7b2	particle group: no shader of its own
+srbd/fingers/fractional/7/6/srbd_hit_finger_up_armor.pg	group	-	ebc32f81ac8219d731063a360c01e64301b29bc2	particle group: no shader of its own
+srbd/fingers/fractional/7/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	03ec91189b69c8b6d7dfed6335b385dfbbdcd7f2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	4598a97db3e827b258727f6ee06acdd162459b9f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/7/srbd_finger_tracer_up.pe	carrier	particles\blend	142eaaa8777e8cfb87bd48f97ee464e416eccbdb	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/7/srbd_hit_finger_out.pg	group	-	a42b81cbaf79e4f911ba8b4731afe29e35d3bdb6	particle group: no shader of its own
+srbd/fingers/fractional/7/7/srbd_hit_finger_out_armor.pg	group	-	79cf265f339b3e53c2397ff4659417af79b8cd63	particle group: no shader of its own
+srbd/fingers/fractional/7/7/srbd_hit_finger_out_up.pg	group	-	74e5218ffe84dd806d31372a1f32c14438d4ade6	particle group: no shader of its own
+srbd/fingers/fractional/7/7/srbd_hit_finger_out_up_armor.pg	group	-	39cf9a38f7326e6b126f9cbb1f567fd9b8fe48b2	particle group: no shader of its own
+srbd/fingers/fractional/7/7/srbd_hit_finger_up.pg	group	-	4bf2d6d2f7cdfc5ceb50e05673e8e41c451b746a	particle group: no shader of its own
+srbd/fingers/fractional/7/7/srbd_hit_finger_up_armor.pg	group	-	a7cff9241fad48464694ca7263363e59231e2118	particle group: no shader of its own
+srbd/fingers/fractional/7/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	41832e3da143a4ff06b2c6e874fc62e1c804dd58	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	6726658c2d71bb349438d8aa533a80749abc848c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/8/srbd_finger_tracer_up.pe	carrier	particles\blend	b2beab2a7d3a66a846425f622ca904498cc11f29	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/8/srbd_hit_finger_out.pg	group	-	af1f85d4c1d61de0c4f0f44a3efd2f05aecba986	particle group: no shader of its own
+srbd/fingers/fractional/7/8/srbd_hit_finger_out_armor.pg	group	-	0901b776142391f0d11d1973e1e52ce8f5f92171	particle group: no shader of its own
+srbd/fingers/fractional/7/8/srbd_hit_finger_out_up.pg	group	-	07a0f264726077dc996e49f420bef917dfb63df5	particle group: no shader of its own
+srbd/fingers/fractional/7/8/srbd_hit_finger_out_up_armor.pg	group	-	6bb5cfed66633d47b1fd3ab4cb1e83965db7b97d	particle group: no shader of its own
+srbd/fingers/fractional/7/8/srbd_hit_finger_up.pg	group	-	74f83b274378faded2b8e37970960c5ecc8ebfa1	particle group: no shader of its own
+srbd/fingers/fractional/7/8/srbd_hit_finger_up_armor.pg	group	-	f310712d1b6cfe09ec3d74a178db2c6932c7e602	particle group: no shader of its own
+srbd/fingers/fractional/7/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	efef01ec0fe0510bdc422c1c031ab7f9066aa87e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	4c41c04123d66d4da84bf26951de16e098db2d31	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/9/srbd_finger_tracer_up.pe	carrier	particles\blend	05f446cc1d500d67579166a4f35a1dee5b87afa6	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/7/9/srbd_hit_finger_out.pg	group	-	74b1ff311109037395c5e0f89307e71e43f345ad	particle group: no shader of its own
+srbd/fingers/fractional/7/9/srbd_hit_finger_out_armor.pg	group	-	71e957f9042c67e12f3446ef199d2e1d0968736b	particle group: no shader of its own
+srbd/fingers/fractional/7/9/srbd_hit_finger_out_up.pg	group	-	c0925be92d54c00496d84cb1b3a86bd15ab46f3b	particle group: no shader of its own
+srbd/fingers/fractional/7/9/srbd_hit_finger_out_up_armor.pg	group	-	c9cf2f674bb8687f3383e381f2f4ae2f52a71800	particle group: no shader of its own
+srbd/fingers/fractional/7/9/srbd_hit_finger_up.pg	group	-	861e9a9e7a946b41f9e432f12e35bf5e343d0382	particle group: no shader of its own
+srbd/fingers/fractional/7/9/srbd_hit_finger_up_armor.pg	group	-	e813e5061d4f6256dc947faea422ab26edeea014	particle group: no shader of its own
+srbd/fingers/fractional/7/smoke_point_blood_fingers_short.pe	gore	particles\blend	7453df5af1caa1341bd42068723e6a394ae36933	name says blood
+srbd/fingers/fractional/7/smoke_point_fingers_short.pe	clean	particles\blend	45dfd964e46aef4d81f0844cf044133bc5ba0fb0	name says smoke
+srbd/fingers/fractional/8/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	3da358821e6c6ef9a5d0af9bc00831b67e4ad3cc	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	41871224caf16ce102ffeac4ca18c9ff0557997f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/1/srbd_finger_tracer_up.pe	carrier	particles\blend	f2a2e7a25fffc0f5b3e9555544e8b026680f1334	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/1/srbd_hit_finger_out.pg	group	-	a7e0785b183b5640c92d576ea87037604856847e	particle group: no shader of its own
+srbd/fingers/fractional/8/1/srbd_hit_finger_out_armor.pg	group	-	97282f1528482697cbaed7e253ee12eab2a71145	particle group: no shader of its own
+srbd/fingers/fractional/8/1/srbd_hit_finger_out_up.pg	group	-	c5ee49ae3884f1eb0ce0db7dcbac7084e321854f	particle group: no shader of its own
+srbd/fingers/fractional/8/1/srbd_hit_finger_out_up_armor.pg	group	-	569c88f0816d23fcb090df9bc1980e5b36955352	particle group: no shader of its own
+srbd/fingers/fractional/8/1/srbd_hit_finger_up.pg	group	-	b2e81b2d12814eb647e50b97b11dfa81266b0655	particle group: no shader of its own
+srbd/fingers/fractional/8/1/srbd_hit_finger_up_armor.pg	group	-	5e00e556ae858f4ee0cea4d366abc4d8ab4c3deb	particle group: no shader of its own
+srbd/fingers/fractional/8/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	9316fa39eba530c0cf5f0b42c966daceb862f16b	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	bd90cd403298ca20d89efdbca8a20fa10edbe978	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/10/srbd_finger_tracer_up.pe	carrier	particles\blend	c42ff9f07afdd51e2935946d5f056051013166aa	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/10/srbd_hit_finger_out.pg	group	-	9f1f3da1816aa46a6703cab7aa6514f45c59531d	particle group: no shader of its own
+srbd/fingers/fractional/8/10/srbd_hit_finger_out_armor.pg	group	-	ae85641a2731ba4268e90365971ad9d2f2ec57a4	particle group: no shader of its own
+srbd/fingers/fractional/8/10/srbd_hit_finger_out_up.pg	group	-	1a5cb425d4e00c6b8f221a8ed53d235bd3c6937b	particle group: no shader of its own
+srbd/fingers/fractional/8/10/srbd_hit_finger_out_up_armor.pg	group	-	aac555fc7b40afcf33584b380bfb4e5990ba21ee	particle group: no shader of its own
+srbd/fingers/fractional/8/10/srbd_hit_finger_up.pg	group	-	632167b74d6e74f92fc615fe26eb54861c5cae70	particle group: no shader of its own
+srbd/fingers/fractional/8/10/srbd_hit_finger_up_armor.pg	group	-	d28c7208fb0b7ad2b70bff5879bf29c15f245670	particle group: no shader of its own
+srbd/fingers/fractional/8/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	a8369c76aed33ba9224b39b48137b7e67ac62a9c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	67ca089490feaa0f191ad33c173a4c0d9cd9067e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/2/srbd_finger_tracer_up.pe	carrier	particles\blend	77c6363283cd67b32d79b8a90fe8b0907fcc7ff7	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/2/srbd_hit_finger_out.pg	group	-	e7197b6985fcdd13a513c2fe290cdeaf9575b3e3	particle group: no shader of its own
+srbd/fingers/fractional/8/2/srbd_hit_finger_out_armor.pg	group	-	306fc4fd6ee46e49bc3d9eb1cbaa5500af16d90e	particle group: no shader of its own
+srbd/fingers/fractional/8/2/srbd_hit_finger_out_up.pg	group	-	91711ef3dd6822537a4d44a909e3125cbca6cc6f	particle group: no shader of its own
+srbd/fingers/fractional/8/2/srbd_hit_finger_out_up_armor.pg	group	-	d5f897cefad3956edb904901acaecebcd198764c	particle group: no shader of its own
+srbd/fingers/fractional/8/2/srbd_hit_finger_up.pg	group	-	49e8f8dac695792c9a9ad68e1bc2ddbd9c315e88	particle group: no shader of its own
+srbd/fingers/fractional/8/2/srbd_hit_finger_up_armor.pg	group	-	91347c325612a3b721d59d97df6f99e89e1e2c08	particle group: no shader of its own
+srbd/fingers/fractional/8/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	d527e4540f6635c775251d6c9462b2dd9c18cf6f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	3b9a47c2ac812bff314453879852936bca66f1ca	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/3/srbd_finger_tracer_up.pe	carrier	particles\blend	579ba5db2dfaa0ed2ef0ad66b5eb0da8d94fd45d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/3/srbd_hit_finger_out.pg	group	-	5e5b2a7e1430af8fa3dffd0e1e600ca332393644	particle group: no shader of its own
+srbd/fingers/fractional/8/3/srbd_hit_finger_out_armor.pg	group	-	339a6a5014af270126ec49556099966ee0706a14	particle group: no shader of its own
+srbd/fingers/fractional/8/3/srbd_hit_finger_out_up.pg	group	-	aac16c6022b8e650c5f84a7ccf7dd336012e3911	particle group: no shader of its own
+srbd/fingers/fractional/8/3/srbd_hit_finger_out_up_armor.pg	group	-	d905154b7c40b3264153d89f81fa82dfe6b56d5d	particle group: no shader of its own
+srbd/fingers/fractional/8/3/srbd_hit_finger_up.pg	group	-	1c02769149d672692239042f2c47b20861b06e72	particle group: no shader of its own
+srbd/fingers/fractional/8/3/srbd_hit_finger_up_armor.pg	group	-	4f0d04d264a2f390fae98656b63f7c153b83db94	particle group: no shader of its own
+srbd/fingers/fractional/8/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	3fb9d592027820f5aa0368076d4fc0d6d7f5bc7e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	ddb2146f0fa63ce6654595d4ab87add8bf4e0cfa	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/4/srbd_finger_tracer_up.pe	carrier	particles\blend	c454541879d1c26c4b4ba20f94c8eba82bc41188	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/4/srbd_hit_finger_out.pg	group	-	d04281fa4805fd00d49f8a0426f2d1e51bf27d1d	particle group: no shader of its own
+srbd/fingers/fractional/8/4/srbd_hit_finger_out_armor.pg	group	-	12089c1f37ec21522ebb9cb48220125a10ad4258	particle group: no shader of its own
+srbd/fingers/fractional/8/4/srbd_hit_finger_out_up.pg	group	-	5b89da9f2ca983f5ccdaf72bae7d1ce42364113c	particle group: no shader of its own
+srbd/fingers/fractional/8/4/srbd_hit_finger_out_up_armor.pg	group	-	48bc2fa826ae3ed6edc6b3cb9971c7dcb21e59e1	particle group: no shader of its own
+srbd/fingers/fractional/8/4/srbd_hit_finger_up.pg	group	-	43c5145827ff4a5bac532b86557ec1ef39186b97	particle group: no shader of its own
+srbd/fingers/fractional/8/4/srbd_hit_finger_up_armor.pg	group	-	411df14584a3382b6b38422db5f05f93fc4a39d1	particle group: no shader of its own
+srbd/fingers/fractional/8/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	750c910ec573dbd328a50a7fc07445223bf10104	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	2f29dd9f9430af88721457c3c95f2494433c7578	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/5/srbd_finger_tracer_up.pe	carrier	particles\blend	93bd2c3f4412230b76cdcf2a2e8089b79ef8ef36	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/5/srbd_hit_finger_out.pg	group	-	d0fc99458a9c073d7267f76fa7e5bf4236b7dcb0	particle group: no shader of its own
+srbd/fingers/fractional/8/5/srbd_hit_finger_out_armor.pg	group	-	0f5b5d683754d3d78ca7df5fa50eee5d05673922	particle group: no shader of its own
+srbd/fingers/fractional/8/5/srbd_hit_finger_out_up.pg	group	-	2fb09bfebca0bb55a141104c1acaa285f06582a2	particle group: no shader of its own
+srbd/fingers/fractional/8/5/srbd_hit_finger_out_up_armor.pg	group	-	b960eea7959cc6ab02a9c7422edfc1acd2430e30	particle group: no shader of its own
+srbd/fingers/fractional/8/5/srbd_hit_finger_up.pg	group	-	cf2604297a28f6312a49a7c6c3a3dca9deea7092	particle group: no shader of its own
+srbd/fingers/fractional/8/5/srbd_hit_finger_up_armor.pg	group	-	68fb1e27ecc64dfe281e937e07128956d250e810	particle group: no shader of its own
+srbd/fingers/fractional/8/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	9e33a0dffb464e424d3b9abf829b67dce166ee3a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	dc919f62d074d08aa611180277496b8f1f163c58	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/6/srbd_finger_tracer_up.pe	carrier	particles\blend	1de85f4d4560b55d61bfc29d4392819ede7f05c1	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/6/srbd_hit_finger_out.pg	group	-	1249bb1ebbe8e42dca583c829011f6384496d8f4	particle group: no shader of its own
+srbd/fingers/fractional/8/6/srbd_hit_finger_out_armor.pg	group	-	7836dc917ee8ddf9e6cc01d22ee66e9ad92e7dce	particle group: no shader of its own
+srbd/fingers/fractional/8/6/srbd_hit_finger_out_up.pg	group	-	2b29932d66a74019eecbde2ac7894fa8386a14a1	particle group: no shader of its own
+srbd/fingers/fractional/8/6/srbd_hit_finger_out_up_armor.pg	group	-	79d6f90fe5326d830c066d6f42678bf1f8ca82e4	particle group: no shader of its own
+srbd/fingers/fractional/8/6/srbd_hit_finger_up.pg	group	-	0dd37c4247cfba1a19873721f476ceae0a39c0d8	particle group: no shader of its own
+srbd/fingers/fractional/8/6/srbd_hit_finger_up_armor.pg	group	-	3920b3fa03066cd0670892e83c8b0b699937eecd	particle group: no shader of its own
+srbd/fingers/fractional/8/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	224992d8960411b7f78ddb9b37ef8fe111a2e905	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	e7ae118b11db13a58823fccc49dba20912ab72cd	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/7/srbd_finger_tracer_up.pe	carrier	particles\blend	beec159a6e1c7bf729d146d49fd6cb035a692ff9	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/7/srbd_hit_finger_out.pg	group	-	cceb22da827943961cafbb7cce686ef5f56eb972	particle group: no shader of its own
+srbd/fingers/fractional/8/7/srbd_hit_finger_out_armor.pg	group	-	421c81b32d558ab0b89adea7af39b6148800a85d	particle group: no shader of its own
+srbd/fingers/fractional/8/7/srbd_hit_finger_out_up.pg	group	-	41f6aeda34af5af823532f216698f0c616fae9ce	particle group: no shader of its own
+srbd/fingers/fractional/8/7/srbd_hit_finger_out_up_armor.pg	group	-	c1e0da958f89197622551453ef9739f3a58e43b5	particle group: no shader of its own
+srbd/fingers/fractional/8/7/srbd_hit_finger_up.pg	group	-	151f5088ba16897c6367d9d764c2ece8c3d8009b	particle group: no shader of its own
+srbd/fingers/fractional/8/7/srbd_hit_finger_up_armor.pg	group	-	6d45add61e13264deb97a1797414d121e94b837d	particle group: no shader of its own
+srbd/fingers/fractional/8/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	3f43c5c6117667d54df85cc58c37110efaecb05d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	ff972467fa0d83b9463df36f635bb282ae134ae8	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/8/srbd_finger_tracer_up.pe	carrier	particles\blend	f6feab45d3d8f5a894bf1930120a5a2d59a6f5bf	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/8/srbd_hit_finger_out.pg	group	-	5336df5f4a4fb50676902303d27d4f652256ce97	particle group: no shader of its own
+srbd/fingers/fractional/8/8/srbd_hit_finger_out_armor.pg	group	-	bda579a4d643da55fcd83c4e6aac988913006aa8	particle group: no shader of its own
+srbd/fingers/fractional/8/8/srbd_hit_finger_out_up.pg	group	-	d4b8bde05bb3e35b224dc3dbaa59deaa725be928	particle group: no shader of its own
+srbd/fingers/fractional/8/8/srbd_hit_finger_out_up_armor.pg	group	-	f9a842e37d3f4071a383b3c156aec2502c3df832	particle group: no shader of its own
+srbd/fingers/fractional/8/8/srbd_hit_finger_up.pg	group	-	b844c5c20019bf5070d65a912586deb07d7e27cf	particle group: no shader of its own
+srbd/fingers/fractional/8/8/srbd_hit_finger_up_armor.pg	group	-	3afc298e2274934db0fafc1fbd525a8a2780fc80	particle group: no shader of its own
+srbd/fingers/fractional/8/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	8468a715d1427e8bd5f57d978106fae91ac9313b	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	b4389480483ff99b42c7ffbd8f3fe619603c47e5	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/9/srbd_finger_tracer_up.pe	carrier	particles\blend	c8bc1ba6390a3789f1aa0aba095696cb034d987e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/8/9/srbd_hit_finger_out.pg	group	-	856c28f84f2339ba91266c03604d08df51968bdd	particle group: no shader of its own
+srbd/fingers/fractional/8/9/srbd_hit_finger_out_armor.pg	group	-	cdd754666c9cccde3538b07fdfc2f4087221edcb	particle group: no shader of its own
+srbd/fingers/fractional/8/9/srbd_hit_finger_out_up.pg	group	-	3eae1786d019db32c99ed09f946959cceb033c9f	particle group: no shader of its own
+srbd/fingers/fractional/8/9/srbd_hit_finger_out_up_armor.pg	group	-	a6bd696028378c201ea4a83c30690456e96b6e45	particle group: no shader of its own
+srbd/fingers/fractional/8/9/srbd_hit_finger_up.pg	group	-	aed1b853653a2e883b2a3145121b336a702bd7d8	particle group: no shader of its own
+srbd/fingers/fractional/8/9/srbd_hit_finger_up_armor.pg	group	-	66f8135da3aef8061441de462febc81f57a385f9	particle group: no shader of its own
+srbd/fingers/fractional/8/smoke_point_blood_fingers_short.pe	gore	particles\blend	7225a52ee63f713da36944dee45f0836cc25ed23	name says blood
+srbd/fingers/fractional/8/smoke_point_fingers_short.pe	clean	particles\blend	1a1df24591ca0f1606c3706689ade475df4cce0d	name says smoke
+srbd/fingers/fractional/9/1/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	4de7ca4d0a51121ad3526e1956820211b555b699	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/1/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	f7b87161fc9a4729105bfe2830dd5c3162a03f76	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/1/srbd_finger_tracer_up.pe	carrier	particles\blend	a2636066deea70817173eaaf14ee449b4dd2ddf3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/1/srbd_hit_finger_out.pg	group	-	ff56eeec6c5fd5fcd4e4947c3a82042dbf484ef6	particle group: no shader of its own
+srbd/fingers/fractional/9/1/srbd_hit_finger_out_armor.pg	group	-	5bc31a83fb71006de131e9e6fd9d1801ac00b57c	particle group: no shader of its own
+srbd/fingers/fractional/9/1/srbd_hit_finger_out_up.pg	group	-	f9adaa6865df6e44e5222a342c064c54f6c9d249	particle group: no shader of its own
+srbd/fingers/fractional/9/1/srbd_hit_finger_out_up_armor.pg	group	-	25b5e901457d68cf538da5a6f9f025b7599e9eaa	particle group: no shader of its own
+srbd/fingers/fractional/9/1/srbd_hit_finger_up.pg	group	-	e1f96554aaff84a1d10be0f8e1540cc1d8914634	particle group: no shader of its own
+srbd/fingers/fractional/9/1/srbd_hit_finger_up_armor.pg	group	-	957565c0980ea19f55822f4c58241417d696785d	particle group: no shader of its own
+srbd/fingers/fractional/9/10/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	9c2e212c4eb7805eb0cf42d7f5d1442de75ab503	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/10/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	c9b70ec9a8543c7f087a99dc4d40fb27ad57b90f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/10/srbd_finger_tracer_up.pe	carrier	particles\blend	13674a69a112def9e0772b59ce02eeda48027198	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/10/srbd_hit_finger_out.pg	group	-	fc39eafed63ff57b5f8dfd67965c9a7c4ab33af7	particle group: no shader of its own
+srbd/fingers/fractional/9/10/srbd_hit_finger_out_armor.pg	group	-	564c3e2df168e97898abed249d1e972ab14db838	particle group: no shader of its own
+srbd/fingers/fractional/9/10/srbd_hit_finger_out_up.pg	group	-	33117860aafff067646e39e2017c8eafb16052e2	particle group: no shader of its own
+srbd/fingers/fractional/9/10/srbd_hit_finger_out_up_armor.pg	group	-	2e2a8f2cf5e4a13ec1d889b8e4edc5b479f9ed4a	particle group: no shader of its own
+srbd/fingers/fractional/9/10/srbd_hit_finger_up.pg	group	-	58ebf8c67b9c6546f2e14af890fb91b63787c1d4	particle group: no shader of its own
+srbd/fingers/fractional/9/10/srbd_hit_finger_up_armor.pg	group	-	3c3f1484f963ad29c5dda29b9e1b687786ca37b6	particle group: no shader of its own
+srbd/fingers/fractional/9/2/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	3b7bbc7a66e01b4fea6283df02fa3699a2c45a2d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/2/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	5338853ffbb26fbc4bde3d44ea37850dfaec5b3c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/2/srbd_finger_tracer_up.pe	carrier	particles\blend	e64d0c9109c5636f57850c4a528980cb7e798fd3	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/2/srbd_hit_finger_out.pg	group	-	afeecf1228538092f0afdcffea1516ce25da78e6	particle group: no shader of its own
+srbd/fingers/fractional/9/2/srbd_hit_finger_out_armor.pg	group	-	66aa534a4ee2d2e94486fa83d8e7404bdc3db7e1	particle group: no shader of its own
+srbd/fingers/fractional/9/2/srbd_hit_finger_out_up.pg	group	-	be03a4c7ab92f5d1002f14a5fba10af6bd6f1b58	particle group: no shader of its own
+srbd/fingers/fractional/9/2/srbd_hit_finger_out_up_armor.pg	group	-	6b2a6880423945a1f678ed47810f897657b803ac	particle group: no shader of its own
+srbd/fingers/fractional/9/2/srbd_hit_finger_up.pg	group	-	49fe3f2ec58e6175918dac5145fe48050ea366da	particle group: no shader of its own
+srbd/fingers/fractional/9/2/srbd_hit_finger_up_armor.pg	group	-	d376d0fcf6c97284a985f8c0f56900c984ccf3a6	particle group: no shader of its own
+srbd/fingers/fractional/9/3/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	e725210d66f5a830929539f1d74616c607cce474	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/3/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	c4f20af6996678862ea24ce060fcbc6a99e24856	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/3/srbd_finger_tracer_up.pe	carrier	particles\blend	01dc5791d402a596bcae99919bb7efbc4a4d484c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/3/srbd_hit_finger_out.pg	group	-	a999f0859bc7c472c5bea615c911e74d96b77ae4	particle group: no shader of its own
+srbd/fingers/fractional/9/3/srbd_hit_finger_out_armor.pg	group	-	2268acf435e4b1259ff72a318531dfaa9b793231	particle group: no shader of its own
+srbd/fingers/fractional/9/3/srbd_hit_finger_out_up.pg	group	-	671605a2008ff59552a7341a250803690aee2fb3	particle group: no shader of its own
+srbd/fingers/fractional/9/3/srbd_hit_finger_out_up_armor.pg	group	-	953186d6ad444314403563aa4cbebc77cebeb76c	particle group: no shader of its own
+srbd/fingers/fractional/9/3/srbd_hit_finger_up.pg	group	-	02a005f0d7b9dbce17b36640b6a93fe157437f89	particle group: no shader of its own
+srbd/fingers/fractional/9/3/srbd_hit_finger_up_armor.pg	group	-	7f071c422ac441b7c0c320e53301916333bd0075	particle group: no shader of its own
+srbd/fingers/fractional/9/4/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	6bdcd3329b1f6c5265db906d300649c3a9ee3d9e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/4/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	45bc6888cc843db7b2a8f3863af92e2e271d2dcf	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/4/srbd_finger_tracer_up.pe	carrier	particles\blend	d7c256e4f6a0b636bb287ea714359ea02729143d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/4/srbd_hit_finger_out.pg	group	-	0103c3c37ad50f8953c0e77cc0423119a310d979	particle group: no shader of its own
+srbd/fingers/fractional/9/4/srbd_hit_finger_out_armor.pg	group	-	7cdfe072aed7a19cded24a50ecdd73ad84df8edf	particle group: no shader of its own
+srbd/fingers/fractional/9/4/srbd_hit_finger_out_up.pg	group	-	6a9bdbe719fe43e3302efe6c86126ca20338100e	particle group: no shader of its own
+srbd/fingers/fractional/9/4/srbd_hit_finger_out_up_armor.pg	group	-	f8048488ea79dc3fa642b96808ae116c41926e58	particle group: no shader of its own
+srbd/fingers/fractional/9/4/srbd_hit_finger_up.pg	group	-	996614a36bb9088e8b53918f7adf9d6671d3f441	particle group: no shader of its own
+srbd/fingers/fractional/9/4/srbd_hit_finger_up_armor.pg	group	-	660e69e2193d2186109246c214dc3b6a7afb5e2b	particle group: no shader of its own
+srbd/fingers/fractional/9/5/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	721dbed92ba11705c7055850c5713f5d71de7a30	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/5/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	5b135ca03df0ea301333076583d49d47429b9c7a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/5/srbd_finger_tracer_up.pe	carrier	particles\blend	9566060d1973423432c4db0d275ad872046dcb44	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/5/srbd_hit_finger_out.pg	group	-	dfda423b52807dd281d80d67ba2174855a9fc773	particle group: no shader of its own
+srbd/fingers/fractional/9/5/srbd_hit_finger_out_armor.pg	group	-	a59cd0618b32cc790afa490dd9ff61354173e1a9	particle group: no shader of its own
+srbd/fingers/fractional/9/5/srbd_hit_finger_out_up.pg	group	-	93a0160b1d5f4d9b83090efa737d81cd7c0e9448	particle group: no shader of its own
+srbd/fingers/fractional/9/5/srbd_hit_finger_out_up_armor.pg	group	-	daae85bf09e4c69b84a7292e56dd99b8cc4375dd	particle group: no shader of its own
+srbd/fingers/fractional/9/5/srbd_hit_finger_up.pg	group	-	bdd9d11e7f782bbef1ff7e0230a521c1e8c9da93	particle group: no shader of its own
+srbd/fingers/fractional/9/5/srbd_hit_finger_up_armor.pg	group	-	c24cd5a6b8657c470e5c06793cefb70be18a59f5	particle group: no shader of its own
+srbd/fingers/fractional/9/6/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	5dafd28e7941650e4d6a3479475dbd053ee6ea8a	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/6/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	de3845e4ddb095caa55215dfe64109d8af0ee80e	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/6/srbd_finger_tracer_up.pe	carrier	particles\blend	dd6c8407a225852cb1d8b5c3eedb3b0904a91028	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/6/srbd_hit_finger_out.pg	group	-	4e96e4688953c9ee324b5f385d9f4e84b61f3c09	particle group: no shader of its own
+srbd/fingers/fractional/9/6/srbd_hit_finger_out_armor.pg	group	-	5c6d8979f9295cf6ac8161b65b3cf8d9f6b76b49	particle group: no shader of its own
+srbd/fingers/fractional/9/6/srbd_hit_finger_out_up.pg	group	-	464c6139c740700e5ca246a202d5d56b36bfa75f	particle group: no shader of its own
+srbd/fingers/fractional/9/6/srbd_hit_finger_out_up_armor.pg	group	-	a323db1c42122d57aa6d876c253bb68f92cd6366	particle group: no shader of its own
+srbd/fingers/fractional/9/6/srbd_hit_finger_up.pg	group	-	3b65eb82dc6c5bd8182ade47f0bd9b51bd36fc28	particle group: no shader of its own
+srbd/fingers/fractional/9/6/srbd_hit_finger_up_armor.pg	group	-	e31ae3daf455501a30a5ca0eb0c49559b01a6ded	particle group: no shader of its own
+srbd/fingers/fractional/9/7/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	e51addf7d3d4d072bba0ab7c3f08790b4a64ca6c	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/7/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	f7679c6d6aabc2ebe34d128d4615086236250472	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/7/srbd_finger_tracer_up.pe	carrier	particles\blend	3f118cf45d853ea97152e40b75973221a24912e4	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/7/srbd_hit_finger_out.pg	group	-	7bd8eb135a9449750783b36ebbeff4bc14c3d59c	particle group: no shader of its own
+srbd/fingers/fractional/9/7/srbd_hit_finger_out_armor.pg	group	-	94f8a92c2ec34faa4f39ddc7e2cbe340b1f3a973	particle group: no shader of its own
+srbd/fingers/fractional/9/7/srbd_hit_finger_out_up.pg	group	-	b3bf57716814d63f29e977c4d7b7186da54a3c90	particle group: no shader of its own
+srbd/fingers/fractional/9/7/srbd_hit_finger_out_up_armor.pg	group	-	f9c18dfe4228136fc517204d39cfffd862a5864c	particle group: no shader of its own
+srbd/fingers/fractional/9/7/srbd_hit_finger_up.pg	group	-	b7ff19580abfa4ad1ccbd9918c4af4ec7f86909b	particle group: no shader of its own
+srbd/fingers/fractional/9/7/srbd_hit_finger_up_armor.pg	group	-	ceffb10d1dfe3bdd7436d6c5c050c19cee2228aa	particle group: no shader of its own
+srbd/fingers/fractional/9/8/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	83b2b53442a66b02d4d34db5bc974c1a73b5f7e5	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/8/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	044ef93c3316240a0333929ca3e80b77efc6d5e2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/8/srbd_finger_tracer_up.pe	carrier	particles\blend	68d434e180de5d6e0d31c55a3469f636610457b2	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/8/srbd_hit_finger_out.pg	group	-	34f2bae499b99c1dbf098b5156922d506d3eacaa	particle group: no shader of its own
+srbd/fingers/fractional/9/8/srbd_hit_finger_out_armor.pg	group	-	d1bae5f837fe817c4c95e3ae610b4801dddef721	particle group: no shader of its own
+srbd/fingers/fractional/9/8/srbd_hit_finger_out_up.pg	group	-	921c0d3fb90880e826983602420d363124da1ff2	particle group: no shader of its own
+srbd/fingers/fractional/9/8/srbd_hit_finger_out_up_armor.pg	group	-	c4e667763f01e578e8452510e98f21c61f1e8aac	particle group: no shader of its own
+srbd/fingers/fractional/9/8/srbd_hit_finger_up.pg	group	-	c91a24bda1c665b0d987916165d656a6f7399dda	particle group: no shader of its own
+srbd/fingers/fractional/9/8/srbd_hit_finger_up_armor.pg	group	-	cd37e3435372ee476f35253ddb784b7867596c46	particle group: no shader of its own
+srbd/fingers/fractional/9/9/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	fae75525531b47c1166f380a867727f14a43fe4b	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/9/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	56988d17efc0996d2b039664172d878c4681018b	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/9/srbd_finger_tracer_up.pe	carrier	particles\blend	3598f5b69129abc2d13aa2a742572c1bb0664cbd	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/9/9/srbd_hit_finger_out.pg	group	-	089b718473796834aeda8d306a3454b277066a7c	particle group: no shader of its own
+srbd/fingers/fractional/9/9/srbd_hit_finger_out_armor.pg	group	-	2c2e1168db05cc284624a55902aef6aa1fa6b2c7	particle group: no shader of its own
+srbd/fingers/fractional/9/9/srbd_hit_finger_out_up.pg	group	-	1ecb063ab6b4bd911ec01792ecf8b321c00c7112	particle group: no shader of its own
+srbd/fingers/fractional/9/9/srbd_hit_finger_out_up_armor.pg	group	-	478bf62d4ae88852254e8c11c746a9ebb1eb7a9c	particle group: no shader of its own
+srbd/fingers/fractional/9/9/srbd_hit_finger_up.pg	group	-	7420ba1fdee0703fc2b4ae9ef66b0cf6266d4931	particle group: no shader of its own
+srbd/fingers/fractional/9/9/srbd_hit_finger_up_armor.pg	group	-	c58a6774608747ee1f2ef8d22c5bdb3a10c2756d	particle group: no shader of its own
+srbd/fingers/fractional/9/smoke_point_blood_fingers_short.pe	gore	particles\blend	095f6b487040854e243506a0a810a49196a053b2	name says blood
+srbd/fingers/fractional/9/smoke_point_fingers_short.pe	clean	particles\blend	e5a1122da80ff12a139aed24d9a1da4689845536	name says smoke
+srbd/fingers/fractional/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	339d8c0451321365616a31e3f828558388d41ba7	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	ed3a62d5ac924e1ac904c09a6dfc04097f91d49f	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/srbd_finger_tracer_up.pe	carrier	particles\blend	e622cac1c98fd47fd474751a97ec954e38737fd0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/fractional/srbd_hit_finger_out.pg	group	-	3541d50fbff07f5dd980ea60f51f00305d9a5940	particle group: no shader of its own
+srbd/fingers/fractional/srbd_hit_finger_out_armor.pg	group	-	f48d19f3ba5a29bbd2cbb0551872ac60d7967839	particle group: no shader of its own
+srbd/fingers/fractional/srbd_hit_finger_out_up.pg	group	-	32acc02da806239462578e2237b53d3270b65324	particle group: no shader of its own
+srbd/fingers/fractional/srbd_hit_finger_out_up_armor.pg	group	-	09c46980306dcb3ec639da1c552a1f5c1b30003f	particle group: no shader of its own
+srbd/fingers/fractional/srbd_hit_finger_up.pg	group	-	d55f0811e6edb5d835c4d4687a765b585ba6432c	particle group: no shader of its own
+srbd/fingers/fractional/srbd_hit_finger_up_armor.pg	group	-	ff2606ec606b4d252bb293ccf30bbf9297c6f578	particle group: no shader of its own
+srbd/fingers/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	339d8c0451321365616a31e3f828558388d41ba7	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	5a0f4d53f00718d3c8b4c8e3b7ea139a89b5fb5d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/srbd_finger_tracer_up.pe	carrier	particles\blend	e622cac1c98fd47fd474751a97ec954e38737fd0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/fingers/srbd_hit_finger_out.pg	group	-	3541d50fbff07f5dd980ea60f51f00305d9a5940	particle group: no shader of its own
+srbd/fingers/srbd_hit_finger_out_armor.pg	group	-	f48d19f3ba5a29bbd2cbb0551872ac60d7967839	particle group: no shader of its own
+srbd/fingers/srbd_hit_finger_out_up.pg	group	-	32acc02da806239462578e2237b53d3270b65324	particle group: no shader of its own
+srbd/fingers/srbd_hit_finger_out_up_armor.pg	group	-	09c46980306dcb3ec639da1c552a1f5c1b30003f	particle group: no shader of its own
+srbd/fingers/srbd_hit_finger_up.pg	group	-	d55f0811e6edb5d835c4d4687a765b585ba6432c	particle group: no shader of its own
+srbd/fingers/srbd_hit_finger_up_armor.pg	group	-	ff2606ec606b4d252bb293ccf30bbf9297c6f578	particle group: no shader of its own
+srbd/headshot/debris_armor.pe	clean	particles\blend	d1f7f09e1e323feb8ff74f7e925fd851b44bd801	name says armor
+srbd/headshot/debris_brain.pe	gore	particles\blend	ac916073951e0cf6e8238108de52d85c643e10ea	name says brain
+srbd/headshot/debris_brain_00.pe	gore	particles\blend	a7adc5f9600f33f43a0967c19fe473334fc4ff42	name says brain
+srbd/headshot/debris_brain_01.pe	gore	particles\blend	cad0805f25dd8ea731ec3692a40ebb10f09383c2	name says brain
+srbd/headshot/debris_brain_ground.pe	gore	particles\blend	84bc80a2f76db1e25edba068848a7592ae35bfba	name says brain
+srbd/headshot/debris_glass.pe	clean	particles\blend	c9b6a25c2474bdb5917a223aac43d4d59e870045	name says glass
+srbd/headshot/debris_skin.pe	gore	particles\blend	a4122749386f66a2092e368b3d9c134ac1ca02d6	name says skin
+srbd/headshot/debris_skull.pe	gore	particles\blend	3b0ff9b54d31053c843cd0355a1791f76f6c9ac5	name says skull
+srbd/headshot/debris_skull_00.pe	gore	particles\blend	eea762e35b9ce9a4f85b5bc381c14123a7a28306	name says skull
+srbd/headshot/debris_skull_01.pe	gore	particles\blend	482b8cacb1453a2995fb2bb66198543541a22225	name says skull
+srbd/headshot/debris_skull_02.pe	gore	particles\blend	c818d2b6c51cd91a1c188747f8b5d3fe969e0771	name says skull
+srbd/headshot/dismember_00.pg	group	-	060bb4797857de4aa3eac20b8cbb0b9f75e25f97	particle group: no shader of its own
+srbd/headshot/dismember_01.pg	group	-	648d9fd8f0a0e6d11c3286a75eb0abc1ed320dba	particle group: no shader of its own
+srbd/headshot/dismember_02.pg	group	-	6048d3f7409f692bb93d5a376f35c6fc5957b1c2	particle group: no shader of its own
+srbd/headshot/smoke_point_blood_fingers_short_00.pe	gore	particles\blend	647f7b6279c6dd563c7cc2b08032157af6b7c6d6	name says blood
+srbd/headshot/srbd_backsplash.pe	gore	particles\blend	dde18fdd7aa363de2ed13378cbb2f994c7054ecf	name says backsplash
+srbd/headshot/srbd_brain_spawn_cloud.pe	gore	particles\blend	8f94447524dd712bfe3c66b5227acdb2f34f4dea	name says brain
+srbd/headshot/srbd_gush_finger.pe	gore	particles\blend	f58c69f5418ff0158b28388a67b49654a618dee3	name says gush
+srbd/headshot/srbd_head_burst.pe	gore	particles\blend	3365dd3e2ee7e5007c3bf6ee4cddbd3b981bb3fb	no marker in name or texture cinemavfx\debris_new\sq_particlesflying2_3, but it fades to blood red (0.20, 0.06, 0.06)
+srbd/headshot/srbd_head_burst_back.pe	gore	particles\blend	9ca0eb6c94574498de9cebceab4d890eab6f62cc	texture jdude\newblood\bloodburst07_var4
+srbd/headshot/srbd_head_dust.pg	group	-	7615dd7581ba6e0473ff541ca50fd1f53a9003ab	particle group: no shader of its own
+srbd/headshot/srbd_headshot_armor.pg	group	-	a541bd85febe3d651ed28b1e4ac7c8270daedfd7	particle group: no shader of its own
+srbd/headshot/srbd_headshot_debris_armor.pe	clean	particles\blend	0c8811a140c4408ce873b063bcaff29a893b05ef	name says armor
+srbd/headshot/srbd_headshot_debris_glass.pe	clean	particles\blend	bc1c90896ca33b6a0ba7ce43928892b8b73550be	name says glass
+srbd/headshot/srbd_headshot_glass.pg	group	-	4bd28cba1611754223483e90a5ab5f622877b8d9	particle group: no shader of its own
+srbd/headshot/srbd_headshot_tear.pe	gore	particles\blend	b0278432947db7c88461e4421022707ed3ed422d	texture jdude\newblood\bloodburst03_var5
+srbd/headshot/srbd_hit_impact_smoke_points_00.pe	clean	particles\blend	d7565ecb70e08c1acf4395c9c6c45729f633d010	name says smoke
+srbd/headshot/srbd_skin_spawn_white.pe	gore	particles\alpha_add	768f95b86bf0873cfba8f0b747faa86a4a9bded3	name says skin
+srbd/headshot/srbd_upsplash.pe	gore	particles\blend	c0c3c84b9ef30c856e4ab315ec3b042dc595f5b1	no marker in name or texture farcry4\water_splash_01, but it fades to blood red (0.13, 0.01, 0.01)
+srbd/hit/body_impact_armor_00.pg	group	-	ea5b64d9c1f0308df0cc76f60da2bbc7dee2cfa4	particle group: no shader of its own
+srbd/hit/body_impact_armor_01.pg	group	-	7c208c723ce28623474a44408d023b2538bfaa39	particle group: no shader of its own
+srbd/hit/body_impact_armor_02.pg	group	-	7c208c723ce28623474a44408d023b2538bfaa39	particle group: no shader of its own
+srbd/hit/body_impact_sparks_00.pg	group	-	a328cc09757350f2bc3a1c329eb7b6c186edb4a1	particle group: no shader of its own
+srbd/hit/body_impact_sparks_01.pg	group	-	26d971668450e5e4b9551a58ac4ac1fa5fbf3bd0	particle group: no shader of its own
+srbd/hit/body_impact_sparks_02.pg	group	-	92008911271358bd92650392e296f9642093061f	particle group: no shader of its own
+srbd/hit/hit_fraction_tracers/srbd_finger_tracer_out.pe	carrier	particles\alpha_add	339d8c0451321365616a31e3f828558388d41ba7	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/hit/hit_fraction_tracers/srbd_finger_tracer_out_up.pe	carrier	particles\alpha_add	5a0f4d53f00718d3c8b4c8e3b7ea139a89b5fb5d	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/hit/hit_fraction_tracers/srbd_finger_tracer_up.pe	carrier	particles\blend	e622cac1c98fd47fd474751a97ec954e38737fd0	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/hit/pg_00.pg	group	-	36adee0e6508541a81e3bcbf0d1fc2899f6a2541	particle group: no shader of its own
+srbd/hit/smoke_point_blood_fingers_short.pe	gore	particles\blend	4b4e1f83cb23a56d791e65f7ad9065e48a33f355	name says blood
+srbd/hit/smoke_point_fingers_short.pe	clean	particles\blend	e295df1f5f6e7986592b857e3e0b55de08f1ad00	name says smoke
+srbd/hit/srbd_hit_armor.pg	group	-	b411d677e6d877e1641584ad1a75e149157dcc64	particle group: no shader of its own
+srbd/hit/srbd_hit_debris_armor.pe	clean	particles\blend	bcb30866e6a37ef766421534263a8f8273a43594	name says armor
+srbd/hit/srbd_hit_debris_cloth.pe	clean	particles\blend	6e8128a684059411dd3a4ee0ac8e2b1c0e6aa2c0	name says cloth
+srbd/hit/srbd_hit_debris_glass.pe	clean	particles\blend	c76d4f53a211453c2899b22b924f8020cb0bb800	name says glass
+srbd/hit/srbd_hit_glass.pg	group	-	1341f08cc76a6426bbf975461d61babc480ad2eb	particle group: no shader of its own
+srbd/hit/srbd_hit_impact.pe	gore	particles\blend	2c6a4a22a9bdeb72a925aae491d72d8ab53ca006	texture crysis_3\blood_anim_a
+srbd/hit/srbd_hit_impact_smoke.pe	clean	particles\blend	524630df47425169c66070374e02812348340bdb	name says smoke
+srbd/hit/srbd_single_blank_tracer.pe	carrier	particles\alpha_add	9030a4021cbd159d25d77d6a07868ede32db57d4	texture srbd\srbd-finger-tracer is one transparent texel: draws nothing, only spawns its child effects
+srbd/srbd_hit_flesh_00.pg	group	-	8439d1df986805ffe593da8de0e48eee3f16e62a	particle group: no shader of its own
+srbd/srbd_hit_flesh_01.pg	group	-	d717fd4f7ac83574b52fd56b161ff9c8e173cbbc	particle group: no shader of its own
+srbd/srbd_hit_flesh_02.pg	group	-	763a7f9a95dce410c66a62324fa7fcd20f78b250	particle group: no shader of its own
+srbd/srbd_hit_flesh_02a.pg	group	-	25e44336b1808195f6c534d5aa0e6024224a57b5	particle group: no shader of its own
+srbd/srbd_hit_flesh_headshot.pg	group	-	d927e9a48044c88368c3ca7f4638d2bca4108258	particle group: no shader of its own
+srbd/wound/pg_00.pg	group	-	07d77772aa7120db4a8ac68702b2d175fb54346d	particle group: no shader of its own
+srbd/wound/srbd_blood_neck_splash_exit.pe	gore	particles\blend	70e2654fbd6db3120a6292041b210ca1ad37c5cf	name says blood
+srbd/wound/srbd_blood_neck_splurt_exit.pe	gore	particles\blend	f3957fdd22d92efdf81ad15636d08dc157848233	name says blood
+srbd/wound/srbd_exit_cloud_thick_slow.pe	gore	particles\blend	81ab5e60ac13694015449e000ae6623f95bdf2c7	name says exit
+srbd/wound/srbd_exit_cloud_thin_quick.pe	gore	particles\blend	88d53249bedb6d52018e807ec6ebf49450362659	name says exit
+srbd/wound/srbd_exit_random.pe	gore	particles\blend	f7195b015dc504a371c9baf274b0fc7dd9d64171	name says exit
+srbd/wound/srbd_exit_right_thick.pe	gore	particles\blend	910532641e875ececabe1805ef5a740c53b12f08	name says exit
+srbd/wound/srbd_exit_thick.pe	gore	particles\blend	098e9f92f8023fef5603e648b3f2f76c3ec9131f	name says exit
+srbd/wound/srbd_wound_exit_right.pe	gore	particles\blend	f0e88a074ae0a48cada2010c649dc8e8444a5714	name says wound
+zgo/back_spray.pe	gore	particles\blend	41e2b9464f619f33204b788c40817e1065862c0f	texture zgo\fx_streak
+zgo/dribble.pe	gore	particles\blend	70b472bee5432b008161b8f474b961591fbe4d17	texture zgo\fx_streak
+zgo/drip_fall.pe	gore	particles\blend	7129ca3a4a2a07e2a0d01a817375080001c5fa34	texture zgo\fx_streak
+zgo/drip_fall_double.pe	gore	particles\blend	c8020a3484d9c8256653438b1868ec31c141faa5	texture zgo\fx_streak
+zgo/exit_spray_heavy.pe	gore	particles\blend	291af854008f0b2262e2f94a1e14cb6bf281cbea	name says exit
+zgo/exit_spray_light.pe	gore	particles\blend	c454201c5de75538cf74bb8919689dd27b0c641b	name says exit
+zgo/gush.pe	gore	particles\blend	a19606f7e5647884e34098689d436e52d21b0a85	name says gush
+zgo/jet_medium.pe	gore	particles\blend	8b9e3d741f2b4ed2eab5f8cab943d2b1ac3fe5eb	texture zgo\fx_streak
+zgo/jet_strong.pe	gore	particles\blend	b841ff34d745339227a55ce22f572f2954e35911	texture zgo\fx_streak
+zgo/jet_weak.pe	gore	particles\blend	0f3f12d687a53a413a194b4df644afcf63562a1d	texture zgo\fx_streak
+zgo/props/burst_wood.pe	clean	particles\blend	76e278949989239bb27735ce6e9d0f461363439e	name says wood
+zgo/props/chips_light.pe	clean	particles\blend	ee227a232bd8ee6ebcfb9b243e4f5e04455323a3	name says chips
+zgo/props/chips_stone.pe	clean	particles\blend	dad8179e9f588df7f4c6e17d5bcf83ae295eed6f	name says stone
+zgo/props/dust_light.pe	clean	particles\blend	bc9e5a9000686de992771437bc1fa0292c0717b1	name says dust
+zgo/props/dust_metal.pe	clean	particles\blend	496c1e722dc54cc3a41043e8715c2ce14b355f82	name says dust
+zgo/props/dust_stone.pe	clean	particles\blend	207d8852870125422288c1dc840cfbda8e6462c3	name says dust
+zgo/props/dust_stone_big.pe	clean	particles\blend	25b3669a4d054d43c6306b4ca03004eeb97d329b	name says dust
+zgo/props/dust_wood.pe	clean	particles\blend	7cee0f33a46dfb2b6553849f5711a4361f4cfb3f	name says dust
+zgo/props/dust_wood_big.pe	clean	particles\blend	c8fe7b8671d081cd3ed90f6092fd5ed2977685a2	name says dust
+zgo/props/fluff.pe	clean	particles\blend	cb4a2743e6e050ce3d8597f63a82e21b1a80f724	no gore marker in name, folder or texture fallout4\clothbitanim (left visible)
+zgo/props/fluff_paper.pe	clean	particles\blend	88e67530731cb92fb168592668cf29b1221b225f	no gore marker in name, folder or texture fallout4\clothbitanim (left visible)
+zgo/props/glass.pe	clean	particles\blend	861ab77b624a612ac4164cada04f36a937b432a9	name says glass
+zgo/props/glass_burst.pe	clean	particles\blend	c3b6702dc5eaee4d6ab3185f11a73b854ef0600f	name says glass
+zgo/props/jet_gas.pe	clean	particles\blend	9e0811d3ff21501bbb9baaa9ebe74c866549e203	no gore marker in name, folder or texture crysis_3\anm_smoke_05a (left visible)
+zgo/props/jet_powder.pe	clean	particles\blend	cc948ed3c06f4ccb148c876ca25a72816f8b535c	name says powder
+zgo/props/leak_chem.pe	clean	particles\blend	30eca380aac43e345ac5ce3ea4efaba8e9b3e4d9	name says chem
+zgo/props/leak_fuel.pe	clean	particles\blend	641f6bbbabc7fba9ad5cf4335432507b1c73059f	name says leak
+zgo/props/leak_oil.pe	clean	particles\blend	ce1fb722882feb8c5476c873eb0110817c891152	name says leak
+zgo/props/leak_water.pe	clean	particles\blend	0f506dc53c1436d931b5e6da9dacafbc9bb76469	name says leak
+zgo/props/sparks.pe	clean	particles\add	50eb24f55d7a3a6e9063cb27900286805d0fda4a	name says spark
+zgo/props/sparks_big.pe	clean	particles\add	8cc6d0c60098d3733bc613012d79b4be6612c484	name says spark
+zgo/props/sparks_small.pe	clean	particles\add	1fef260fe0d85e0ab74c0136cfbfe19623690d28	name says spark
+zgo/props/splinters.pe	clean	particles\blend	f898a8400ae03e4530b32c8e15aafb998e1c2600	name says splinter
+zgo/splat_small.pe	gore	particles\blend	5a181ff7dbffa4724e669f8a91428b02eca19b65	texture zgo\fx_streak
+zgo/world/breach_brick.pe	clean	particles\blend	375d04c12a90de107402c6d3f5532100db190dbd	name says brick
+zgo/world/breach_plaster.pe	clean	particles\blend	f9d669b831ca1a1afac72b80be80caf9b348f6d6	name says plaster
+zgo/world/breach_stone.pe	clean	particles\blend	0d1ac5eb2e6441954e9a86af9681d82b09603b07	name says stone
+zgo/world/breach_wood.pe	clean	particles\blend	823d1f13dec77e910ebef0001a5dfdca5dc9c9a1	name says wood
+zgo/world/ceiling_dust.pe	clean	particles\blend	3e4438e595c2b8dd4a3cbb286b929cb4fecff21b	name says dust
+zgo/world/ceiling_grit.pe	clean	particles\blend	0d40650e5b1e0f1a3588fdf732cf0c036c4bbc83	name says grit
+zgo/world/chips_brick.pe	clean	particles\blend	abb5193d0c0566ad25750c6fe12a065021b8d8dd	name says brick
+zgo/world/chips_plaster.pe	clean	particles\blend	b15108faf1c7481beb4fc3a9f8f221204b1babec	name says chips
+zgo/world/chips_stone.pe	clean	particles\blend	fe56ba8dd2f62cc908243d3ee2b7e132000d5b31	name says stone
+zgo/world/crater_clods_earth.pe	clean	particles\blend	ffcb57659c49952541da1e127f0a0a0070703d6a	name says earth
+zgo/world/crater_clods_stone.pe	clean	particles\blend	8ac74d4eb1992bbdbf498d822b370736c7839661	name says stone
+zgo/world/crater_column_earth.pe	clean	particles\blend	31c1796cee70aadb950d6e0897862cc20fe0bd00	name says earth
+zgo/world/crater_column_stone.pe	clean	particles\blend	1d813171a8649ab1e1d6691fc05339368642c33b	name says stone
+zgo/world/crater_flash_dust.pe	clean	particles\blend	d25fc9eeb0117e02945fbae7aae2d5c4e730f62f	name says dust
+zgo/world/crater_ring_earth.pe	clean	particles\blend	57440bad619a59b60e7ef722ee7d24c374dec628	name says earth
+zgo/world/crater_ring_stone.pe	clean	particles\blend	d103c2ab79739a5b64becce3dbb9b5e27d60e5ad	name says stone
+zgo/world/crater_smoke.pe	clean	particles\blend	3b4bd6118fd65b5ba7961576ec410563fc50fc95	name says smoke
+zgo/world/dirt_earth.pe	clean	particles\blend	a236fc058777178070c1813a48288088d968d937	name says dirt
+zgo/world/dust_big_brick.pe	clean	particles\blend	398fab6b1e077e00c7a87706adaeb95e8b1ebfd8	name says dust
+zgo/world/dust_big_earth.pe	clean	particles\blend	1de2f59358a54a11e6b644c0304c9f61adfb2eae	name says dust
+zgo/world/dust_big_plaster.pe	clean	particles\blend	1b9f68aee994329cdab3f64e843da104762cc283	name says dust
+zgo/world/dust_big_stone.pe	clean	particles\blend	e6ad3aa63fb19a657f0953a358ce6e85ea9b1589	name says dust
+zgo/world/dust_big_wood.pe	clean	particles\blend	5cfbe9ff7bda18f5a40e83bb97706fcc5266edff	name says dust
+zgo/world/dust_brick.pe	clean	particles\blend	b51060c0f9240f065b4f921616e3f0d5582e29ab	name says dust
+zgo/world/dust_earth.pe	clean	particles\blend	a6ec338b94d6ca1d6429fb8aac05e7b4523fe5e1	name says dust
+zgo/world/dust_plaster.pe	clean	particles\blend	3ab64cf658b3884a762faff50795aed91702feba	name says dust
+zgo/world/dust_stone.pe	clean	particles\blend	d5dce24f2bd6f49dd2e9216e6aafef1aa9a6e0ea	name says dust
+zgo/world/dust_wood.pe	clean	particles\blend	86da9167a8ffa98f44632214b0e226cae53f2af0	name says dust
+zgo/world/smoke_metal.pe	clean	particles\alpha_add	70857161de2575bdf717c0aec38b66653e68c4eb	name says smoke
+zgo/world/sparks_big_metal.pe	clean	particles\add	212819737839f017621a02e1f45e93361016f6f4	name says spark
+zgo/world/sparks_metal.pe	clean	particles\add	cb1da5ff120e91c55924ca976755670676e28f40	name says spark
+zgo/world/splinters_wood.pe	clean	particles\blend	19c9317ba9d36c9a6826831af44e9ac3f2e0f5d9	name says wood

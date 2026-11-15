@@ -1,0 +1,319 @@
+--[[
+  Zone Gore Overhaul - shared helpers
+  (settings, logging, vector / ray maths, session state, main-thread queue)
+
+  Builds on ideas and data from Painter of the Zone by sunn (Apache 2.0).
+  See CREDITS.txt in the mod root.
+
+  Rule of thumb for the whole mod: anything that touches wallmarks, bone
+  visibility or script attachments must run on the main thread. On the
+  multithreaded (develop-mt) engine the hit callbacks don't, so hit handlers
+  copy what they need and push work through defer().
+]]
+
+------------------------------------------------------------------------
+-- Settings: every option is described in zgo_settings (MCM id "zgo")
+------------------------------------------------------------------------
+function setting(key)
+	return zgo_settings.get(key)
+end
+
+function enabled() return setting("general/enable") and true or false end
+
+------------------------------------------------------------------------
+-- Events between modules. Feature modules listen instead of zgo_main
+-- calling each of them. Every event is raised on the main thread.
+--   "hit"        (obj, ev)       a creature hit, after classification (authority)
+--   "bullet"     (rec)           any bullet impact this machine saw, static
+--                                geometry included (target_id 65535); rec is a copy:
+--                                pos, dir, speed, ammo, element, target_id, shooter, weapon_id
+--   "death"      (victim, who)   a creature died
+--   "explosion"  (rec)           an explosion's first fragment: eid, center, thrower (authority)
+--   "blast_body" (obj, ev, r)    an explosion resolved on one body (authority)
+------------------------------------------------------------------------
+local listeners = {}
+
+function on_event(name, fn)
+	local l = listeners[name] or {}
+	listeners[name] = l
+	for _, f in ipairs(l) do if f == fn then return end end
+	l[#l + 1] = fn
+end
+
+function off_event(name, fn)
+	local l = listeners[name]
+	if not l then return end
+	for i = #l, 1, -1 do if l[i] == fn then table.remove(l, i) end end
+end
+
+function emit_event(name, ...)
+	local l = listeners[name]
+	if not l then return end
+	for _, f in ipairs(l) do
+		local ok, err = pcall(f, ...)
+		if not ok then log("%s listener error: %s", name, tostring(err)) end
+	end
+end
+
+-- false in kid mode: nothing gory is drawn on this machine. Decisions, game
+-- behaviour and co-op lines carry on, so partners still get theirs.
+function gore() return not setting("general/kid_mode") end
+
+------------------------------------------------------------------------
+-- Logging (this engine's printf only understands %s)
+------------------------------------------------------------------------
+function log(fmt, ...)
+	local ok, msg = pcall(string.format, fmt, ...)
+	printf("[ZGO] %s", ok and msg or tostring(fmt))
+end
+
+function dbg(fmt, ...)
+	if setting("general/debug") then log(fmt, ...) end
+end
+
+function r3(n) return n and string.format("%.3f", n) or "nil" end
+function f3(n) return string.format("%.3f", n or 0) end
+-- round exactly as a synced number arrives on the other machines
+function q3(n) return tonumber(f3(n)) end
+function qv(v) return v3(q3(v.x), q3(v.y), q3(v.z)) end
+
+------------------------------------------------------------------------
+-- Vector maths (plain numbers, no reliance on optional vector methods)
+------------------------------------------------------------------------
+function v3(x, y, z) return vector():set(x or 0, y or 0, z or 0) end
+function vcopy(a) return vector():set(a.x, a.y, a.z) end
+function dot(a, b) return a.x * b.x + a.y * b.y + a.z * b.z end
+function cross(a, b) return v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x) end
+function add(a, b) return v3(a.x + b.x, a.y + b.y, a.z + b.z) end
+function sub(a, b) return v3(a.x - b.x, a.y - b.y, a.z - b.z) end
+function mul(a, s) return v3(a.x * s, a.y * s, a.z * s) end
+function along(p, d, s) return v3(p.x + d.x * s, p.y + d.y * s, p.z + d.z * s) end
+function len(a) return math.sqrt(dot(a, a)) end
+function unit(a)
+	local l = len(a)
+	if l < 1e-5 then return nil end
+	return v3(a.x / l, a.y / l, a.z / l)
+end
+
+function rand(lo, hi) return lo + math.random() * (hi - lo) end
+function clamp(x, lo, hi) if x < lo then return lo elseif x > hi then return hi end return x end
+
+-- random unit vector inside a cone around d (half-angle in radians);
+-- rnd (optional) is a 0..1 generator, e.g. a seeded rng(...).next
+function cone(d, half, rnd)
+	rnd = rnd or math.random
+	local ref = math.abs(d.y) < 0.9 and v3(0, 1, 0) or v3(1, 0, 0)
+	local e1 = unit(cross(d, ref)) or v3(1, 0, 0)
+	local e2 = unit(cross(d, e1)) or v3(0, 0, 1)
+	local a = rnd() * 2 * math.pi
+	local t = math.tan(half * math.sqrt(rnd()))
+	return unit(v3(d.x + (e1.x * math.cos(a) + e2.x * math.sin(a)) * t,
+		d.y + (e1.y * math.cos(a) + e2.y * math.sin(a)) * t,
+		d.z + (e1.z * math.cos(a) + e2.z * math.sin(a)) * t)) or vcopy(d)
+end
+
+-- deterministic generator: the same seed gives the same numbers on every
+-- co-op machine (Park-Miller; exact in doubles)
+function rng(seed)
+	local s = math.floor(math.abs(tonumber(seed) or 1)) % 2147483646 + 1
+	local g = {}
+	function g.next()
+		s = (s * 16807) % 2147483647
+		return (s - 1) / 2147483646
+	end
+	function g.range(lo, hi) return lo + g.next() * (hi - lo) end
+	function g.int(lo, hi) return math.min(hi, lo + math.floor(g.next() * (hi - lo + 1))) end
+	return g
+end
+
+function hash(str)
+	local h = 5381
+	str = tostring(str)
+	for i = 1, #str do h = (h * 33 + string.byte(str, i)) % 2147483647 end
+	return h
+end
+
+------------------------------------------------------------------------
+-- Rays and surfaces
+------------------------------------------------------------------------
+function cast(pos, dir, range, flags, ignore)
+	local rq = ray_pick(pos, dir, range, flags or rq_target.rqtStatic, ignore)
+	if not rq:query() then return nil end
+	return rq:get_distance(), rq:get_object()
+end
+
+-- hit point + surface normal (facing back along the ray) from three parallel rays
+function surface_at(pos, dir, range, ignore)
+	local d = cast(pos, dir, range, rq_target.rqtStatic, ignore)
+	if not d then return nil end
+	local p0  = along(pos, dir, d)
+	local ref = math.abs(dir.y) < 0.9 and v3(0, 1, 0) or v3(1, 0, 0)
+	local e1  = unit(cross(dir, ref))
+	local e2  = e1 and unit(cross(dir, e1))
+	local n
+	if e2 then
+		local o1, o2 = along(pos, e1, 0.04), along(pos, e2, 0.04)
+		local d1 = cast(o1, dir, range, rq_target.rqtStatic, ignore)
+		local d2 = cast(o2, dir, range, rq_target.rqtStatic, ignore)
+		if d1 and d2 and math.abs(d1 - d) < 0.3 and math.abs(d2 - d) < 0.3 then
+			n = unit(cross(sub(along(o1, dir, d1), p0), sub(along(o2, dir, d2), p0)))
+		end
+	end
+	n = n or v3(-dir.x, -dir.y, -dir.z)
+	if dot(n, dir) > 0 then n = v3(-n.x, -n.y, -n.z) end
+	return p0, n, d
+end
+
+-- The engine's decal frame (WallmarksEngine::BuildMatrix): image x runs to the
+-- right seen from in front, image y runs down the wall, rotation r turns the
+-- image by -r. Rotation 0 therefore keeps runs hanging straight down.
+function decal_axes(n)
+	local y  = math.abs(n.y) > 0.99 and v3(1, 0, 0) or v3(0, 1, 0)
+	local up = unit(sub(y, mul(n, dot(n, y)))) or v3(0, 1, 0)
+	return cross(n, up), up
+end
+
+-- rotation (degrees) that points image +x along t (a direction in the surface)
+function rot_toward(n, t)
+	local right, up = decal_axes(n)
+	return -math.deg(math.atan2(dot(t, up), dot(t, right)))
+end
+
+-- world directions of image +x / image +y (down) for a decal with rotation rot
+function image_axes(n, rot)
+	local right, up = decal_axes(n)
+	local r = math.rad(-rot)
+	local c, s = math.cos(r), math.sin(r)
+	return v3(right.x * c + up.x * s, right.y * c + up.y * s, right.z * c + up.z * s),
+	       v3(right.x * s - up.x * c, right.y * s - up.y * c, right.z * s - up.z * c)
+end
+
+------------------------------------------------------------------------
+-- Session (xrRazom co-op is optional; everything works single player)
+------------------------------------------------------------------------
+function in_session()
+	return rawget(_G, "XrrSessionActive") == true
+end
+
+function is_client()
+	if not in_session() then return false end
+	local f = rawget(_G, "XrrIsClient")
+	return f and f() or false
+end
+
+-- true single player too: the host is the authority for every effect
+function is_authority()
+	return not is_client()
+end
+
+function has_peers()
+	return in_session() and not is_client() and (tonumber(rawget(_G, "XrrPeerCount")) or 0) > 0
+end
+
+function is_peer(id)
+	if not (in_session() and id) then return false end
+	local players = rawget(_G, "XrrPlayers")
+	if not players then return false end
+	local ok, res = pcall(function() return players():IsPlayerDummy(id) end)
+	return ok and res or false
+end
+
+-- shots that should paint: the local player, or (on the host) a co-op peer
+function is_player_shooter(id)
+	if not (id and db.actor) then return false end
+	return id == db.actor:id() or is_peer(id)
+end
+
+-- resolve an object id sent by the host (NPCs/corpses keep host ids on clients,
+-- items may be remapped)
+function resolve(id, sec)
+	id = tonumber(id)
+	if not id then return nil end
+	local o = level.object_by_id(id)
+	if o and (not sec or o:section() == sec) then return o end
+	local xa = in_session() and rawget(_G, "XrrAlife")
+	if xa then
+		local ok, lid = pcall(function() return xa():GetLocalItemIDByHostID(id) end)
+		if ok and lid and lid ~= 65535 then
+			o = level.object_by_id(lid)
+			if o and (not sec or o:section() == sec) then return o end
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Main-thread queue
+------------------------------------------------------------------------
+-- explicit head / tail: '#' is undefined on a table with holes at the front
+local jobs, head, tail = {}, 1, 0
+
+function defer(fn, ...)
+	tail = tail + 1
+	jobs[tail] = { fn = fn, n = select("#", ...), ... }
+end
+
+function flush_jobs()
+	local budget = setting("performance/queue_budget") or 24
+	local done = 0
+	while head <= tail and done < budget do
+		local j = jobs[head]
+		jobs[head] = nil
+		head = head + 1
+		done = done + 1
+		local ok, err = pcall(j.fn, unpack(j, 1, j.n))
+		if not ok then log("job error: %s", tostring(err)) end
+	end
+	if head > tail then jobs, head, tail = {}, 1, 0 end
+end
+
+function pending_jobs() return tail - head + 1 end
+
+function clear_jobs() jobs, head, tail = {}, 1, 0 end
+
+------------------------------------------------------------------------
+-- Frame scheduler for delayed / repeating work (main thread)
+------------------------------------------------------------------------
+local timers = {}
+
+-- run fn(...) after ms; return true from fn to repeat after the same delay
+function after(ms, fn, ...)
+	timers[#timers + 1] = { at = time_global() + ms, ms = ms, fn = fn, n = select("#", ...), ... }
+end
+
+function update_timers()
+	if #timers == 0 then return end
+	local now, keep = time_global(), {}
+	local due = {}
+	for _, t in ipairs(timers) do
+		if now >= t.at then due[#due + 1] = t else keep[#keep + 1] = t end
+	end
+	timers = keep
+	for _, t in ipairs(due) do
+		local ok, again = pcall(t.fn, unpack(t, 1, t.n))
+		if not ok then
+			log("timer error: %s", tostring(again))
+		elseif again then
+			t.at = now + (type(again) == "number" and again or t.ms)
+			timers[#timers + 1] = t
+		end
+	end
+end
+
+function clear_timers() timers = {} end
+
+------------------------------------------------------------------------
+-- Misc
+------------------------------------------------------------------------
+function is_creature(o)
+	return o and (IsStalker(o) or IsMonster(o)) and true or false
+end
+
+function file_exists(fs_root, path)
+	local ok, res = pcall(function() return getFS():exist(fs_root, path) end)
+	return ok and res and true or false
+end
+
+function hud_msg(text)
+	log(text)
+	pcall(function() actor_menu.set_msg(1, text, 6) end)
+end

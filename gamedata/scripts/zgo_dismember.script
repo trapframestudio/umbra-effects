@@ -1,0 +1,1139 @@
+--[[
+  Zone Gore Overhaul - dismemberment
+
+  Bone hiding approach and creature / limb data from xcvb's Dismemberment
+  (bvcx) as edited by sunn for Painter of the Zone (Apache 2.0); decision
+  logic, persistence, severed limbs, stumps and co-op sync are new.
+
+  * Only kills or corpses lose parts; the living never do.
+  * Chance comes from the hit profile (calibre class / energy), with
+    accumulated damage per limb on corpses, so a few rifle rounds into a
+    dead man's arm will take it off, a pistol never will by itself.
+  * Removes from the hit bone downward (a shot to the forearm takes the
+    forearm and hand, not the whole arm).
+  * Heads either come off whole (decapitation, the head flies) or burst.
+  * Point-blank / overkill explosions gib the body: the head bursts, most
+    limbs come off and meat is thrown around.
+  * Human jaws can be shot off alone by mid-power rounds.
+  * State is saved and re-applied (the engine forgets hidden bones on load
+    and whenever an object goes offline).
+
+  Engine limit (xray-monolith CPHElement::BonesCallBack): once a body is a
+  ragdoll, every bone that owns a physics element (on people: pelvis, spine,
+  head, upper arm, forearm, hand, thigh, calf, foot) gets its matrix written
+  by the physics every frame, so hiding it does nothing - only element-less
+  bones (jaw, fingers, toes, eyes) collapse. A part hidden BEFORE the ragdoll
+  is built is fine: the shell is built without it (and a saved corpse keeps
+  its hidden-bone mask, so it is rebuilt without it after a load too).
+  So a cut is only made when it can be shown (can_show_cut); otherwise the
+  flying piece would leave the body looking whole. Baked ZGO models (one
+  sub-mesh per severable section, which the renderer drops when all of its
+  bones are hidden, physics or not) lift the limit.
+
+  Two ways to take a part away on a baked model (each machine its own):
+  * bones (the default): hide the section's bones once the ragdoll exists.
+    Hidden earlier, the part would get no physics and the joint above it
+    would pinch, so a cut on a body that is still falling waits for it.
+  * the off shader (MCM "Cut with the off shader", experimental): switch the
+    section's sub-meshes (and every section below it) to zgo\off through
+    set_shader. Nothing waits, nothing pinches, the ragdoll keeps every
+    element. Once the ragdoll exists the bones are hidden as well, so the
+    collision form and skeleton wallmarks skip the missing part
+    (xr_collide_form.cpp CCF_Skeleton::BuildState, SkeletonCustom.cpp
+    AddWallmark: both skip hidden bones). set_shader state belongs to one
+    online object and is not saved: it is put back after a load, when the
+    body comes online again, when its model changes and when something else
+    reset it (checked every few seconds through get_shaders).
+  Stump caps: zgo_debris (meat, or the bake's fitted caps); with the off
+  shader and an --experimental-caps bake, the caps inside the model.
+
+  Co-op: the host decides. "D" is one cut as it happens (with the flying
+  piece), "Q" is the whole list of cuts of one body (sent in rounds, and
+  with no cuts when the host forgets a body), so every machine ends up with
+  the host's state. Sub-mesh ids never go on the wire: each machine maps
+  the cut roots onto its own bake.
+]]
+
+local U = zgo_util
+local T = zgo_tables
+
+local severed = {}      -- id -> { s = section, b = { root_bone, ... } }
+local accum   = {}      -- id -> { [root] = { e = energy, t = time } }
+local stumps  = {}      -- id -> { [root] = { par, off, dloc } } cut ends made this session
+local capped  = {}      -- id -> { [root] = true } cuts shown (hidden + capped) on the current online object
+local pending = {}      -- id -> { { root, vel, ... } } cuts on baked models waiting for the ragdoll
+local views   = {}      -- id -> off-shader state of the current online object (shader_view)
+local awaiting = {}     -- id -> true: an off-shader view whose bones get hidden once the ragdoll exists
+local unsent  = {}      -- id -> { [root] = time }: decided here, its D line not out yet (kept out of Q rounds)
+local PENDING_MS = 1500 -- (no ragdoll by then: show it anyway)
+local UNSENT_MS = 3000
+local REAPPLY_MS, REBROADCAST_MS = 2500, 20000
+local next_reapply, next_rebroadcast, rebroadcast_at = 0, 0, 0
+
+local HEAD_ROOTS = { bip01_head = true, bip01_neck = true, bip01_ponytail2 = true, jaw_1 = true }
+-- mutants whose head is cut at another bone (zgo_tables limb_map / bone_groups)
+local HEAD_BY_KEY = {
+	boar = { bone01 = true }, pseudo_dog = { bone01 = true }, burer = { head = true },
+	giant = { head = true }, chimera = { head_little = true, head_boss = true },
+}
+local TOUGH = { giant = 0.45, chimera = 0.6, burer = 0.8, controller = 0.8 }
+local SOFT  = { tushkano = 1.6, karlik = 1.3, cat = 1.3, dog = 1.25, zombie = 1.3, flesh = 1.0 }
+
+------------------------------------------------------------------------
+-- Lookups
+------------------------------------------------------------------------
+function key_of(obj)
+	local c = T.creatures_cls[obj:clsid()]
+	if c then return c[1] end
+	local kind = ini_sys:r_string_ex(obj:section(), "kind")
+	local k = kind and T.creatures_kind[kind]
+	return k and k[1]
+end
+
+local function is_head(key, root)
+	return HEAD_ROOTS[root] or (key and HEAD_BY_KEY[key] and HEAD_BY_KEY[key][root]) or false
+end
+
+local function is_severed(id, bone)
+	local st = severed[id]
+	if not st then return false end
+	for _, b in ipairs(st.b) do if b == bone then return true end end
+	return false
+end
+
+-- true when bone or one of its ancestors is already gone
+local function is_gone(obj, bone)
+	local st = severed[obj:id()]
+	if not st then return false end
+	local id = obj:get_bone_id(bone)
+	local guard = 0
+	while id and id ~= 65535 and guard < 64 do
+		local name = obj:bone_name(id)
+		for _, b in ipairs(st.b) do if b == name then return true end end
+		local ok, par = pcall(obj.bone_parent, obj, id)
+		if not ok then return false end
+		id = par
+		guard = guard + 1
+	end
+	return false
+end
+
+-- is this bone (or one above it) cut off?
+function bone_gone(obj, bone)
+	return obj ~= nil and bone ~= nil and is_gone(obj, bone)
+end
+
+-- the cut end a lost bone left behind: { par = stump bone, off, dloc } in
+-- the stump bone's frame (nil when the stump itself is gone too)
+function stump_for(obj, bone)
+	local st, sm = severed[obj:id()], stumps[obj:id()]
+	if not (st and sm) then return nil end
+	local id, guard = obj:get_bone_id(bone), 0
+	while id and id ~= 65535 and guard < 64 do
+		local s = sm[obj:bone_name(id)]
+		if s then return (not is_gone(obj, s.par)) and s or nil end
+		local ok, par = pcall(obj.bone_parent, obj, id)
+		if not ok then return nil end
+		id, guard = par, guard + 1
+	end
+end
+
+local function parent_bone(obj, bone)
+	local ok, par = pcall(obj.bone_parent, obj, bone)
+	if ok and par and par ~= 65535 then
+		local okn, name = pcall(obj.bone_name, obj, par)
+		if okn and name and name ~= "" then return name end
+	end
+end
+
+local function first_bone(obj, list)
+	for _, b in ipairs(list) do
+		if obj:get_bone_id(b) ~= 65535 then return b end
+	end
+end
+
+------------------------------------------------------------------------
+-- Can a cut be shown? (see the engine limit at the top)
+------------------------------------------------------------------------
+local chain_cache = {}   -- visual .. "|" .. root -> { root, descendants... }
+
+local function bone_names(obj)
+	local ok, bones = pcall(obj.list_bones, obj)
+	local out = {}
+	if ok and type(bones) == "table" then
+		for k, v in pairs(bones) do
+			if type(k) == "number" and type(v) == "string" then out[#out + 1] = v
+			elseif type(k) == "string" then out[#out + 1] = k end
+		end
+	end
+	return out
+end
+
+local function below(obj, name, root_id)
+	local id, guard = obj:get_bone_id(name), 0
+	while id and id ~= 65535 and guard < 64 do
+		if id == root_id then return true end
+		local ok, par = pcall(obj.bone_parent, obj, id)
+		if not ok then return false end
+		id, guard = par, guard + 1
+	end
+	return false
+end
+
+-- root and every bone under it
+function chain_names(obj, root)
+	local key = tostring(obj:get_visual_name()) .. "|" .. root
+	local c = chain_cache[key]
+	if c then return c end
+	c = { root }
+	local rid = obj:get_bone_id(root)
+	if rid ~= 65535 then
+		for _, n in ipairs(bone_names(obj)) do
+			if n ~= root and below(obj, n, rid) then c[#c + 1] = n end
+		end
+	end
+	chain_cache[key] = c
+	return c
+end
+
+
+-- the active ragdoll (nil while alive / before the death ragdoll is built)
+function ragdoll_of(obj)
+	local ok, shell = pcall(obj.get_physics_shell, obj)
+	return ok and shell or nil
+end
+
+-- true when hiding root (recursively) will actually remove it from view
+function can_show_cut(obj, root)
+	if zgo_bake.has_section(obj, root) then return true end
+	local shell = ragdoll_of(obj)
+	if not shell then return true end     -- the ragdoll gets built without it
+	-- (a bone hidden before the ragdoll was built has no element)
+	for _, b in ipairs(chain_names(obj, root)) do
+		local ok, el = pcall(shell.get_element_by_bone_name, shell, b)
+		if ok and el then return false end
+	end
+	return true
+end
+
+-- which bone comes off for a hit on hit_bone (nil = none)
+function root_for(obj, key, hit_bone, prof)
+	local map = key and T.limb_map[key]
+	local entry = map and map[hit_bone]
+	if not (entry and entry[1]) then return nil end
+	local root = entry[1]
+	-- human jaw shot off alone by mid-power rounds
+	if key == "human" and hit_bone == "jaw_1" and prof.energy < 2.0 and prof.kind ~= "blast"
+		and obj:get_bone_id("jaw_1") ~= 65535 then
+		return "jaw_1"
+	end
+	if obj:get_bone_id(root) == 65535 then return nil end
+	return root
+end
+
+------------------------------------------------------------------------
+-- Cuts through the off shader (MCM "Cut with the off shader", experimental)
+------------------------------------------------------------------------
+local OFF, CAP_SHADER = "zgo\\off", "models\\model"
+local shader_broken = false   -- set_shader raised: bones for the rest of the level
+local off_present             -- gamedata\shaders\r3\zgo_off.s found (nil = not looked yet)
+local last_offshader          -- the option as last seen (switching it off puts every cut back on bones)
+local ids_cache = {}          -- model .. "|" .. root -> cut_ids() result (false = none)
+
+local function vkey(o)
+	local ok, v = pcall(o.get_visual_name, o)
+	return ok and v and zgo_bake.key(v) or ""
+end
+
+local function offshader_wanted()
+	return U.setting("dismember/offshader_cuts") == true and not shader_broken
+end
+
+local function off_shader_present()
+	if off_present == nil then
+		off_present = U.file_exists("$game_shaders$", "r3\\zgo_off.s")
+		if not off_present then U.log("gamedata\\shaders\\r3\\zgo_off.s is missing: cuts hide bones as before") end
+	end
+	return off_present
+end
+
+-- The sub-meshes a cut at root switches, from the bake (per model and root):
+--   off  = root's section and every section below it, plus the in-model caps
+--          of cuts further down (they belong to sections that go now)
+--   kcap = root's own in-model cap (experimental bake), face then stub
+local function cut_ids(o, root)
+	local p = zgo_bake.parts(o)
+	if not (p and p[root]) then return nil end
+	local k = vkey(o) .. "|" .. root
+	local c = ids_cache[k]
+	if c ~= nil then return c or nil end
+	local under = {}
+	for _, b in ipairs(chain_names(o, root)) do under[b] = true end
+	local off, seen = {}, {}
+	local function add(id) if not seen[id] then seen[id] = true off[#off + 1] = id end end
+	for sec, e in pairs(p) do
+		if under[sec] then
+			for _, id in ipairs(e.kids or {}) do add(id) end
+			if sec ~= root then for _, id in ipairs(e.kcap or {}) do add(id) end end
+		end
+	end
+	table.sort(off)
+	c = #off > 0 and { off = off, kcap = p[root].kcap or {} } or false
+	ids_cache[k] = c
+	return c or nil
+end
+
+-- is the cut at root drawn through the off shader on this machine? Needs the
+-- option, a 1.7 bake of this model with the section's ids, zgo_off.s, and
+-- the game wearing that very model (anything else: hide bones as before)
+local function has_shader_api(o)
+	local ok, f = pcall(function() return o.set_shader and o.reset_shader and o.get_shaders end)
+	return ok and f ~= nil
+end
+
+function uses_shader(o, root)
+	if not (o and root and offshader_wanted()) then return false end
+	if not zgo_bake.has_section(o, root) then return false end
+	if not has_shader_api(o) then return false end
+	if not cut_ids(o, root) then return false end
+	if not off_shader_present() then return false end
+	return zgo_bake.loaded_matches(o) == true
+end
+
+-- the off-shader state of one online object:
+-- { vis = its model, off = { [child] = true }, kcap = { [child] = root },
+--   roots = { [root] = true } (cuts drawn this way), bones = { [root] = true } (bones hidden too) }
+local function shader_view(o)
+	local id = o:id()
+	local v = views[id]
+	local vis = vkey(o)
+	if v and v.vis ~= vis then v = nil end   -- (another model: its overrides went with the old one)
+	if not v then
+		v = { vis = vis, off = {}, kcap = {}, roots = {}, bones = {} }
+		views[id] = v
+	end
+	return v
+end
+
+local function set_sh(o, cid, shader)
+	local ok, err = pcall(o.set_shader, o, cid, shader, "", false)
+	if not ok then
+		shader_broken = true
+		U.log("set_shader failed (%s): cuts hide bones again until the next level", tostring(err))
+	end
+	return ok
+end
+
+local function want_kcap()
+	return U.setting("dismember/stump_caps") and U.gore() and zgo_debris.cap_style() == "in_model"
+end
+
+-- Switch root's part off (and its in-model cap on when wanted). Returns
+-- ok, cap shown; on a refusal nothing it changed is left behind.
+local function shader_cut(o, root, with_kcap)
+	local ids = cut_ids(o, root)
+	if not ids then return false end
+	local v = shader_view(o)
+	local done = {}
+	for _, cid in ipairs(ids.off) do
+		if not set_sh(o, cid, OFF) then
+			for _, d in ipairs(done) do if not v.off[d] then pcall(o.reset_shader, o, d, false) end end
+			return false
+		end
+		done[#done + 1] = cid
+	end
+	for _, cid in ipairs(done) do v.off[cid], v.kcap[cid] = true, nil end
+	v.roots[root] = true
+	local shown = 0
+	if with_kcap then
+		for _, cid in ipairs(ids.kcap) do
+			if not v.off[cid] and set_sh(o, cid, CAP_SHADER) then v.kcap[cid] = root shown = shown + 1 end
+		end
+	end
+	return true, shown > 0
+end
+
+local function hide(obj, bone)
+	local ok, err = pcall(obj.set_bone_visible, obj, bone, false, true)
+	if not ok then U.dbg("hide %s failed: %s", bone, tostring(err)) end
+end
+
+-- the ragdoll exists: hide the bones of what the shader took away (the
+-- physics keeps writing them, so nothing moves; bullets and wallmarks stop
+-- landing on the invisible part)
+local function hide_view_bones(o, v)
+	for r in pairs(v.roots) do
+		if not v.bones[r] and o:get_bone_id(r) ~= 65535 then
+			hide(o, r)
+			v.bones[r] = true
+		end
+	end
+end
+
+local function run_awaiting()
+	for id in pairs(awaiting) do
+		local o = level.object_by_id(id)
+		local v = views[id]
+		if not (o and v) then
+			awaiting[id] = nil
+		elseif ragdoll_of(o) then
+			awaiting[id] = nil
+			if v.vis == vkey(o) then hide_view_bones(o, v) end
+		end
+	end
+end
+
+-- set_shader state is per online object: put back what went missing (the
+-- body went offline and came back, another mod reset its shaders, ...)
+local function verify_view(o, v)
+	local ok, t = pcall(o.get_shaders, o, false)
+	if not (ok and type(t) == "table") or t.error then return end
+	local fixed = 0
+	for cid in pairs(v.off) do
+		local e = t[cid]
+		if e and e.shader ~= OFF and set_sh(o, cid, OFF) then fixed = fixed + 1 end
+	end
+	for cid in pairs(v.kcap) do
+		local e = t[cid]
+		if e and e.shader == OFF and set_sh(o, cid, CAP_SHADER) then fixed = fixed + 1 end
+	end
+	if fixed > 0 then U.dbg("put %s cut sub-mesh shader(s) back on %s", fixed, tostring(o:section())) end
+end
+
+-- undo a view on its object: every override goes back to the model's own,
+-- and (unless keep_bones) the bones it hid are shown again
+local function revert_view(o, v, keep_bones)
+	if v.vis ~= vkey(o) then return end
+	for cid in pairs(v.off) do pcall(o.reset_shader, o, cid, false) end
+	for cid in pairs(v.kcap) do pcall(o.reset_shader, o, cid, false) end
+	if not keep_bones then
+		for r in pairs(v.bones) do
+			if o:get_bone_id(r) ~= 65535 then pcall(o.set_bone_visible, o, r, true, true) end
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Visual application (every machine)
+------------------------------------------------------------------------
+local function cap_scale(obj)
+	return IsStalker(obj) and 1 or 0.85
+end
+
+-- bones already missing on this body (other than root), for the flying copy
+local function gone_except(id, root)
+	local st = severed[id]
+	local out = {}
+	if st then for _, b in ipairs(st.b) do if b ~= root then out[#out + 1] = b end end end
+	return out
+end
+
+-- how = "shader" (root's sub-meshes are off already; kcap_shown: its cap
+-- inside the model is on) or "bones"
+local function show_cut(obj, root, vel, head_burst, seed, a0, tip, emit, how, kcap_shown)
+	local id = obj:id()
+	local s0, s1
+	if vel and not head_burst then
+		local ok, res, p0, p1 = pcall(zgo_debris.spawn_limb, obj, root, vel,
+			{ seed = seed, gone = gone_except(id, root), radius = is_head(key_of(obj), root) and 0.1 or nil, a0 = a0, tip = tip })
+		if not ok then U.log("severed limb failed: %s", tostring(res)) end
+		if ok and res then s0, s1 = p0, p1 end
+	end
+	if how == "shader" then
+		local v = views[id]
+		if ragdoll_of(obj) then hide_view_bones(obj, v) else awaiting[id] = true end
+	else
+		hide(obj, root)
+	end
+	-- caps / spurts left on bones that went with this cut (an elbow stump
+	-- when the whole arm follows later) would hang in the air
+	local function gone(b) return is_gone(obj, b) end
+	pcall(zgo_debris.drop_caps, obj, gone)
+	pcall(zgo_fx.stop_sequences, id, gone)
+	if root ~= "jaw_1" and not kcap_shown then
+		local par = parent_bone(obj, root)
+		if par and not is_gone(obj, par) then pcall(zgo_debris.add_stump_cap, obj, par, cap_scale(obj), root) end
+	end
+	local c = capped[id] or {}
+	c[root] = true
+	capped[id] = c
+	if emit then emit(s0, s1) end
+	return s0, s1
+end
+
+-- vel == nil: just apply state (load / re-sync), no flying limb
+-- returns the flying piece's start / tip (sent to co-op clients), or "wait"
+-- when it is held back for the ragdoll; emit(start, tip) is called once the
+-- cut is actually shown
+function apply_local(obj, root, vel, head_burst, seed, a0, tip, emit)
+	if not obj or obj:get_bone_id(root) == 65535 then return end
+	-- kid mode: the cut is recorded (and sent to partners) but not shown here;
+	-- switching kid mode off shows it (update)
+	if not U.gore() then return end
+	-- the off shader: shown at once, on the living, falling or lying alike
+	if uses_shader(obj, root) then
+		local ok, kc = shader_cut(obj, root, want_kcap())
+		if ok then return show_cut(obj, root, vel, head_burst, seed, a0, tip, emit, "shader", kc) end
+	end
+	-- (co-op clients and reloads: wait until it can be shown, see the top)
+	if not can_show_cut(obj, root) then return end
+	-- a baked model hides a part once the ragdoll exists: hidden before, the
+	-- part gets no physics and the joint above it pinches toward the parent
+	if zgo_bake.has_section(obj, root) and not ragdoll_of(obj) then
+		local id = obj:id()
+		local p = pending[id] or {}
+		pending[id] = p
+		for _, e in ipairs(p) do if e.root == root then return "wait" end end
+		p[#p + 1] = { root = root, vel = vel, burst = head_burst, seed = seed, a0 = a0, tip = tip, emit = emit, t = time_global() }
+		return "wait"
+	end
+	return show_cut(obj, root, vel, head_burst, seed, a0, tip, emit, "bones")
+end
+
+local function run_pending(now)
+	for id, list in pairs(pending) do
+		local o = level.object_by_id(id)
+		if not o then
+			pending[id] = nil
+		else
+			local ready = ragdoll_of(o) ~= nil
+			local keep = {}
+			for _, e in ipairs(list) do
+				if ready or now - e.t > PENDING_MS then
+					if o:get_bone_id(e.root) ~= 65535 and not (capped[id] and capped[id][e.root]) then
+						show_cut(o, e.root, e.vel, e.burst, e.seed, e.a0, e.tip, e.emit, "bones")
+					elseif e.emit then
+						-- (shown some other way meanwhile: its D line still goes out)
+						pcall(e.emit)
+					end
+				else
+					keep[#keep + 1] = e
+				end
+			end
+			pending[id] = #keep > 0 and keep or nil
+		end
+	end
+end
+
+-- pending cuts that will not be shown here now (kid mode): their D lines go
+-- out anyway, without the flying piece's start
+local function drop_pending()
+	for _, list in pairs(pending) do
+		for _, e in ipairs(list) do if e.emit then pcall(e.emit) end end
+	end
+	pending = {}
+end
+
+-- this machine stops showing id's cuts (before they are shown again, or for
+-- good): overrides, caps and baked parts' bones go back. (A part of an
+-- un-baked body was hidden before its ragdoll existed and can't come back.)
+local function unshow_all(o, id)
+	local v = views[id]
+	if o and v then revert_view(o, v) end
+	if o then
+		local st = severed[id]
+		if st and not o:alive() and zgo_bake.is_baked(o, true) then
+			for _, b in ipairs(st.b) do
+				if zgo_bake.has_section(o, b, true) and o:get_bone_id(b) ~= 65535 then pcall(o.set_bone_visible, o, b, true, true) end
+			end
+		end
+		pcall(zgo_debris.drop_caps, o, function() return true end)
+	end
+	pcall(zgo_debris.clear_caps_for, id)
+	views[id], awaiting[id], capped[id], pending[id] = nil, nil, nil, nil
+end
+
+-- Saving. The engine stores a corpse's hidden-bone mask and on load builds
+-- the ragdoll before any script runs, without physics for hidden parts: on
+-- a baked model that pinches the joint above each cut, and the saved pose
+-- no longer fits the ragdoll (the body falls again). The save runs inside
+-- the console command, so the cut parts of baked bodies are shown for that
+-- instant only and hidden again right after; the load re-applies them from
+-- our own save data, after the ragdoll exists. (Off-shader cuts keep their
+-- shader through that instant; only bones this mod hid are touched.)
+local unhidden
+function before_save()
+	unhidden = {}
+	for id, st in pairs(severed) do
+		local o = capped[id] and level.object_by_id(id)
+		if o and not o:alive() and zgo_bake.is_baked(o, true) then
+			local v = views[id]
+			for _, b in ipairs(st.b) do
+				local hid = capped[id][b] and (not (v and v.roots[b]) or v.bones[b])
+				if hid and zgo_bake.has_section(o, b, true) and o:get_bone_id(b) ~= 65535 then
+					pcall(o.set_bone_visible, o, b, true, true)
+					unhidden[#unhidden + 1] = { o, b }
+				end
+			end
+		end
+	end
+end
+
+-- kid mode switched (zgo_settings). On: baked bodies get their parts back
+-- (other bodies were cut before their ragdoll existed and can't), caps go
+-- with the rest of the debris. Off: every recorded cut is shown again.
+function kid_mode(kid)
+	if not kid then
+		next_reapply = 0
+		return
+	end
+	drop_pending()
+	for id, st in pairs(severed) do
+		local o = level.object_by_id(id)
+		local v = views[id]
+		if o and v then revert_view(o, v) end
+		if o and not o:alive() and zgo_bake.is_baked(o, true) then
+			for _, b in ipairs(st.b) do
+				if zgo_bake.has_section(o, b, true) and o:get_bone_id(b) ~= 65535 then
+					pcall(o.set_bone_visible, o, b, true, true)
+				end
+			end
+		end
+		capped[id] = nil
+	end
+	views, awaiting = {}, {}
+end
+
+function after_save()
+	for _, e in ipairs(unhidden or {}) do hide(e[1], e[2]) end
+	unhidden = nil
+end
+
+-- the option was switched (or set_shader broke): off-shader cuts go back to
+-- the bones way; bones already hidden on a ragdoll stay hidden meanwhile
+local function watch_option()
+	local want = offshader_wanted()
+	if last_offshader == nil or want == last_offshader then last_offshader = want return end
+	last_offshader = want
+	if want then return end
+	for id, v in pairs(views) do
+		local o = level.object_by_id(id)
+		if o then revert_view(o, v, true) end
+		if capped[id] then for r in pairs(v.roots) do capped[id][r] = nil end end
+	end
+	views, awaiting = {}, {}
+	next_reapply = 0
+	U.dbg("cuts: back to hiding bones")
+end
+
+------------------------------------------------------------------------
+-- The decision (authority only)
+------------------------------------------------------------------------
+--[[ ev: id, bone (hit bone name), prof, dead, was_dead, pos, dir ]]
+function consider(ev)
+	if not (U.setting("dismember/enable") and U.is_authority()) then return end
+	if ev.blast then return consider_blast(ev) end
+	local obj = level.object_by_id(ev.id)
+	if not obj or not ev.dead then return end
+	if ev.was_dead and not U.setting("dismember/corpses") then return end
+	if IsMonster(obj) and not U.setting("dismember/mutants") then return end
+	local key = key_of(obj)
+	if not key then return end
+	local prof = ev.prof
+	if prof.kind == "blast" then return end   -- explosions come through zgo_blast
+
+	local root = root_for(obj, key, ev.bone, prof)
+	if not root or is_gone(obj, root) then return end
+	if not can_show_cut(obj, root) then
+		U.dbg("no cut of %s on %s: ragdoll physics would keep it in view", root, key)
+		return
+	end
+	local head = is_head(key, root)
+	if not ((head and U.setting("dismember/head")) or (not head and U.setting("dismember/limbs"))) then return end
+	local mult = (U.setting("dismember/chance") or 1) * (TOUGH[key] or SOFT[key] or 1)
+	local E = prof.energy
+	local p
+	if head then
+		p = U.clamp((E - 1.0) * 0.55, 0, 0.95)
+	else
+		p = U.clamp((E - 1.4) * 0.5, 0, 0.9)
+	end
+	-- damage piles up on a body part over a few seconds / while it's a corpse
+	local acc = accum[ev.id] or {}
+	accum[ev.id] = acc
+	local a = acc[root]
+	local now = time_global()
+	if a and now - a.t > (ev.was_dead and 30000 or 3000) then a = nil end
+	a = { e = (a and a.e or 0) + E, t = now }
+	acc[root] = a
+	if a.e >= (head and 3.0 or 3.6) then p = 1 end
+	p = p * mult
+	U.dbg("dismember %s on %s: E %s acc %s p %s", root, key, U.r3(E), U.r3(a.e), U.r3(p))
+	if math.random() < p then sever(obj, root, ev, head, false) end
+end
+
+-- Wounds (zgo_wounds): a section its wounds destroyed (stage 5) on a dead
+-- body comes off, under the same rules as any other cut (Dismemberment page:
+-- enable, shooting bodies, mutants, heads / arms and legs) and drawn the way
+-- this machine draws cuts (bones, off shader, caps). No chance roll: the
+-- wound already decided. root: the section's root bone.
+-- ev: { id, bone = root, prof, dir, pos, dead, was_dead, center, allow_dismember }
+-- Returns true when the part comes off.
+function sever_wound(obj, root, ev)
+	if not (obj and root and type(ev) == "table" and U.is_authority()) then return false end
+	if not (U.setting("dismember/enable") and ev.dead and ev.allow_dismember ~= false) then return false end
+	if ev.was_dead and not U.setting("dismember/corpses") then return false end
+	if IsMonster(obj) and not U.setting("dismember/mutants") then return false end
+	local key = key_of(obj)
+	if not key or obj:get_bone_id(root) == 65535 or is_gone(obj, root) then return false end
+	if not can_show_cut(obj, root) then
+		U.dbg("no wound cut of %s on %s: ragdoll physics would keep it in view", root, key)
+		return false
+	end
+	local head = is_head(key, root)
+	if not ((head and U.setting("dismember/head")) or (not head and U.setting("dismember/limbs"))) then return false end
+	ev.id = ev.id or obj:id()
+	ev.prof = ev.prof or { energy = 2.5, cls = 3, kind = "bullet" }
+	sever(obj, root, ev, head, false)
+	return is_severed(obj:id(), root)
+end
+
+-- launch direction for pieces of a body hit by a blast at center: outward
+-- and somewhat up (a charge at someone's feet still throws them sideways)
+function blast_throw(center, at)
+	local d = U.sub(at, center)
+	local h = U.v3(d.x, 0, d.z)
+	if U.len(h) < 0.05 then return U.v3(0, 1, 0) end
+	return U.unit(U.add(U.unit(h), U.v3(0, 0.6, 0)))
+end
+
+--[[ Explosions (decided by zgo_blast at the killing hit, or when a corpse's
+  share of the explosion is in):
+  ev.blast = { center (may be nil), prox (1 = touching .. 0 = far), gib }
+  The parts nearest the blast go first; close blasts take whole limbs from
+  the shoulder / hip, further ones the forearm / calf.
+  Returns a short description for the explosion log line. ]]
+function consider_blast(ev)
+	local obj = level.object_by_id(ev.id)
+	if not obj or not ev.dead then return "not dead" end
+	if ev.was_dead and not U.setting("dismember/corpses") then return "corpses off" end
+	if IsMonster(obj) and not U.setting("dismember/mutants") then return "mutants off" end
+	local key = key_of(obj)
+	local groups = key and T.bone_groups[key]
+	if not groups then return "no limb data" end
+	local bl = ev.blast
+	local gib = bl.gib and U.setting("dismember/full_gib") or false
+	local mult = (U.setting("dismember/chance") or 1) * (TOUGH[key] or SOFT[key] or 1)
+	local want_head, want_limbs = U.setting("dismember/head"), U.setting("dismember/limbs")
+
+	-- with a known centre, distances are scaled by the charge (zgo_blast): a
+	-- part goes by how close its nearest point was, cut at the joint nearest
+	-- the body that was still inside the blast (a grenade at the feet takes
+	-- feet or lower legs, not arms or the head)
+	local scaled = bl.center ~= nil and bl.k ~= nil and not gib
+	local CUT_Z, CUT_Z0, CUT_Z1 = zgo_blast.cut_limits()
+	local function z_of(b) return obj:bone_position(b):distance_to(bl.center) / bl.k end
+
+	local cand, in_reach = {}, false
+	for _, g in ipairs(groups) do
+		local whole = g[#g]
+		if whole and obj:get_bone_id(whole) ~= 65535 and not is_gone(obj, whole)
+			and ((is_head(key, whole) and want_head) or (not is_head(key, whole) and want_limbs)) then
+			local head = is_head(key, whole)
+			if scaled then
+				local zmin, root
+				for i = 1, #g do
+					if obj:get_bone_id(g[i]) ~= 65535 then
+						local z = z_of(g[i])
+						zmin = zmin and math.min(zmin, z) or z
+					end
+				end
+				for i = #g, 1, -1 do
+					local b = g[i]
+					if obj:get_bone_id(b) ~= 65535 and not is_gone(obj, b) and z_of(b) <= CUT_Z then
+						in_reach = true
+						if can_show_cut(obj, b) then root = b break end
+					end
+				end
+				if root and zmin then cand[#cand + 1] = { root = root, head = head, d = zmin * bl.k, z = zmin } end
+			else
+				local root = whole
+				if not head and not gib and bl.prox < 0.45 and #g >= 2 and obj:get_bone_id(g[#g - 1]) ~= 65535 then
+					root = g[#g - 1]
+				end
+				-- no centre: we don't know which side the blast came from, so no heads
+				if can_show_cut(obj, root) and (gib or bl.center or not head) then
+					local d = bl.center and obj:bone_position(root):distance_to(bl.center) or math.random() * 2
+					cand[#cand + 1] = { root = root, head = head, d = d }
+				end
+			end
+		end
+	end
+	table.sort(cand, function(a, b) return a.d < b.d end)
+
+	local take = {}
+	if scaled then
+		for _, c in ipairs(cand) do
+			local p = U.clamp((CUT_Z1 - c.z) / (CUT_Z1 - CUT_Z0), 0, 1) * 0.9 * mult
+			if #take < 3 and math.random() < p then take[#take + 1] = c end
+		end
+	elseif gib then
+		local limbs = 0
+		local want = math.random(2, math.max(2, #cand))
+		for _, c in ipairs(cand) do
+			if c.head then
+				take[#take + 1] = c
+			elseif limbs < want then
+				take[#take + 1] = c
+				limbs = limbs + 1
+			end
+		end
+	else
+		-- ~1 part at 2 m from a hand grenade, 2-3 at arm's length
+		local base = U.clamp((bl.prox - 0.12) * 1.5, 0, 0.9) * mult
+		local falloff = { 1, 0.6, 0.35 }
+		for i = 1, math.min(bl.center and 3 or 1, #cand) do
+			if math.random() < base * falloff[i] then take[#take + 1] = cand[i] end
+		end
+	end
+	U.dbg("blast dismember on %s: prox %s gib %s, %s of %s parts", key, U.r3(bl.prox), tostring(gib), #take, #cand)
+
+	if gib then
+		-- the body is torn open even where nothing can come off
+		local c = first_bone(obj, { "bip01_spine1", "bip01_spine", "bip01_pelvis" })
+		local cp = c and obj:bone_position(c) or obj:position()
+		local up = bl.center and blast_throw(bl.center, cp) or U.v3(0, 1, 0)
+		zgo_fx.blast_gibs(cp)
+		spawn_gibs(cp, up, #take > 0 and math.random(5, 8) or math.random(3, 5), obj)
+		zgo_decals.gore_burst(ev.id, cp, up, 1.6)
+		zgo_decals.add_bleed(ev.id, 4)
+		U.log("gibbed %s", obj:section())
+	end
+	for _, c in ipairs(take) do sever(obj, c.root, ev, c.head, gib) end
+	local names = {}
+	for _, c in ipairs(take) do names[#names + 1] = c.root end
+	if #cand == 0 then
+		if scaled and not in_reach then return "nothing close enough to come off" end
+		return gib and "gib burst (no part can be shown on this ragdoll)" or "no part can be shown on this ragdoll"
+	end
+	return string.format("%s%s", gib and "GIB: " or "", #take > 0 and table.concat(names, ", ") or "nothing came off")
+end
+
+function sever(obj, root, ev, head, gib)
+	local id = obj:id()
+	local st = severed[id] or { s = obj:section(), b = {} }
+	severed[id] = st
+	if is_severed(id, root) then return end
+	st.b[#st.b + 1] = root
+	st.t = time_global()
+
+	local prof = ev.prof
+	local dir = ev.dir or U.v3(0, 0, 1)
+	local cut = obj:bone_position(root)
+	local par = parent_bone(obj, root)
+
+	-- heads: big calibres and explosions burst them, otherwise they come off whole
+	local burst = head and root ~= "jaw_1" and (gib or prof.cls >= 4 or prof.kind == "blast" or math.random() < 0.4)
+	local speed = (1.0 + 0.8 * math.min(prof.energy, 3.5)) * (gib and 1.5 or 1)
+	-- explosions throw parts outward, away from the blast
+	local throw = (ev.center and blast_throw(ev.center, cut))
+		or (prof.kind == "blast" and U.unit(U.sub(cut, obj:position()))) or dir
+	local vel = U.qv(U.add(U.mul(U.cone(throw or dir, 0.5), speed), U.v3(0, U.rand(1.0, 2.5) * (gib and 1.5 or 1), 0)))
+	local seed = math.random(1, 2147483000)
+
+	-- (sent when the cut is shown: a baked body waits for its ragdoll, and
+	-- clients start the flying piece where it started here; until then the
+	-- cut stays out of the Q rounds, so a round can't beat the D line)
+	local sent = false
+	local u = unsent[id] or {}
+	unsent[id] = u
+	u[root] = time_global()
+	local function emit(a0, tip)
+		sent = true
+		if unsent[id] then unsent[id][root] = nil end
+		if a0 and tip then
+			zgo_sync.emit({ "D", id, st.s, root, vel.x, vel.y, vel.z, burst and 1 or 0, 1, seed, a0.x, a0.y, a0.z, tip.x, tip.y, tip.z })
+		else
+			zgo_sync.emit({ "D", id, st.s, root, vel.x, vel.y, vel.z, burst and 1 or 0, 1, seed })
+		end
+	end
+	if apply_local(obj, root, vel, burst, seed, nil, nil, emit) ~= "wait" and not sent then emit() end
+
+	-- effects (each one syncs itself)
+	if burst then
+		local _, helmet = zgo_fx.armor_of(obj)
+		zgo_fx.head_explode(cut, dir, helmet)
+		-- (a full gib already throws its own pile of pieces)
+		spawn_gibs(cut, U.unit(U.add(dir, U.v3(0, 0.8, 0))) or dir, gib and 2 or math.random(3, 5), obj)
+	else
+		zgo_fx.limb_off(cut, dir)
+		if not gib and math.random() < 0.6 then spawn_gibs(cut, dir, math.random(1, 2), obj) end
+	end
+	if not gib then zgo_decals.gore_burst(id, cut, dir, burst and 1.4 or 1) end
+	if par then
+		-- the stump points along the lost limb, away from its parent bone
+		local pp = obj:bone_position(par)
+		local out = U.unit(U.sub(cut, pp)) or U.v3(0, -1, 0)
+		local off = zgo_fx.world_to_bone_local(obj, par, cut)
+		local dloc = zgo_fx.world_dir_to_bone_local(obj, par, out)
+		zgo_fx.start_sequence(id, st.s, par, "stump", ev.was_dead and 3500 or 7000, off, dloc, true)
+		-- (runtime only) where the cut is, for arteries opened by the same shot
+		stumps[id] = stumps[id] or {}
+		stumps[id][root] = { par = par, off = off, dloc = dloc }
+		zgo_decals.place_body(obj, zgo_decals.section("p_wound"), cut, U.v3(0, -1, 0), 0.22)
+	end
+	zgo_decals.add_bleed(id, 1.5)
+	U.log("severed %s from %s (%s)", root, obj:section(), burst and "burst" or "whole")
+end
+
+-- G|x|y|z|dx|dy|dz|n|body id|seed[|pieces]: pieces = the body pieces thrown
+-- here ("3,7,1"; "-" = meat models), so every machine throws the same ones
+-- (older peers read the first ten fields only)
+function spawn_gibs(pos, dir, n, ignore)
+	local seed = math.random(1, 2147483000)
+	pos, dir = U.qv(pos), U.qv(dir)
+	local ok, used = pcall(zgo_debris.spawn_gibs, pos, dir, n, ignore, seed)
+	if not ok then U.log("gibs failed: %s", tostring(used)) used = nil end
+	local pieces = (type(used) == "table" and #used > 0) and table.concat(used, ",") or "-"
+	zgo_sync.emit({ "G", pos.x, pos.y, pos.z, dir.x, dir.y, dir.z, n, ignore and ignore:id() or 65535, seed, pieces })
+end
+
+------------------------------------------------------------------------
+-- Upkeep: re-hide after load / when objects come back online, re-sync
+------------------------------------------------------------------------
+-- the cuts of one body that go into a Q round (not the ones whose D line
+-- is still to come)
+local function state_roots(id, st, now)
+	local u = unsent[id]
+	local out = {}
+	for _, b in ipairs(st.b) do
+		local t = u and u[b]
+		if not (t and now - t < UNSENT_MS) then out[#out + 1] = b end
+	end
+	if u and not next(u) then unsent[id] = nil end
+	return out
+end
+
+function update()
+	local now = time_global()
+	watch_option()
+	if not U.gore() and next(pending) then drop_pending() end
+	if next(pending) then run_pending(now) end
+	if next(awaiting) then run_awaiting() end
+	if now >= next_reapply and U.gore() then
+		next_reapply = now + REAPPLY_MS
+		local apos = db.actor and db.actor:position()
+		for id, st in pairs(severed) do
+			local o = level.object_by_id(id)
+			if o and o:section() == st.s and o:alive() then
+				-- only the dead are cut up: this id was released and handed to
+				-- someone new of the same kind (give a fresh kill a moment to die)
+				capped[id], views[id], awaiting[id] = nil, nil, nil
+				if U.is_authority() and now - (st.t or 0) > 5000 then
+					severed[id], unsent[id] = nil, nil
+					zgo_sync.emit({ "Q", id, st.s, "-" })
+				end
+			elseif o and o:section() == st.s then
+				if not apos or o:position():distance_to_sqr(apos) < 22500 then
+					local v = views[id]
+					if v and v.vis ~= vkey(o) then
+						-- its model changed: the overrides went with the old one
+						pcall(zgo_debris.drop_caps, o, function() return true end)
+						capped[id], views[id], awaiting[id] = nil, nil, nil
+						v = nil
+					elseif v then
+						verify_view(o, v)
+					end
+					local done = capped[id] or {}
+					for _, b in ipairs(st.b) do
+						if o:get_bone_id(b) ~= 65535 then
+							if done[b] then
+								if not (v and v.roots[b]) then
+									hide(o, b)
+								elseif v.bones[b] then
+									-- an off-shader cut hides its bones only on a ragdoll (the
+									-- body may have come back online without one yet)
+									if ragdoll_of(o) then hide(o, b) else v.bones[b] = nil awaiting[id] = true end
+								end
+							else
+								apply_local(o, b, nil)
+							end
+						end
+					end
+				end
+			else
+				capped[id], views[id], awaiting[id] = nil, nil, nil
+				zgo_debris.clear_caps_for(id)
+			end
+		end
+		for id, acc in pairs(accum) do
+			if not level.object_by_id(id) then accum[id] = nil end
+		end
+	end
+	if U.has_peers() and now >= next_rebroadcast then
+		next_rebroadcast = now + REBROADCAST_MS
+		local all = {}
+		for id, st in pairs(severed) do
+			if level.object_by_id(id) then
+				local roots = state_roots(id, st, now)
+				if #roots > 0 then all[#all + 1] = { id, st.s, table.concat(roots, ",") } end
+			end
+		end
+		table.sort(all, function(a, b) return a[1] < b[1] end)
+		-- 40 bodies per round, carrying on where the last round stopped
+		if #all > 0 then
+			local start = rebroadcast_at % #all
+			for k = 0, math.min(40, #all) - 1 do
+				local e = all[(start + k) % #all + 1]
+				zgo_sync.emit({ "Q", e[1], e[2], e[3] })
+			end
+			rebroadcast_at = start + 40
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Save / load (single player and host; clients get state from the host)
+------------------------------------------------------------------------
+function save_data(m_data)
+	local out = {}
+	for id, st in pairs(severed) do
+		if alife_object(id) then out[id] = { s = st.s, b = st.b } end
+	end
+	m_data.zgo_severed = out
+end
+
+function load_data(m_data)
+	severed = {}
+	local t = m_data.zgo_severed
+	if type(t) == "table" then
+		for id, st in pairs(t) do
+			if type(st) == "table" and st.s and type(st.b) == "table" then severed[id] = { s = st.s, b = st.b } end
+		end
+	end
+	capped, pending, views, awaiting, unsent = {}, {}, {}, {}, {}
+	next_reapply = 0
+end
+
+------------------------------------------------------------------------
+-- Co-op replay
+------------------------------------------------------------------------
+-- The host's complete list of cuts for one body ("Q"): cuts this machine
+-- lacks are shown (without a flying piece), cuts the host no longer has are
+-- put back, an empty list forgets the body.
+function set_state(id, sec, roots)
+	id = tonumber(id)
+	if not (id and sec) then return end
+	local st = severed[id]
+	local o = U.resolve(id, sec)
+	if st and st.s ~= sec then
+		-- the id belongs to another object now (the old one took its looks with it)
+		unshow_all(nil, id)
+		severed[id], stumps[id], accum[id] = nil, nil, nil
+		st = nil
+	end
+	if #roots == 0 then
+		if st then unshow_all(o, id) end
+		severed[id], stumps[id], accum[id], unsent[id] = nil, nil, nil, nil
+		return
+	end
+	local want = {}
+	for _, r in ipairs(roots) do want[r] = true end
+	local lost = false
+	for _, b in ipairs(st and st.b or {}) do if not want[b] then lost = true end end
+	-- (shown again below, without the lost ones)
+	if lost then unshow_all(o, id) end
+	st = st or { s = sec, b = {} }
+	local keep = {}
+	for _, b in ipairs(st.b) do if want[b] then keep[#keep + 1] = b want[b] = nil end end
+	local fresh = false
+	for _, r in ipairs(roots) do if want[r] then keep[#keep + 1] = r want[r] = nil fresh = true end end
+	st.b = keep
+	if fresh or not st.t then st.t = time_global() end
+	severed[id] = st
+	-- (a body still alive here dies in a moment: the regular upkeep shows it then)
+	if o and not o:alive() then
+		for _, b in ipairs(st.b) do
+			if not (capped[id] and capped[id][b]) then apply_local(o, b, nil) end
+		end
+	end
+end
+
+function register_sync()
+	zgo_sync.on("D", function(t)
+		if #t < 9 then return end
+		local id, sec, root = tonumber(t[2]), t[3], t[4]
+		local o = U.resolve(id, sec)
+		local st = severed[id] or { s = sec, b = {} }
+		severed[id] = st
+		local fresh = not is_severed(id, root)
+		if fresh then st.b[#st.b + 1] = root st.t = time_global() end
+		if not o then return end
+		if fresh and t[9] == "1" then
+			local a0 = #t >= 16 and U.v3(tonumber(t[11]), tonumber(t[12]), tonumber(t[13])) or nil
+			local tip = #t >= 16 and U.v3(tonumber(t[14]), tonumber(t[15]), tonumber(t[16])) or nil
+			apply_local(o, root, U.v3(tonumber(t[5]), tonumber(t[6]), tonumber(t[7])), t[8] == "1", tonumber(t[10]), a0, tip)
+		elseif fresh or not (capped[id] and capped[id][root]) then
+			apply_local(o, root, nil)
+		end
+	end)
+	zgo_sync.on("G", function(t)
+		if #t < 9 then return end
+		local ign = tonumber(t[9])
+		local opts
+		if t[11] and t[11] ~= "-" and t[11] ~= "" then
+			local list = {}
+			for x in string.gmatch(t[11], "%d+") do list[#list + 1] = tonumber(x) end
+			if #list > 0 then opts = { pieces = list } end
+		end
+		pcall(zgo_debris.spawn_gibs, U.v3(tonumber(t[2]), tonumber(t[3]), tonumber(t[4])),
+			U.v3(tonumber(t[5]), tonumber(t[6]), tonumber(t[7])), tonumber(t[8]) or 2,
+			ign and ign ~= 65535 and level.object_by_id(ign) or nil, tonumber(t[10]), opts)
+	end)
+	-- Q|id|section|root,root,... ("-" = no cuts)
+	zgo_sync.on("Q", function(t)
+		if #t < 4 then return end
+		local roots = {}
+		if t[4] ~= "-" then for r in string.gmatch(t[4], "[^,]+") do roots[#roots + 1] = r end end
+		set_state(t[2], t[3], roots)
+	end)
+end
+
+function reset()
+	accum, capped, stumps, pending = {}, {}, {}, {}
+	views, awaiting, unsent, ids_cache = {}, {}, {}, {}
+	next_reapply, next_rebroadcast = 0, 0
+	shader_broken, off_present, last_offshader = false, nil, nil
+end
+
+-- the body was released (server_entity_on_unregister): its id will be reused
+function forget(id)
+	if not (id and U.is_authority()) then return end
+	local st = severed[id]
+	if st then zgo_sync.emit({ "Q", id, st.s, "-" }) end
+	severed[id], accum[id], capped[id], stumps[id], pending[id] = nil, nil, nil, nil, nil
+	views[id], awaiting[id], unsent[id] = nil, nil, nil
+	zgo_debris.clear_caps_for(id)
+end
+
+function get_state() return severed end
+
+-- How this machine shows the cut at root on obj: "shader", "bones",
+-- "waiting" (for the ragdoll) or nil (not shown: kid mode, offline, can't).
+-- For probes: an off-shader cut may keep its bones visible a moment.
+function shown(obj, root)
+	if not (obj and root) then return nil end
+	local id = obj:id()
+	if not (capped[id] and capped[id][root]) then
+		for _, e in ipairs(pending[id] or {}) do if e.root == root then return "waiting" end end
+		return nil
+	end
+	local v = views[id]
+	if v and v.roots[root] then return "shader" end
+	return "bones"
+end
+
+-- The sub-mesh shaders this machine set on obj for its cuts:
+-- { [child id] = shader } (nil: none). For probes comparing machines that
+-- may draw cuts differently (one with the off shader, one with bones).
+function cut_overrides(obj)
+	local v = obj and views[obj:id()]
+	if not (v and v.vis == vkey(obj)) then return nil end
+	local out = {}
+	for cid in pairs(v.off) do out[cid] = OFF end
+	for cid in pairs(v.kcap) do out[cid] = CAP_SHADER end
+	return next(out) and out or nil
+end
+
+-- (tests) the off-shader state per object id
+function get_views() return views end

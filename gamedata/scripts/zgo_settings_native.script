@@ -1,0 +1,55 @@
+--[[
+  Zone Gore Overhaul - options of the native workstream (zgo_native):
+  bin/zgo_native.dll, an optional add-on that changes engine code in memory
+  while the game runs. Data only; zgo_settings merges it into the menu
+  (format: zgo_settings.script).
+
+  Everything here is experimental and off by default. With "Native
+  extensions" off the DLL is never loaded and the game runs exactly as
+  without it. Kid mode removes every bent or crushed body at once and puts
+  them back when it is switched off (zgo_native.kid_mode).
+]]
+
+SETTINGS = {
+	{
+		page = "native", coop = "local",
+		name = { "Native extensions (experimental)", "Нативные расширения (экспериментально)" },
+		note = {
+			{ "Optional engine add-on (bin\\zgo_native.dll). Off by default; while it is off, nothing on this page loads or changes anything. It only works with the xrRazom game executables it recognises: on any other exe it stays off on its own and writes the reason to the log. Use \"Write a status report to the log\" to see what it found.",
+			  "Необязательное дополнение к движку (bin\\zgo_native.dll). По умолчанию выключено; пока оно выключено, ничего на этой странице не загружается и ничего не меняет. Работает только с исполняемыми файлами xrRazom, которые оно узнаёт: на любом другом exe само остаётся выключенным и пишет причину в лог. Кнопка \"Записать отчёт о состоянии в лог\" показывает, что оно нашло." },
+			{ "In co-op every player sets the first two switches for their own computer; a feature only runs when every player in the session has it working. The host decides the rest.",
+			  "В кооперативе каждый игрок ставит первые два переключателя для своего компьютера; функция работает, только если она работает у всех игроков сессии. Остальное решает хост." },
+		},
+		items = {
+			{ id = "enable", type = "check", def = false,
+			  name = { "Native extensions (experimental)", "Нативные расширения (экспериментально)" },
+			  desc = { "Loads bin\\zgo_native.dll when a game starts. The DLL first checks that this exact game executable is one it knows (it looks for every engine function it needs and compares their code byte by byte); if anything differs it switches itself off and changes nothing. Loading alone changes nothing in the game either: each feature below has its own switch. Experimental: if the game crashes or behaves oddly with this on, switch it off and report it with your log.",
+			           "Загружает bin\\zgo_native.dll при запуске игры. Сначала DLL проверяет, что это именно тот исполняемый файл игры, который она знает (находит все нужные функции движка и сверяет их код побайтно); если что-то отличается, она выключается сама и ничего не меняет. Сама загрузка тоже ничего в игре не меняет: у каждой функции ниже свой переключатель. Экспериментально: если с этим игра вылетает или ведёт себя странно, выключите и сообщите об этом, приложив лог." } },
+			{ id = "bones", type = "check", def = false, show_if = "native/enable",
+			  name = { "Bone hooks: bend and crush bodies (experimental)", "Перехват костей: изгиб и сжатие тел (экспериментально)" },
+			  desc = { "Installs three small engine hooks (after the skeleton update CalculateBones, in the bone lookup LL_BoneID, and where a model is released, Depart) so the mod can bend, crush or shift single bones of a body after the game has posed it: broken limbs and caved-in chests on bodies hit by explosions (below). Switching it off takes the hooks out at once and every body goes back to normal. Costs almost nothing for bodies it leaves alone. Check in game: blow up a body with a grenade; its arms or legs should bend at odd angles and stay that way while it ragdolls.",
+			           "Ставит три небольших перехвата в движок (после обновления скелета CalculateBones, в поиске кости LL_BoneID и там, где модель освобождается, Depart), чтобы мод мог сгибать, сжимать или сдвигать отдельные кости тела после того, как игра его поставила в позу: сломанные конечности и вдавленная грудь у тел, задетых взрывом (ниже). Выключение сразу снимает перехваты, и все тела возвращаются к норме. На тела, которых это не касается, почти не тратит ресурсов. Проверка в игре: подорвите тело гранатой; руки или ноги должны согнуться под странными углами и оставаться так, пока тело падает." } },
+			{ id = "deform_corpses", type = "check", def = true, coop = "host", show_if = "native/bones",
+			  name = { "Broken limbs from explosions", "Сломанные конечности от взрывов" },
+			  desc = { "Bodies close to an explosion get limbs bent at broken angles, and with a heavy charge a crushed chest or a dislocated shoulder. Only bodies (never the living), only once the body has gone limp, and the same on every co-op machine. Needs the bone hooks above. Kid mode removes them.",
+			           "У тел рядом со взрывом конечности сгибаются под неестественными углами, а при мощном заряде грудь вдавливается или плечо выбивается. Только тела (никогда живые), только когда тело обмякло, и одинаково у всех в кооперативе. Нужен перехват костей выше. Детский режим их убирает." } },
+			{ id = "deform_strength", type = "track", min = 0.25, max = 2, step = 0.25, def = 1.0, coop = "host", show_if = "native/bones",
+			  name = { "Strength of broken limbs", "Сила переломов" },
+			  desc = { "How far limbs bend and how many break for the same explosion. 1 = as tuned; 2 = more limbs, sharper angles; 0.5 = only close blasts break anything.",
+			           "Насколько сильно сгибаются конечности и сколько их ломается при одном и том же взрыве. 1 = как настроено; 2 = больше конечностей и острее углы; 0.5 = ломает только близкий взрыв." } },
+			{ id = "status", type = "button", action = "zgo_native.log_report", show_if = "native/enable",
+			  name = { "Write a status report to the log", "Записать отчёт о состоянии в лог" },
+			  desc = { "Writes what the native add-on found to the game log (lines starting with [ZGO] native): whether the DLL loaded, the engine functions it recognised and verified, which hooks are in, how many bodies it bends, and in co-op what every player supports. Attach it to bug reports.",
+			           "Пишет в лог игры, что нашло нативное дополнение (строки, начинающиеся с [ZGO] native): загрузилась ли DLL, какие функции движка она узнала и проверила, какие перехваты стоят, сколько тел она сгибает и, в кооперативе, что поддерживает каждый игрок. Прикладывайте к отчётам об ошибках." } },
+		},
+	},
+	{
+		page = "performance",
+		items = {
+			{ id = "native_bodies", type = "track", min = 0, max = 32, step = 1, perf = { 4, 8, 12, 16, 24 },
+			  name = { "Bodies with broken limbs at once", "Тел со сломанными конечностями одновременно" },
+			  desc = { "Most bodies the native bone hooks bend at the same time (newest first; older ones go back to normal). Each costs a little CPU every frame it is drawn. Only matters with Native extensions -> Bone hooks on. 0 = none.",
+			           "Наибольшее число тел, которые нативный перехват костей сгибает одновременно (сначала новые; старые возвращаются к норме). Каждое немного нагружает процессор в каждом кадре, где оно видно. Имеет значение только при включённом Нативные расширения -> Перехват костей. 0 = ни одного." } },
+		},
+	},
+}

@@ -1,0 +1,175 @@
+--[[
+  Zone Gore Overhaul - world impact tables (used by zgo_impacts, zgo_impacts_crater)
+
+  Data only. Every name here must exist in the mod:
+    * wallmark sections: configs/mod_system_zgo_impacts.ltx
+      (zgo_world_<mark>_<family>_<n>, one texture each, under textures/zgo/impacts)
+    * particle effects:  particles/zgo/world/*.pe
+    * meshes:            meshes/zgo/world/*.ogf (rigid skeletons: script
+      attachments R_ASSERT on anything else)
+  tests/zgo_test_world.lua checks every name against the files.
+
+  Material families (the engine's material names, from gamemtl.xr and
+  materials\materials.ltx, mapped to how a surface takes a hit):
+    stone   concrete, asphalt, tiles, slate, the level's "default"
+    brick   brick walls (red-brown dust and chips)
+    plaster stucco (white dust)
+    wood    planks, beams, trunks, furniture
+    metal   sheet, plate, pipes, vehicles, barrels (sparks, no dust)
+    earth   dirt, sand, grass, gravel (dirt spray, no build-up)
+    glass   the engine breaks and marks it; nothing is added
+]]
+
+FAMILIES = { "stone", "brick", "plaster", "wood", "metal", "earth", "glass" }
+CODE = {}            -- family -> number on the co-op line
+for i, f in ipairs(FAMILIES) do CODE[f] = i end
+
+MATERIAL = {
+	["default"] = "stone", ["default_object"] = "metal",
+	["materials\\concrete"] = "stone", ["materials\\asphalt"] = "stone", ["materials\\flooring_tile"] = "stone",
+	["materials\\shifer"] = "stone", ["objects\\concrete_box"] = "stone",
+	["materials\\bricks"] = "brick",
+	["materials\\stucco"] = "plaster",
+	["materials\\wood"] = "wood", ["materials\\wooden_board"] = "wood", ["materials\\tree_trunk"] = "wood",
+	["objects\\small_box"] = "wood", ["objects\\large_furniture"] = "wood",
+	["materials\\metal"] = "metal", ["materials\\metal_plate"] = "metal", ["materials\\metal_pipe"] = "metal",
+	["materials\\tin"] = "metal", ["materials\\setka_rabica"] = "metal",
+	["objects\\barrel"] = "metal", ["objects\\metal_box"] = "metal", ["objects\\car_cabine"] = "metal",
+	["objects\\large_metal_trash"] = "metal", ["objects\\small_metal_trash"] = "metal", ["objects\\tin_can"] = "metal",
+	["objects\\fuel_can"] = "metal", ["objects\\large_weapon"] = "metal", ["objects\\small_weapon"] = "metal",
+	["objects\\car_wheel"] = "metal",
+	["materials\\earth"] = "earth", ["materials\\dirt"] = "earth", ["materials\\sand"] = "earth",
+	["materials\\grass"] = "earth", ["materials\\gravel"] = "earth", ["materials\\earth_slide"] = "earth",
+	["materials\\glass"] = "glass", ["objects\\glass"] = "glass", ["objects\\bottle"] = "glass",
+}
+-- materials that take nothing (water, foliage, cloth, invisible helpers)
+NONE = {
+	["materials\\water"] = true, ["materials\\water_radiation"] = true, ["materials\\bush"] = true,
+	["materials\\bush_sux"] = true, ["materials\\cloth"] = true, ["objects\\clothes"] = true,
+	["materials\\fake"] = true, ["materials\\fake_ladders"] = true, ["materials\\fake_ladders_woods"] = true,
+	["materials\\fake_slide"] = true, ["materials\\occ"] = true, ["materials\\death"] = true,
+	["materials\\earth_death"] = true, ["objects\\bullet"] = true, ["objects\\shell"] = true, ["objects\\bolt"] = true,
+}
+-- materials added by other mods: guess from the name (first match wins)
+GUESS = {
+	{ "glass", "glass" }, { "brick", "brick" }, { "stucco", "plaster" }, { "plaster", "plaster" },
+	{ "concrete", "stone" }, { "beton", "stone" }, { "asphalt", "stone" }, { "tile", "stone" }, { "stone", "stone" }, { "rock", "stone" },
+	{ "wood", "wood" }, { "board", "wood" }, { "tree", "wood" }, { "plank", "wood" }, { "furniture", "wood" },
+	{ "metal", "metal" }, { "tin", "metal" }, { "iron", "metal" }, { "steel", "metal" }, { "pipe", "metal" }, { "car", "metal" },
+	{ "earth", "earth" }, { "dirt", "earth" }, { "sand", "earth" }, { "grass", "earth" }, { "gravel", "earth" }, { "mud", "earth" },
+}
+-- objects without a material name: guess from the visual
+VISUAL_GUESS = {
+	{ "glass", "glass" }, { "bottle", "glass" }, { "barrel", "metal" }, { "bochka", "metal" }, { "veh", "metal" },
+	{ "car", "metal" }, { "metal", "metal" }, { "tank", "metal" }, { "box_wood", "wood" }, { "wood", "wood" },
+	{ "yashik", "wood" }, { "crate", "wood" }, { "chair", "wood" }, { "table", "wood" }, { "box", "wood" },
+	{ "concrete", "stone" }, { "beton", "stone" }, { "brick", "brick" },
+}
+
+------------------------------------------------------------------------
+-- How each family takes damage
+--   marks:   decal per stage; false = that stage is never reached
+--   thr:     built-up energy (1 = an intermediate rifle round) for crack,
+--            gouge and breach in one spot
+--   chip:    chance of a chip mark per round (+ per calibre class)
+--   size:    chip half-size in metres per calibre class 1..5
+--   stage:   half-size of the crack / gouge / breach marks
+--   fx:      particle effects (see FX below)
+------------------------------------------------------------------------
+FAMILY = {
+	stone = {
+		marks = { "chip", "crack", "gouge", "breach" }, thr = { 3.0, 7.0, 15.0 },
+		chip = { 0.3, 0.15 }, size = { 0.035, 0.05, 0.065, 0.08, 0.12 }, stage = { 0.11, 0.13, 0.2 },
+		fx = { "dust_stone", "chips_stone" }, big = "dust_big_stone", burst = "breach_stone",
+	},
+	brick = {
+		marks = { "chip", "crack", "gouge", "breach" }, thr = { 2.5, 6.0, 12.0 },
+		chip = { 0.35, 0.15 }, size = { 0.04, 0.055, 0.07, 0.085, 0.13 }, stage = { 0.11, 0.14, 0.21 },
+		fx = { "dust_brick", "chips_brick" }, big = "dust_big_brick", burst = "breach_brick",
+	},
+	plaster = {
+		marks = { "chip", "crack", "gouge", "breach" }, thr = { 1.8, 4.5, 9.0 },
+		chip = { 0.45, 0.15 }, size = { 0.045, 0.06, 0.075, 0.09, 0.14 }, stage = { 0.12, 0.15, 0.22 },
+		fx = { "dust_plaster", "chips_plaster" }, big = "dust_big_plaster", burst = "breach_plaster",
+	},
+	wood = {
+		marks = { "chip", "split", "gouge", "breach" }, thr = { 1.5, 4.0, 8.0 },
+		chip = { 0.4, 0.15 }, size = { 0.035, 0.05, 0.065, 0.08, 0.11 }, stage = { 0.1, 0.13, 0.19 },
+		fx = { "splinters_wood", "dust_wood" }, big = "dust_big_wood", burst = "breach_wood",
+	},
+	metal = {
+		marks = { "chip", "dent", "tear", false }, thr = { 2.5, 6.0, 1e9 },
+		chip = { 0.45, 0.12 }, size = { 0.025, 0.035, 0.045, 0.055, 0.08 }, stage = { 0.08, 0.1, 0.1 },
+		fx = { "sparks_metal", "smoke_metal" }, big = "sparks_big_metal", burst = "sparks_big_metal",
+	},
+	earth = {
+		marks = { "splash", false, false, false }, thr = { 1e9, 1e9, 1e9 },
+		chip = { 0.05, 0.2 }, size = { 0.05, 0.07, 0.09, 0.11, 0.16 }, stage = { 0.1, 0.1, 0.1 },
+		fx = { "dirt_earth", "dust_earth" }, big = "dust_big_earth", burst = "dust_big_earth",
+	},
+}
+
+-- texture variants per mark kind and family (sections zgo_world_<mark>_<family>_<n>)
+VARIANTS = {
+	chip = { stone = 3, brick = 3, plaster = 3, wood = 3, metal = 3 },
+	crack = { stone = 3, brick = 3, plaster = 3 },
+	split = { wood = 2 },
+	gouge = { stone = 2, brick = 2, plaster = 2, wood = 2 },
+	breach = { stone = 2, brick = 2, plaster = 2, wood = 2 },
+	dent = { metal = 2 },
+	tear = { metal = 2 },
+	splash = { earth = 3 },
+	scorch = { stone = 3, earth = 3 },
+	pock = { all = 3 },
+	crater = { stone = 2, earth = 2 },
+}
+MARK_CODE = { chip = 1, crack = 2, split = 2, dent = 2, gouge = 3, tear = 3, breach = 4, splash = 5, scorch = 6, pock = 7, crater = 8 }
+
+-- the decal shader route (zgo_settings: world/deep_marks): the same marks with
+-- textures under zgo\impacts\deep\, which effects_wallmark.s hands to the
+-- zgo_wm_* shaders (see shaders/r3). Section names add "_d".
+DEEP = { chip = true, crack = true, split = true, gouge = true, breach = true, dent = true, tear = true, scorch = true, crater = true }
+
+function section(mark, fam, n, deep)
+	local v = VARIANTS[mark]
+	if not v then return nil end
+	local count = v[fam] or v.all
+	if not count then return nil end
+	n = math.max(1, math.min(count, n or 1))
+	local s = "zgo_world_" .. mark .. "_" .. (v[fam] and fam or "all") .. "_" .. n
+	if deep and DEEP[mark] then s = s .. "_d" end
+	return s
+end
+
+function variants(mark, fam)
+	local v = VARIANTS[mark]
+	return v and (v[fam] or v.all) or 0
+end
+
+------------------------------------------------------------------------
+-- Particle effects (particles/zgo/world). None of them is gore.
+------------------------------------------------------------------------
+FX_DIR = "zgo\\world\\"
+FX = {
+	"dust_stone", "dust_brick", "dust_plaster", "dust_wood", "dust_earth",
+	"dust_big_stone", "dust_big_brick", "dust_big_plaster", "dust_big_wood", "dust_big_earth",
+	"chips_stone", "chips_brick", "chips_plaster", "splinters_wood", "dirt_earth",
+	"sparks_metal", "sparks_big_metal", "smoke_metal",
+	"breach_stone", "breach_brick", "breach_plaster", "breach_wood",
+	"crater_ring_earth", "crater_ring_stone", "crater_column_earth", "crater_column_stone",
+	"crater_clods_earth", "crater_clods_stone", "crater_smoke", "crater_flash_dust",
+	"ceiling_grit", "ceiling_dust",
+}
+function fx(name) return name and (FX_DIR .. name) or nil end
+
+------------------------------------------------------------------------
+-- Crater pieces (meshes/zgo/world, rigid one-bone skeletons, centred,
+-- +y up, 1 unit = 1 m at scale 1)
+------------------------------------------------------------------------
+MESH_DIR = "zgo\\world\\"
+RIM = { earth = { "crater_rim_earth_1", "crater_rim_earth_2" }, stone = { "crater_rim_stone_1", "crater_rim_stone_2" } }
+CLODS = { earth = { "clod_earth_1", "clod_earth_2", "clod_earth_3" }, stone = { "chunk_stone_1", "chunk_stone_2", "chunk_stone_3" } }
+
+-- explosives without a zgo_blast.KINDS entry: TNT relative to a hand grenade
+-- from the "blast" value (a hand grenade is 3); see zgo_blast
+DEFAULT_CHARGE = 1

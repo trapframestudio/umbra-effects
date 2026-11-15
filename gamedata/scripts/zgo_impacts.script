@@ -1,0 +1,545 @@
+--[[
+  Zone Gore Overhaul - world impact layer (bullets on walls, floors, objects)
+
+  Driven by the zgo_util "bullet" event (every impact this machine saw, on
+  the main thread). For a hit on level geometry (target_id 65535):
+    * the surface: one ray pick along the bullet gives the material name and
+      the triangle normal (ray_pick:get_result().material_name, get_normal());
+      the material picks a family (zgo_impacts_data: stone, brick, plaster,
+      wood, metal, earth, glass);
+    * a chip mark sized by calibre (zgo_ballistics profile: class 1 pistol ..
+      5 anti-materiel) on top of the game's own bullet hole;
+    * a damage grid: hits add their energy to a ~18 cm cell of the surface
+      (quantised position + which way it faces); crossing the family's
+      thresholds places a crack, a gouge, then a dark "breach" mark at the
+      middle of the hits. Cells forget their damage when its marks fade;
+    * dust, chips, splinters or sparks for the family (zgo_impacts_fx).
+  A hit on a non-creature object (crate, barrel, car) gets the particles
+  only; the game paints its own marks on objects.
+  Explosions go to zgo_impacts_crater.
+
+  Co-op (xrRazom): the host decides and draws, and sends what it decided as
+  "I" lines; clients draw them. The host never sees a client's own bullets,
+  so a client draws its own dust at once and forwards the impact up ("J");
+  the host runs it through the same grid and sends the marks back to
+  everyone with the client's token, so the shooter doesn't play its dust
+  twice. Clients ignore every other bullet (the host's lines cover them).
+
+    I|x|y|z|nx|ny|nz|fam|cls|mk|var|size|rot|fx|tok     host -> clients
+    J|x|y|z|nx|ny|nz|fam|cls|e|tok|obj                  client -> host
+
+  None of this is gore: kid mode leaves it alone. Performance sliders and the
+  "Draw impact dust" switch are each machine's own; the rest is the host's.
+]]
+
+local U = zgo_util
+local D = zgo_impacts_data
+
+local STATIC = 65535
+local CELL = 0.18          -- m, damage grid
+local QUEUE_MAX = 64
+local PER_FRAME = 8
+local PROBE_BACK, PROBE_RANGE = 0.12, 0.35
+
+local queue, qhead, qtail = {}, 1, 0
+local cells, ncells = {}, 0
+local marks_t, marks_n = -1e9, 0
+local stats = { impacts = 0, marks = 0, stages = 0, sent = 0, up = 0, skipped = 0, objects = 0 }
+local my_tokens = {}       -- client: impacts forwarded up whose dust was drawn here
+local player_pos, player_t = {}, -1e9
+local up_t, up_n = -1e9, 0
+local UP_PER_SEC = 30      -- client: own impacts forwarded to the host per second
+
+------------------------------------------------------------------------
+-- Settings
+------------------------------------------------------------------------
+local function on(key) return U.setting(key) ~= false end
+function enabled() return U.enabled() and on("world/enable") end
+local function lifetime() return U.setting("performance/world_mark_lifetime") or 480 end
+local function range() return U.setting("performance/world_range") or 80 end
+local function mark_scale() return U.setting("world/mark_size") or 1 end
+local function deep() return U.setting("world/deep_marks") == true end
+
+------------------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------------------
+-- material name -> family (nil = takes nothing)
+function family_of(mat)
+	if type(mat) ~= "string" or mat == "" then return nil end
+	local m = string.lower(mat)
+	local f = D.MATERIAL[m]
+	if f then return f end
+	if D.NONE[m] then return nil end
+	for _, g in ipairs(D.GUESS) do
+		if string.find(m, g[1], 1, true) then return g[2] end
+	end
+	return nil
+end
+
+function family_of_object(o, mat)
+	local f = family_of(mat)
+	if f then return f end
+	local ok, v = pcall(function() return o:get_visual_name() end)
+	v = ok and type(v) == "string" and string.lower(v) or ""
+	for _, g in ipairs(D.VISUAL_GUESS) do
+		if string.find(v, g[1], 1, true) then return g[2] end
+	end
+	local okw, w = pcall(IsWeapon, o)
+	if okw and w then return "metal" end
+	return "wood"
+end
+
+-- the surface a bullet hit: point, outward normal, material name (static only)
+function probe(pos, dir)
+	local d = U.unit(dir)
+	if not d then return nil end
+	local start = U.along(pos, d, -PROBE_BACK)
+	local ok, rq = pcall(ray_pick, start, d, PROBE_RANGE, rq_target.rqtStatic, db.actor)
+	if not (ok and rq) then return nil end
+	local okq, hit = pcall(rq.query, rq)
+	if not (okq and hit) then return nil end
+	local dist = rq:get_distance()
+	local p = U.along(start, d, dist)
+	local mat, n
+	local okr, res = pcall(rq.get_result, rq)
+	if okr and res then
+		local okm, m = pcall(function() return res.material_name end)
+		if okm then mat = m end
+	end
+	local okn, nn = pcall(rq.get_normal, rq)
+	if okn and nn then n = U.unit(U.v3(nn.x, nn.y, nn.z)) end
+	if not n then
+		local _, sn = U.surface_at(start, d, PROBE_RANGE, db.actor)
+		n = sn
+	end
+	n = n or U.v3(-d.x, -d.y, -d.z)
+	if U.dot(n, d) > 0 then n = U.v3(-n.x, -n.y, -n.z) end
+	return p, n, mat
+end
+
+------------------------------------------------------------------------
+-- Players (range): this machine's actor and, on a co-op host, every peer
+------------------------------------------------------------------------
+function players()
+	local now = time_global()
+	if now - player_t < 500 and now >= player_t then return player_pos end
+	player_t = now
+	player_pos = {}
+	if db.actor then player_pos[1] = db.actor:position() end
+	if U.has_peers() then
+		local okp, P = pcall(function() return XrrPlayers() end)
+		if okp and P then
+			local okc, n = pcall(P.GetPeerCount, P)
+			for i = 1, (okc and tonumber(n) or 0) do
+				local oki, id = pcall(P.GetPeerLocalIdAt, P, i)
+				local o = oki and tonumber(id) and level.object_by_id(tonumber(id))
+				if o then player_pos[#player_pos + 1] = o:position() end
+			end
+		end
+	end
+	return player_pos
+end
+
+function near_players(p, r)
+	local r2 = r * r
+	for _, a in ipairs(players()) do
+		if a:distance_to_sqr(p) <= r2 then return true end
+	end
+	return false
+end
+
+------------------------------------------------------------------------
+-- Marks (main thread). The engine keeps the raw pointer of a section name
+-- the first time it sees it and R_ASSERTs on one it doesn't know: names are
+-- checked once and kept alive for the session (see zgo_decals.pin).
+------------------------------------------------------------------------
+local PINNED = {}
+local mgr
+
+function pin(sec)
+	if type(sec) ~= "string" or string.sub(sec, 1, 10) ~= "zgo_world_" then return nil end
+	local p = PINNED[sec]
+	if p ~= nil then return p or nil end
+	local ok, exists = pcall(ini_sys.section_exist, ini_sys, sec)
+	PINNED[sec] = (ok and exists) and sec or false
+	if not (ok and exists) then U.dbg("world: unknown wallmark section %s", sec) end
+	return PINNED[sec] or nil
+end
+
+local function manager()
+	if not mgr then
+		local ok, m = pcall(wallmarks_manager)
+		mgr = ok and m or nil
+	end
+	return mgr
+end
+
+local function mark_budget(essential)
+	local now = time_global()
+	if now - marks_t >= 1000 or now < marks_t then marks_t, marks_n = now, 0 end
+	local limit = U.setting("performance/world_marks") or 24
+	if not essential and marks_n >= limit then return false end
+	marks_n = marks_n + 1
+	return true
+end
+
+-- a mark centred on surface point p (outward normal n); returns true when placed
+function place_mark(sec, p, n, size, rot, essential)
+	sec = pin(sec)
+	local m = manager()
+	if not (sec and m and p and n and size and size > 0) then return false end
+	if not mark_budget(essential) then stats.skipped = stats.skipped + 1 return false end
+	local inward = U.v3(-n.x, -n.y, -n.z)
+	local ok, err = pcall(m.place, m, inward, U.along(p, n, 0.08), 0.2, size, sec, db.actor, lifetime(), rot or 0)
+	if not ok then U.dbg("world: place %s: %s", sec, tostring(err)) return false end
+	stats.marks = stats.marks + 1
+	return true
+end
+
+------------------------------------------------------------------------
+-- Damage grid
+------------------------------------------------------------------------
+local function axis_code(n)
+	local ax, ay, az = math.abs(n.x), math.abs(n.y), math.abs(n.z)
+	if ay >= ax and ay >= az then return n.y > 0 and 1 or 2 end
+	if ax >= az then return n.x > 0 and 3 or 4 end
+	return n.z > 0 and 5 or 6
+end
+
+function cell_key(p, n)
+	return string.format("%d:%d:%d:%d", math.floor(p.x / CELL), math.floor(p.y / CELL), math.floor(p.z / CELL), axis_code(n))
+end
+
+local function evict()
+	local max = U.setting("performance/world_cells") or 512
+	if ncells <= max then return end
+	-- drop the oldest quarter (one sort now and then, not per hit)
+	local list = {}
+	for k, c in pairs(cells) do list[#list + 1] = { k = k, t = c.t } end
+	table.sort(list, function(a, b) return a.t < b.t end)
+	local drop = ncells - math.floor(max * 0.75)
+	for i = 1, drop do cells[list[i].k] = nil end
+	ncells = ncells - drop
+end
+
+local function cell_for(p, n, fam, now)
+	local key = cell_key(p, n)
+	local c = cells[key]
+	-- its marks have faded: start again
+	if c and c.stage > 0 and now - c.tm > lifetime() * 900 then c = nil cells[key] = nil ncells = ncells - 1 end
+	if not c then
+		c = { e = 0, stage = 0, t = now, tm = now, sx = 0, sy = 0, sz = 0, w = 0, n = U.vcopy(n), fam = fam }
+		cells[key] = c
+		ncells = ncells + 1
+		evict()
+	end
+	return c
+end
+
+function grid_stats()
+	local n, staged = 0, 0
+	for _, c in pairs(cells) do n = n + 1 if c.stage > 0 then staged = staged + 1 end end
+	return n, staged
+end
+
+------------------------------------------------------------------------
+-- Decisions (authority) -> draw ops (every machine)
+--   op = { p, n, fam, cls, mk, var, size, rot, fx, tok }
+--   mk: index into the family's marks (1 chip/splash, 2..4 stages), 0 none
+--   fx: 0 none, 1 dust, 2 heavy dust, 3 stage burst, 4 breach
+------------------------------------------------------------------------
+local function rnd_var(mark, fam) local n = D.variants(mark, fam) return n > 0 and math.random(1, n) or 0 end
+
+function decide(h)
+	local F = D.FAMILY[h.fam]
+	if not F then return {} end
+	local ops = {}
+	local cls = U.clamp(math.floor(h.cls or 2), 1, 5)
+	local e = h.e or 1
+	local scale = mark_scale()
+	local fxc = (cls >= 4 or e >= 2) and 2 or 1
+	if h.obj then
+		ops[1] = { p = h.p, n = h.n, fam = h.fam, cls = cls, mk = 0, var = 0, size = 0, rot = 0, fx = fxc, tok = h.tok }
+		return ops
+	end
+	local mk, var, size = 0, 0, 0
+	local pc = U.clamp(F.chip[1] + F.chip[2] * cls, 0, 1) * (h.pellet and 0.35 or 1)
+	if F.marks[1] and math.random() < pc then
+		mk = 1
+		var = rnd_var(F.marks[1], h.fam)
+		size = F.size[cls] * scale * U.rand(0.85, 1.15) * (h.pellet and 0.6 or 1)
+	end
+	ops[1] = { p = h.p, n = h.n, fam = h.fam, cls = cls, mk = mk, var = var, size = size, rot = math.random(0, 359), fx = fxc, tok = h.tok }
+	if not (on("world/escalation") and F.marks[2]) then return ops end
+	local now = time_global()
+	local c = cell_for(h.p, h.n, h.fam, now)
+	c.t = now
+	c.e = c.e + e
+	c.sx, c.sy, c.sz, c.w = c.sx + h.p.x, c.sy + h.p.y, c.sz + h.p.z, c.w + 1
+	while c.stage < 3 and F.marks[c.stage + 2] and c.e >= F.thr[c.stage + 1] do
+		c.stage = c.stage + 1
+		c.tm = now
+		stats.stages = stats.stages + 1
+		local mark = F.marks[c.stage + 1]
+		local mid = U.v3(c.sx / c.w, c.sy / c.w, c.sz / c.w)
+		-- the middle of the hits is near the surface but maybe not on it (a corner): use the last hit then
+		local back = U.along(mid, c.n, 0.1)
+		local d = U.cast(back, U.v3(-c.n.x, -c.n.y, -c.n.z), 0.25, rq_target.rqtStatic, db.actor)
+		if d then mid = U.along(back, c.n, -d) else mid = h.p end
+		ops[#ops + 1] = { p = mid, n = c.n, fam = h.fam, cls = cls, mk = c.stage + 1, var = rnd_var(mark, h.fam),
+			size = F.stage[c.stage] * scale * U.rand(0.9, 1.1), rot = math.random(0, 359),
+			fx = c.stage == 3 and 4 or 3, tok = 0 }
+	end
+	return ops
+end
+
+-- particles for an op (cosmetic, chosen locally)
+local function play_fx(op)
+	local F = D.FAMILY[op.fam]
+	if not (F and op.fx and op.fx > 0) then return end
+	local n = op.n
+	local p = U.along(op.p, n, 0.02)
+	local FXP = zgo_impacts_fx
+	if op.fx == 1 then
+		FXP.play(D.fx(F.fx[1]), p, U.cone(n, 0.25))
+		if op.cls >= 2 or math.random() < 0.5 then FXP.play(D.fx(F.fx[2]), p, U.cone(n, 0.5)) end
+	elseif op.fx == 2 then
+		FXP.play(D.fx(F.big), p, U.cone(n, 0.2))
+		FXP.play(D.fx(F.fx[2]), p, U.cone(n, 0.5))
+	elseif op.fx == 3 then
+		FXP.play(D.fx(F.big), p, U.cone(n, 0.2), { essential = true })
+		FXP.play(D.fx(F.fx[2]), p, U.cone(n, 0.4))
+	else
+		FXP.play(D.fx(F.burst), p, n, { essential = true })
+		FXP.play(D.fx(F.big), p, U.cone(n, 0.2), { essential = true })
+	end
+end
+
+-- draw one op on this machine (marks within this machine's budget and lifetime)
+function draw(op, no_fx)
+	if not (op and op.p and op.n) then return end
+	local F = D.FAMILY[op.fam]
+	if not F then return end
+	if op.mk and op.mk > 0 and F.marks[op.mk] then
+		local sec = D.section(F.marks[op.mk], op.fam, op.var, deep())
+		place_mark(sec, op.p, op.n, op.size, op.rot, op.mk > 1)
+	end
+	if not no_fx then play_fx(op) end
+end
+
+local function emit(op)
+	if not U.has_peers() then return end
+	zgo_sync.emit({ "I", U.q3(op.p.x), U.q3(op.p.y), U.q3(op.p.z), U.q3(op.n.x), U.q3(op.n.y), U.q3(op.n.z),
+		D.CODE[op.fam], op.cls, op.mk, op.var, U.q3(op.size), op.rot, op.fx, op.tok or 0 })
+	stats.sent = stats.sent + 1
+end
+
+-- authority: decide, draw here, tell everyone
+function resolve(h)
+	h.p, h.n = U.qv(h.p), U.qv(h.n)
+	for _, op in ipairs(decide(h)) do
+		op.p, op.n, op.size = U.qv(op.p), U.qv(op.n), U.q3(op.size)
+		draw(op)
+		emit(op)
+	end
+end
+
+------------------------------------------------------------------------
+-- Bullet impacts
+------------------------------------------------------------------------
+local function profile(rec)
+	local B = zgo_ballistics
+	local info = B.ammo_info(rec.ammo)
+	if not info then return nil end
+	local prof = B.make(info, rec.speed)
+	local pellets = math.max(1, prof.pellets or 1)
+	local pellet = prof.kind == "buck"
+	return pellet and 1 or prof.cls, prof.energy / (pellet and pellets or 1), pellet
+end
+
+-- does another feature (props) draw this object's hit feedback itself?
+local function props_handles(rec)
+	local P = rawget(_G, "zgo_props")
+	local f = type(P) == "table" and rawget(P, "handles_impact")
+	if type(f) ~= "function" then return false end
+	local ok, r = pcall(f, rec)
+	return ok and r == true
+end
+
+local function process(rec)
+	if not enabled() or not db.actor then return end
+	local tid = rec.target_id
+	local client = U.is_client()
+	local own = rec.shooter ~= nil and rec.shooter == db.actor:id()
+	-- clients: only their own rounds (the host's lines bring everything else)
+	if client and not own then return end
+	-- the host never acts on a peer's round itself: the peer forwards it (J)
+	if not client and rec.shooter ~= nil and U.is_peer(rec.shooter) then return end
+	if not client and not U.is_player_shooter(rec.shooter) and not on("world/npc_impacts") then return end
+	if not near_players(rec.pos, range()) then return end
+	local cls, e, pellet = profile(rec)
+	if not cls then return end
+	local h = { cls = cls, e = e, pellet = pellet }
+	if tid == STATIC or tid == nil then
+		local p, n, mat = probe(rec.pos, rec.dir)
+		if not p then return end
+		h.fam = family_of(rec.material or mat)
+		if not h.fam or h.fam == "glass" then return end
+		h.p, h.n = p, n
+	else
+		local o = level.object_by_id(tid)
+		if not o or U.is_creature(o) or not on("world/objects") or props_handles(rec) then return end
+		h.fam = family_of_object(o, rec.material)
+		if h.fam == "glass" then return end
+		h.obj = true
+		h.p = rec.pos
+		h.n = U.unit(U.v3(-rec.dir.x, -rec.dir.y, -rec.dir.z)) or U.v3(0, 1, 0)
+		stats.objects = stats.objects + 1
+	end
+	stats.impacts = stats.impacts + 1
+	if client then
+		-- this machine's dust now; the host sends the marks back
+		local now = time_global()
+		if now - up_t >= 1000 or now < up_t then up_t, up_n = now, 0 end
+		if up_n >= UP_PER_SEC then stats.skipped = stats.skipped + 1 return end
+		up_n = up_n + 1
+		local tok = math.random(100000000, 999999999)
+		my_tokens[tok] = time_global()
+		local fxc = (cls >= 4 or e >= 2) and 2 or 1
+		play_fx({ p = h.p, n = h.n, fam = h.fam, cls = cls, fx = fxc })
+		zgo_sync.send_up({ "J", U.q3(h.p.x), U.q3(h.p.y), U.q3(h.p.z), U.q3(h.n.x), U.q3(h.n.y), U.q3(h.n.z),
+			D.CODE[h.fam], cls, U.q3(e), tok, h.obj and 1 or 0 })
+		stats.up = stats.up + 1
+		return
+	end
+	resolve(h)
+end
+
+local function on_bullet(rec)
+	if not enabled() or not rec or not rec.pos or not rec.dir then return end
+	-- explosion fragments carry no ammo section: the crater does their marks
+	if rec.ammo == nil or rec.ammo == "" then return end
+	if rec.target_id ~= nil and rec.target_id ~= STATIC then
+		local o = level.object_by_id(rec.target_id)
+		if not o or U.is_creature(o) then return end
+	end
+	if qtail - qhead + 1 >= QUEUE_MAX then
+		queue[qhead] = nil
+		qhead = qhead + 1
+		stats.skipped = stats.skipped + 1
+	end
+	qtail = qtail + 1
+	queue[qtail] = rec
+end
+
+function queued() return qtail - qhead + 1 end
+
+------------------------------------------------------------------------
+-- Co-op
+------------------------------------------------------------------------
+local function num(s)
+	local v = tonumber(s)
+	if v == nil or v ~= v or math.abs(v) > 1e6 then return nil end
+	return v
+end
+
+-- tokens and seeds are large integers
+local function int(s)
+	local v = tonumber(s)
+	if v == nil or v ~= v or math.abs(v) > 4e9 then return 0 end
+	return math.floor(v)
+end
+
+local function vec(t, i)
+	local x, y, z = num(t[i]), num(t[i + 1]), num(t[i + 2])
+	if not (x and y and z) then return nil end
+	return U.v3(x, y, z)
+end
+
+-- client: an impact the host decided
+local function on_I(t)
+	if #t < 15 or not U.enabled() then return end
+	local p, n = vec(t, 2), vec(t, 5)
+	local fam = D.FAMILIES[num(t[8]) or 0]
+	if not (p and n and fam) then return end
+	local tok = int(t[15])
+	local mine = tok ~= 0 and my_tokens[tok] ~= nil
+	if mine then my_tokens[tok] = nil end
+	if not mine and not near_players(p, range()) then return end
+	draw({ p = p, n = n, fam = fam, cls = num(t[9]) or 2, mk = num(t[10]) or 0, var = num(t[11]) or 1,
+		size = num(t[12]) or 0, rot = num(t[13]) or 0, fx = num(t[14]) or 0 }, mine)
+end
+
+-- host: a client's own round hit something
+local function on_J(t)
+	if #t < 12 or not enabled() then return end
+	local p, n = vec(t, 2), vec(t, 5)
+	local fam = D.FAMILIES[num(t[8]) or 0]
+	if not (p and n and fam) or fam == "glass" then return end
+	n = U.unit(n)
+	if not n then return end
+	if not near_players(p, range() + 30) then return end
+	local obj = t[12] == "1"
+	if obj and not on("world/objects") then return end
+	stats.impacts = stats.impacts + 1
+	resolve({ p = p, n = n, fam = fam, cls = U.clamp(num(t[9]) or 2, 1, 5), e = U.clamp(num(t[10]) or 1, 0, 10),
+		pellet = false, obj = obj, tok = int(t[11]) })
+end
+
+function register_sync()
+	zgo_sync.on("I", on_I)
+	zgo_sync.on_up("J", on_J)
+	zgo_sync.on("C", function(t) zgo_impacts_crater.on_line(t) end)
+end
+
+------------------------------------------------------------------------
+-- Frame update / lifecycle
+------------------------------------------------------------------------
+local next_token_prune = 0
+
+local function update()
+	if not U.enabled() then return end
+	local n = 0
+	while qhead <= qtail and n < PER_FRAME do
+		local rec = queue[qhead]
+		queue[qhead] = nil
+		qhead = qhead + 1
+		n = n + 1
+		local ok, err = pcall(process, rec)
+		if not ok then U.log("world impact error: %s", tostring(err)) end
+	end
+	if qhead > qtail then queue, qhead, qtail = {}, 1, 0 end
+	zgo_impacts_fx.update()
+	local ok, err = pcall(zgo_impacts_crater.update)
+	if not ok then U.log("world crater update error: %s", tostring(err)) end
+	local now = time_global()
+	if now >= next_token_prune then
+		next_token_prune = now + 5000
+		for tok, t0 in pairs(my_tokens) do if now - t0 > 8000 then my_tokens[tok] = nil end end
+	end
+end
+
+function reset()
+	queue, qhead, qtail = {}, 1, 0
+	cells, ncells = {}, 0
+	my_tokens = {}
+	mgr = nil
+	player_pos, player_t = {}, -1e9
+	pcall(zgo_impacts_fx.reset)
+	pcall(zgo_impacts_crater.reset)
+end
+
+function get_stats() return stats end
+
+local function on_explosion(rec)
+	local ok, err = pcall(zgo_impacts_crater.on_explosion, rec)
+	if not ok then U.log("world crater error: %s", tostring(err)) end
+end
+
+function on_game_start()
+	U.on_event("bullet", on_bullet)
+	U.on_event("explosion", on_explosion)
+	register_sync()
+	RegisterScriptCallback("actor_on_update", update)
+	RegisterScriptCallback("on_level_changing", reset)
+end

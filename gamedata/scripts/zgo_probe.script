@@ -1,0 +1,1424 @@
+--[[
+  Zone Gore Overhaul - in-game probes (docs/PLAN.md, Phase 0)
+
+  Smoke tests of engine behaviour nobody has confirmed in the game yet. Their
+  results decide which route the later phases take. They live on the MCM page
+  "Diagnostics" (zgo_settings_probe), which shows only while General -> Debug
+  log is ticked: one button per probe, plus "Run all safe probes".
+
+  A button only queues its probe: MCM runs while the game is paused, so the
+  probe starts once the menu is closed (actor_on_update, main thread). Each
+  probe
+    * logs "[ZGO probe] <n name>: PASS|FAIL|MANUAL <details>" to the game log
+      (MANUAL = it ran, but only your eyes can judge the result, or it could
+      not run here and says what to stand near);
+    * shows a short message on screen, and what to watch for in the news;
+    * appends the same lines to appdata\zgo_probe_report.txt, so the file can
+      be sent back as it is;
+    * undoes everything it changed (shaders, a prop's model, the kid mode
+      lane), also when a level change or a save interrupts it, and changes
+      nothing in the game itself.
+
+  The probes:
+    1 off shader       zgo\off (gamedata/shaders/r3/zgo_off.s) on one sub-mesh
+                       of the nearest living NPC and the nearest body, then reset
+    2 pass-through     zgo\probe_dmg: the stock skinned shader rebuilt from Lua
+                       with wrapped vertex shaders, on bodies covering 1W-4W
+    3 digit textures   per-NPC numbers handed to a shader through the second
+                       texture string (zgo\probe_digits, textures zgo\probe\dNN)
+    4 FFI              require "ffi", jit.version, the exe's image base, and
+                       zgo_native.probe() when the native add-on is there
+    5 save and reload  records the cut bodies near you into the next save and
+                       checks them after that save is loaded
+    6 co-op            a hash of what this machine shows of the bodies near
+                       the host (cuts, shader overrides) plus counts; the host
+                       asks every client (sync kind Z) and reports per player
+    7 props            set_visual_name on the nearest one-bone loose object
+                       (docs/discovery/objects.md 1.10 / 6.7), single player
+    8 kid mode lane    the shader bus lane zgo_view while kid mode flips for
+                       the blood shaders only
+    9 baked models     the sub-mesh count of nearby NPCs against the bake
+                       index: finds models another mod overrides
+
+  Every engine function used here is in AnomalyDX11AVX.exe (checked with
+  strings) and is called under pcall; anything missing is reported instead.
+  Probes 1, 2, 3 and 7 touch unverified rendering paths: their buttons need
+  Diagnostics -> "Allow the experimental probes" and they are left out of
+  "Run all safe probes".
+]]
+
+local U = zgo_util
+
+TAG = "[ZGO probe]"
+REPORT = "zgo_probe_report.txt"
+LANE = "zgo_view"
+
+local RADIUS = 40          -- m: bodies the probes look at
+local PROP_RADIUS = 15
+local MAX_BODIES = 16
+local COOP_IDS = 24        -- bodies compared between co-op machines
+local COOP_WAIT_MS = 5000
+SETTLE_MS = 8000           -- after a load: ZGO re-applies cuts within ~4 s
+
+-- skinned "MODEL" shaders the pass-through and digit probes may replace
+local MODEL_SHADERS = { ["models\\model"] = true, ["models\\model_pn"] = true }
+-- OGF_VERTEXFORMAT_FVF_xL (Fmesh.h) and the plain codes -> weights per vertex
+local VCODE = { [1] = 1, [2] = 2, [3] = 3, [4] = 4,
+	[0x12071980] = 1, [0x240E3300] = 2, [0x481C6600] = 3, [0x5A237F80] = 4 }
+-- one-bone skinned models from the base game, used when no other prop is near
+SPARE_PROPS = { "dynamics\\box\\box_paper", "dynamics\\balon\\kanistra", "dynamics\\devices\\dev_vodka\\dev_vodka",
+	"dynamics\\kitchen_room\\kitchen_krujka", "dynamics\\devices\\dev_conserv\\dev_conserv" }
+local DIGIT_COLOURS = { { 15, 0, 0, "red" }, { 0, 15, 0, "green" }, { 0, 0, 15, "blue" } }
+local LANE_OWNER = "Zone Gore Overhaul"
+local LANE_DESC = "x = 1: kid mode, the blood shaders draw nothing"
+local KID_MODULES = { "zgo_fx", "zgo_debris", "zgo_dismember", "zgo_decals", "zgo_native" }
+
+------------------------------------------------------------------------
+-- Output: game log, report file, screen
+------------------------------------------------------------------------
+local report_path
+local report_header = false
+local session = {}       -- results this session: { name, status, details }
+local last_name          -- the last probe that finished (for the mark buttons)
+
+local function say(line)
+	printf("%s", line)
+end
+
+local function level_name()
+	local ok, n = pcall(function() return level.name() end)
+	return ok and n or "?"
+end
+
+local function mode_name()
+	if not U.in_session() then return "single player" end
+	return U.is_client() and "co-op client" or "co-op host"
+end
+
+function report_file()
+	if report_path then return report_path end
+	local ok, p = pcall(function() return getFS():update_path("$app_data_root$", REPORT) end)
+	report_path = ok and type(p) == "string" and p ~= "" and p or REPORT
+	return report_path
+end
+
+local function header()
+	local okd, date = pcall(os.date, "%Y-%m-%d %H:%M:%S")
+	local okb, nb = pcall(zgo_bake.count)
+	local oke, on = pcall(zgo_bake.enabled)
+	local ver = rawget(zgo_main, "VERSION") or "?"
+	return string.format("\n==== Zone Gore Overhaul %s probes, %s, %s, level %s, mod %s, kid mode %s, baked models %s (switch %s)",
+		tostring(ver), okd and date or "?", mode_name(), level_name(), U.enabled() and "on" or "off",
+		U.gore() and "off" or "on", okb and tostring(nb) or "?", oke and (on and "on" or "off") or "?")
+end
+
+local function append(lines)
+	local f = io.open(report_file(), "a")
+	if not f then return false end
+	if not report_header then
+		report_header = true
+		local ok, h = pcall(header)
+		f:write(ok and h or "\n==== Zone Gore Overhaul probes", "\n")
+	end
+	for _, l in ipairs(lines) do f:write(l, "\n") end
+	f:close()
+	return true
+end
+
+local function hud(text, secs)
+	pcall(function() actor_menu.set_msg(1, text, secs or 5) end)
+end
+
+local function news(text, ms)
+	pcall(function() db.actor:give_game_news("Zone Gore Overhaul", text, "ui_iconsTotal_grouping", 0, ms or 10000, 0) end)
+end
+
+------------------------------------------------------------------------
+-- Engine helpers (everything under pcall)
+------------------------------------------------------------------------
+-- obj:method(...) without letting a missing method or an engine error through
+local function call(obj, method, ...)
+	if obj == nil then return false, "no object" end
+	local n, args = select("#", ...), { ... }
+	return pcall(function() return obj[method](obj, unpack(args, 1, n)) end)
+end
+
+local function id_of(o) local ok, id = call(o, "id") return ok and id or nil end
+
+local function bus()
+	local b = rawget(_G, "shader_bus")
+	if b == nil then
+		local ok, m = pcall(function() return shader_bus end)
+		b = ok and m or nil
+	end
+	return b
+end
+
+local function module(name)
+	local ok, m = pcall(function() return _G[name] end)
+	return ok and type(m) == "table" and m or nil
+end
+
+local function shader_file(name) return U.file_exists("$game_shaders$", "r3\\" .. name) end
+local function texture_file(name) return U.file_exists("$game_textures$", name .. ".dds") end
+
+local function visual_key(o)
+	local ok, v = call(o, "get_visual_name")
+	return ok and v and zgo_bake.key(v) or nil
+end
+
+local function label(o)
+	local okn, n = call(o, "character_name")
+	local name = okn and type(n) == "string" and n ~= "" and n or nil
+	local oks, s = call(o, "section")
+	return string.format("%s [%s, id %s]", name or "?", oks and s or "?", tostring(id_of(o)))
+end
+
+local function dist(o)
+	local ok, d = pcall(function() return o:position():distance_to(db.actor:position()) end)
+	return ok and d or 1e9
+end
+
+-- objects within radius of the player that accept(o), nearest first
+local function nearby(radius, accept, limit)
+	local out, seen = {}, {}
+	if not db.actor then return out end
+	local apos = db.actor:position()
+	local aid = db.actor:id()
+	local function consider(o)
+		local id = id_of(o)
+		if not id or id == aid or seen[id] then return end
+		seen[id] = true
+		local oka, yes = pcall(accept, o)
+		if not (oka and yes) then return end
+		local d = dist(o)
+		if d <= radius then out[#out + 1] = { o = o, d = d } end
+	end
+	if type(level.iterate_nearest) == "function" then
+		pcall(level.iterate_nearest, apos, radius, function(o) pcall(consider, o) return false end)
+	elseif type(db.storage) == "table" then
+		for id in pairs(db.storage) do pcall(consider, level.object_by_id(id)) end
+	end
+	table.sort(out, function(a, b) return a.d < b.d end)
+	while limit and #out > limit do out[#out] = nil end
+	return out
+end
+
+local function creature(o) return U.is_creature(o) and not U.is_peer(id_of(o)) end
+local function living(o) return creature(o) and o:alive() end
+local function dead(o) return creature(o) and not o:alive() end
+
+-- sub-meshes as the engine reports them, by child id:
+-- { id, shader, texture, def_shader, def_texture }; nil without a skeleton
+function children(o)
+	local okc, cur = call(o, "get_shaders", false)
+	if not okc or type(cur) ~= "table" or cur.error then return nil end
+	local okd, def = call(o, "get_default_shaders", false)
+	local list = {}
+	for id, e in pairs(cur) do
+		if type(id) == "number" and type(e) == "table" then
+			local d = okd and type(def) == "table" and def[id] or nil
+			list[#list + 1] = { id = id, shader = e.shader, texture = e.texture,
+				def_shader = d and d.shader or e.shader, def_texture = d and d.texture or e.texture }
+		end
+	end
+	table.sort(list, function(a, b) return a.id < b.id end)
+	return list
+end
+
+local function by_id(kids)
+	local t = {}
+	for _, k in ipairs(kids or {}) do t[k.id] = k end
+	return t
+end
+
+-- sub-meshes whose shader or texture differs from the model's own
+local function overrides(o)
+	local out = {}
+	for _, k in ipairs(children(o) or {}) do
+		if k.shader ~= k.def_shader or k.texture ~= k.def_texture then out[#out + 1] = k end
+	end
+	return out
+end
+
+local function first_texture(t) return t and string.match(t, "^[^,]+") or t end
+
+local function severed_state()
+	local ok, st = pcall(zgo_dismember.get_state)
+	return ok and type(st) == "table" and st or {}
+end
+
+------------------------------------------------------------------------
+-- Reading an OGF through the game's file system (the file the game would
+-- load, MO2 priority included): model type, bone count, and per sub-mesh
+-- its texture, shader, weights per vertex and bind-pose box.
+------------------------------------------------------------------------
+local function walk(r, limit, fn)
+	local guard = 0
+	while r:r_tell() + 8 <= limit and guard < 4096 do
+		guard = guard + 1
+		local id = r:r_u32()
+		local size = r:r_u32()
+		local start = r:r_tell()
+		if id >= 2147483648 then id = id - 2147483648 end   -- (compressed flag)
+		local stop = start + size
+		if stop > limit then return end
+		fn(id, stop)
+		r:r_seek(stop)
+	end
+end
+
+local function read_ogf(key)
+	local fs = getFS()
+	local okr, r = pcall(function() return fs:r_open("$game_meshes$", key .. ".ogf") end)
+	if not (okr and r) then return nil end
+	local info = { kids = {} }
+	local ok = pcall(function()
+		local limit = r:r_tell() + r:r_elapsed()
+		walk(r, limit, function(id, stop)
+			if id == 1 then
+				r:r_u8()
+				info.type = r:r_u8()
+			elseif id == 13 then
+				info.bones = r:r_u32()
+			elseif id == 9 then
+				walk(r, stop, function(idx, stop2)
+					local kid = { id = idx + 1 }
+					walk(r, stop2, function(cid)
+						if cid == 1 then
+							r:r_u8()
+							kid.type = r:r_u8()
+							r:r_u16()
+							local bb = {}
+							for i = 1, 6 do bb[i] = r:r_float() end
+							kid.bb = bb
+						elseif cid == 2 then
+							kid.texture = r:r_stringZ()
+							kid.shader = r:r_stringZ()
+						elseif cid == 3 then
+							kid.links = VCODE[r:r_u32()]
+							kid.verts = r:r_u32()
+						end
+					end)
+					info.kids[#info.kids + 1] = kid
+				end)
+			end
+		end)
+	end)
+	-- (the stock scripts never close their readers; r_close may not bind)
+	pcall(function() fs:r_close(r) end)
+	return ok and info or nil
+end
+
+local ogf_cache = {}     -- for the session: a file is read (and maybe leaked) once
+function ogf_info(key)
+	if not key then return nil end
+	local c = ogf_cache[key]
+	if c == nil then
+		c = read_ogf(key) or false
+		ogf_cache[key] = c
+	end
+	return c or nil
+end
+
+local function volume(bb)
+	return bb and (bb[4] - bb[1]) * (bb[5] - bb[2]) * (bb[6] - bb[3]) or -1
+end
+
+------------------------------------------------------------------------
+-- The runner: one probe at a time, as a coroutine on the main thread
+------------------------------------------------------------------------
+local probes = {}
+local queue = {}
+local active
+local group                 -- "run all": { results }
+
+local Ctx = {}
+Ctx.__index = Ctx
+
+function Ctx:wait(ms) coroutine.yield(ms or 0) end
+
+-- remember how to undo a change; runs when the probe ends, however it ends
+function Ctx:undo(fn, what) self.undos[#self.undos + 1] = { fn = fn, what = what } end
+
+-- undo everything now (newest first); returns how many steps had a problem
+function Ctx:restore()
+	local bad = 0
+	while #self.undos > 0 do
+		local u = table.remove(self.undos)
+		local ok, err = pcall(u.fn)
+		if not ok then
+			bad = bad + 1
+			self:note("could not undo %s: %s", tostring(u.what), tostring(err))
+		end
+	end
+	return bad
+end
+
+function Ctx:note(fmt, ...)
+	local ok, msg = pcall(string.format, fmt, ...)
+	msg = ok and msg or tostring(fmt)
+	self.notes[#self.notes + 1] = msg
+	say(string.format("%s %s: %s", TAG, self.name, msg))
+end
+
+function Ctx:result(status, fmt, ...)
+	local ok, msg = pcall(string.format, fmt, ...)
+	self.status, self.details = status, ok and msg or tostring(fmt)
+end
+
+function Ctx:news(text) news(string.format("ZGO probe %s: %s", self.name, text), 15000) end
+
+local function finish(ctx, why)
+	if active ~= ctx then return end
+	active = nil
+	local bad = ctx:restore()
+	if why then
+		ctx.status = "MANUAL"
+		ctx.details = string.format("interrupted (%s); everything it changed was put back%s", why,
+			ctx.details and (". So far: " .. ctx.details) or "")
+	elseif not ctx.status then
+		ctx.status, ctx.details = "FAIL", "the probe ended without a result"
+	end
+	if bad > 0 then
+		if ctx.status == "PASS" then ctx.status = "FAIL" end
+		ctx.details = ctx.details .. string.format(" (%d undo step(s) had a problem, see above)", bad)
+	end
+	local line = string.format("%s %s: %s %s", TAG, ctx.name, ctx.status, ctx.details)
+	say(line)
+	local lines = {}
+	for _, n in ipairs(ctx.notes) do lines[#lines + 1] = "    " .. n end
+	lines[#lines + 1] = line
+	append(lines)
+	session[#session + 1] = { name = ctx.name, status = ctx.status, details = ctx.details }
+	last_name = ctx.name
+	if group then group.results[#group.results + 1] = ctx.status end
+	hud(string.format("ZGO probe %s: %s", ctx.name, ctx.status), 6)
+end
+
+local function resume(ctx)
+	local ok, ms = coroutine.resume(ctx.co, ctx)
+	if active ~= ctx then return end      -- (ended from inside)
+	if not ok then
+		ctx:result("FAIL", "the probe script stopped: %s", tostring(ms))
+		finish(ctx)
+	elseif coroutine.status(ctx.co) == "dead" then
+		finish(ctx)
+	else
+		ctx.wake = time_global() + (tonumber(ms) or 0)
+	end
+end
+
+local function start(entry)
+	local p = probes[entry.id]
+	if not p then return end
+	local ctx = setmetatable({ id = p.id, name = p.name, arg = entry.arg, undos = {}, notes = {} }, Ctx)
+	ctx.co = coroutine.create(function(c) p.run(c) end)
+	active = ctx
+	say(string.format("%s %s: started (%s)", TAG, ctx.name, mode_name()))
+	resume(ctx)
+end
+
+function enqueue(id, arg)
+	if not probes[id] then return false end
+	for _, e in ipairs(queue) do if e.id == id then return true end end
+	if active and active.id == id then return true end
+	if #queue >= 16 then return false end
+	queue[#queue + 1] = { id = id, arg = arg }
+	return true
+end
+
+-- stop the running probe and put everything back (level change, save)
+function interrupt(why)
+	queue = {}
+	group = nil
+	if active then finish(active, why or "stopped") end
+end
+
+function busy() return active ~= nil or #queue > 0 end
+function results() return session end
+
+local pending_prop_fix     -- from a save made while probe 7 had swapped a model
+local prop_swap            -- { id, orig } while probe 7 runs
+
+local function fix_prop_from_save()
+	local fix = pending_prop_fix
+	pending_prop_fix = nil
+	local o = level.object_by_id(fix.id)
+	if not o then return end
+	if visual_key(o) ~= zgo_bake.key(fix.vis) then
+		call(o, "set_visual_name", fix.vis, false)
+		say(string.format("%s 7 props: put back the model of id %s that was saved during the probe (%s)", TAG, tostring(fix.id), fix.vis))
+	end
+end
+
+local function summary(g)
+	local c = { PASS = 0, FAIL = 0, MANUAL = 0 }
+	for _, s in ipairs(g.results) do c[s] = (c[s] or 0) + 1 end
+	local line = string.format("%s run all safe probes: %d PASS, %d FAIL, %d MANUAL (report: %s)",
+		TAG, c.PASS, c.FAIL, c.MANUAL, report_file())
+	say(line)
+	append({ line })
+	hud(string.format("ZGO probes: %d PASS, %d FAIL, %d MANUAL", c.PASS, c.FAIL, c.MANUAL), 8)
+end
+
+local function update()
+	if not db.actor then return end
+	if pending_prop_fix then pcall(fix_prop_from_save) end
+	if active then
+		if time_global() >= (active.wake or 0) then resume(active) end
+		return
+	end
+	if #queue == 0 then return end
+	local entry = table.remove(queue, 1)
+	if entry.id == "_summary" then
+		local g = group
+		group = nil
+		if g then summary(g) end
+		return
+	end
+	start(entry)
+end
+
+local function def(id, num, name, safe, fn)
+	probes[id] = { id = id, name = string.format("%d %s", num, name), safe = safe, run = fn }
+end
+
+local function hold_ms()
+	local s = tonumber(U.setting("diagnostics/hold")) or 6
+	return math.floor(U.clamp(s, 2, 30) * 1000)
+end
+
+local function q2(n) return tonumber(string.format("%.2f", n or 0)) end
+
+------------------------------------------------------------------------
+-- Shared by probes 1-3: put a shader on sub-meshes of one body, undo later
+------------------------------------------------------------------------
+local function apply_shader(ctx, o, kids, shader, tex_of)
+	local oid, done = id_of(o), {}
+	for _, k in ipairs(kids) do
+		local tex = tex_of and tex_of(k) or k.texture or ""
+		if call(o, "set_shader", k.id, shader, tex, false) then done[#done + 1] = k.id end
+	end
+	if #done > 0 then
+		ctx:undo(function()
+			local obj = level.object_by_id(oid)
+			if not obj then return end    -- gone offline: its visual (and the override) went with it
+			for _, id in ipairs(done) do call(obj, "reset_shader", id, false) end
+		end, "the shaders of id " .. tostring(oid))
+	end
+	return done
+end
+
+-- how many of these sub-meshes now report the shader (and texture) we set
+local function readback(o, ids, shader, texture)
+	local by = by_id(children(o))
+	local n = 0
+	for _, id in ipairs(ids) do
+		local k = by[id]
+		if k and k.shader == shader and (not texture or k.texture == texture) then n = n + 1 end
+	end
+	return n
+end
+
+-- the sub-mesh the off shader takes away: the highest one in the bind pose
+-- (the head on people) among the skinned model sub-meshes, not the biggest
+local function pick_part(o, kids)
+	if #kids == 1 then return kids[1], "its only sub-mesh" end
+	local byk = by_id(kids)
+	local info = ogf_info(visual_key(o))
+	if info and #info.kids == #kids then
+		local vol, big = -1, nil
+		for _, k in ipairs(info.kids) do
+			if volume(k.bb) > vol then vol, big = volume(k.bb), k end
+		end
+		local best, top
+		for _, k in ipairs(info.kids) do
+			local kk = byk[k.id]
+			if k ~= big and k.bb and kk and MODEL_SHADERS[kk.def_shader] then
+				local cy = (k.bb[2] + k.bb[5]) * 0.5
+				if not top or cy > top then best, top = kk, cy end
+			end
+		end
+		if best then return best, "the sub-mesh highest up, usually the head" end
+	end
+	return kids[#kids], "its last sub-mesh"
+end
+
+------------------------------------------------------------------------
+-- 1. The off shader
+------------------------------------------------------------------------
+def("off_shader", 1, "off shader", false, function(ctx)
+	if not shader_file("zgo_off.s") then
+		return ctx:result("FAIL", "gamedata\\shaders\\r3\\zgo_off.s is not in the game's file system (is ZGO enabled in MO2?)")
+	end
+	local live = nearby(30, living, 1)[1]
+	local body
+	for _, e in ipairs(nearby(30, dead, 4)) do
+		local oks, sh = call(e.o, "get_physics_shell")
+		e.ragdoll = oks and sh ~= nil
+		if not body or (e.ragdoll and not body.ragdoll) then body = e end
+	end
+	if not live and not body then
+		return ctx:result("MANUAL", "not run: no living NPC or body within 30 m. Stand 3-10 m from a living NPC and a body, then run it again.")
+	end
+	local whole = not U.gore()     -- kid mode: take the whole body away, not a part
+	local done, watch = {}, {}
+	for _, t in ipairs({ { e = live, what = "living NPC" }, { e = body, what = "body" } }) do
+		if t.e then
+			local o = t.e.o
+			local what = t.what == "body" and (t.e.ragdoll and "body (ragdoll)" or "body (no ragdoll yet)") or t.what
+			local kids = children(o)
+			if not kids or #kids == 0 then
+				ctx:note("%s %s: get_shaders gave nothing (not a skinned model?)", what, label(o))
+			else
+				local part, why
+				if whole then part, why = { id = 0, texture = "" }, "the whole body, kid mode is on"
+				else part, why = pick_part(o, kids) end
+				local ids = apply_shader(ctx, o, { part }, "zgo\\off")
+				local rb = whole and #ids or readback(o, ids, "zgo\\off")
+				ctx:note("%s %s, %.0f m: sub-mesh %s of %d (%s, %s), set_shader %s, reads back %s",
+					what, label(o), t.e.d, tostring(part.id), #kids, why, tostring(part.texture),
+					#ids > 0 and "ok" or "refused", rb > 0 and "zgo\\off" or "the old shader")
+				if #ids > 0 then
+					done[#done + 1] = { o = o }
+					watch[#watch + 1] = string.format("the %s %.0f m away loses %s", what, t.e.d, whole and "its whole body" or "one part (usually the head)")
+				end
+			end
+		end
+	end
+	if #done == 0 then return ctx:result("FAIL", "set_shader did not take on any sub-mesh (see the lines above)") end
+	ctx:news(string.format("%s: it must vanish completely, shadow too, with no stretched skin, for %d s, then come back.",
+		table.concat(watch, "; "), hold_ms() / 1000))
+	ctx:wait(hold_ms())
+	local bad = ctx:restore()
+	local left = 0
+	for _, d in ipairs(done) do left = left + #overrides(d.o) end
+	ctx:result(left == 0 and bad == 0 and "MANUAL" or "FAIL",
+		"set_shader(zgo\\off) on %d body(ies), reset_shader %s. Judge by eye: did the part vanish with its shadow, no pinch, and come back? Then press \"looked right\" or \"looked wrong\".",
+		#done, left == 0 and "restored every sub-mesh" or string.format("left %d override(s)", left))
+end)
+
+------------------------------------------------------------------------
+-- 2. Pass-through damage shader
+------------------------------------------------------------------------
+local DMG_FILES = { "zgo_probe_dmg.s", "zgo_probe_dmg_bump.vs", "zgo_probe_dmg_flat.vs", "zgo_probe_dmg_shadow.vs" }
+
+local function bump_of(base)
+	if base and texture_file(base .. "_bump") and texture_file(base .. "_bump#") then return base .. "_bump" end
+end
+
+def("dmg_shader", 2, "pass-through shader", false, function(ctx)
+	for _, f in ipairs(DMG_FILES) do
+		if not shader_file(f) then return ctx:result("FAIL", "gamedata\\shaders\\r3\\%s is missing", f) end
+	end
+	local list = nearby(RADIUS, creature, 12)
+	if #list == 0 then
+		return ctx:result("MANUAL", "not run: no NPC or body within %d m. Stand near a group of different NPCs or mutants (a base is ideal), then run it again.", RADIUS)
+	end
+	-- bodies whose model sub-meshes together cover 1W, 2W, 3W and 4W
+	local chosen, covered, unknown = {}, {}, false
+	for _, e in ipairs(list) do
+		local kids = children(e.o)
+		if kids and #kids > 0 then
+			local byk = by_id(kids)
+			local info = ogf_info(visual_key(e.o))
+			local fmts, new = {}, false
+			if info and #info.kids == #kids then
+				for _, k in ipairs(info.kids) do
+					local kk = byk[k.id]
+					if kk and MODEL_SHADERS[kk.def_shader] and k.links then
+						fmts[k.links] = true
+						if not covered[k.links] then new = true end
+					end
+				end
+			else
+				unknown = true
+				new = #chosen == 0
+			end
+			if new then
+				chosen[#chosen + 1] = { e = e, kids = kids, fmts = fmts }
+				for f in pairs(fmts) do covered[f] = true end
+			end
+		end
+		if #chosen >= 4 or (covered[1] and covered[2] and covered[3] and covered[4]) then break end
+	end
+	if #chosen == 0 then return ctx:result("FAIL", "none of the %d bodies near you reported sub-meshes", #list) end
+	local total, flat, names = 0, 0, {}
+	for _, c in ipairs(chosen) do
+		local targets = {}
+		for _, k in ipairs(c.kids) do if MODEL_SHADERS[k.def_shader] then targets[#targets + 1] = k end end
+		local function tex_of(k)
+			local base = first_texture(k.def_texture)
+			local bump = bump_of(base)
+			if not bump then flat = flat + 1 end
+			return bump and (base .. "," .. bump) or base
+		end
+		local ids = apply_shader(ctx, c.e.o, targets, "zgo\\probe_dmg", tex_of)
+		local rb = readback(c.e.o, ids, "zgo\\probe_dmg")
+		total = total + #ids
+		local f = {}
+		for i = 1, 4 do if c.fmts[i] then f[#f + 1] = i .. "W" end end
+		ctx:note("%s, %.0f m: %d of %d sub-meshes switched (%d read back), weights %s", label(c.e.o), c.e.d, #ids, #c.kids, rb,
+			#f > 0 and table.concat(f, " ") or "unknown")
+		names[#names + 1] = string.format("%s (%.0f m)", label(c.e.o), c.e.d)
+	end
+	if total == 0 then return ctx:result("FAIL", "set_shader(zgo\\probe_dmg) did not take on any sub-mesh") end
+	local have, miss = {}, {}
+	for i = 1, 4 do if covered[i] then have[#have + 1] = i .. "W" else miss[#miss + 1] = i .. "W" end end
+	ctx:news(string.format("%d bodies now use ZGO's copy of the stock shader: %s. For %d s they must look exactly as before: same colours and bumps, shadows, no flicker, no smearing when they or you move.",
+		#chosen, table.concat(names, ", "), hold_ms() * 2 / 1000))
+	ctx:wait(hold_ms() * 2)
+	local bad = ctx:restore()
+	local left = 0
+	for _, c in ipairs(chosen) do left = left + #overrides(c.e.o) end
+	ctx:result(left == 0 and bad == 0 and "MANUAL" or "FAIL",
+		"%d sub-mesh(es) on %d body(ies) drew with zgo\\probe_dmg (%d without a bump map, those look flatter); weight formats covered: %s%s%s; restored %s. Judge by eye: identical look, shadows, no smearing? (A shader that did not compile would have closed the game.)",
+		total, #chosen, flat, #have > 0 and table.concat(have, " ") or "unknown",
+		#miss > 0 and (", not covered " .. table.concat(miss, " ") .. " (stand near other kinds of NPC or mutant and run it again)") or "",
+		unknown and ", some models unreadable" or "", left == 0 and "all" or (left .. " left over"))
+end)
+
+------------------------------------------------------------------------
+-- 3. Digit textures: per-NPC numbers in the second texture string
+------------------------------------------------------------------------
+function digit_code(r, g, b)
+	local d = { r, g, b, (r + g + b + 7) % 16,          -- vertex-shader slots
+		r, g, b, (r + g + b + 7) % 16, 15 - r, 15 - g }  -- pixel-shader slots
+	local s = {}
+	for i, v in ipairs(d) do s[i] = string.format("%x", v) end
+	return "zgo_dg_" .. table.concat(s)
+end
+
+def("digits", 3, "digit textures", false, function(ctx)
+	for _, f in ipairs({ "zgo_probe_digits.s", "zgo_probe_digits.vs", "zgo_probe_digits.ps" }) do
+		if not shader_file(f) then return ctx:result("FAIL", "gamedata\\shaders\\r3\\%s is missing", f) end
+	end
+	for d = 0, 15 do
+		local t = string.format("zgo\\probe\\d%02d", d)
+		if not texture_file(t) then return ctx:result("FAIL", "texture %s.dds is missing", t) end
+	end
+	local list = nearby(RADIUS, creature, 3)
+	if #list == 0 then
+		return ctx:result("MANUAL", "not run: no NPC or body within %d m. Stand near two or three NPCs, then run it again.", RADIUS)
+	end
+	local set, watch = {}, {}
+	for i, e in ipairs(list) do
+		local c = DIGIT_COLOURS[i]
+		-- the biggest skinned model sub-mesh (the torso), else the first one
+		local part, best = nil, -2
+		local info = ogf_info(visual_key(e.o))
+		for _, k in ipairs(children(e.o) or {}) do
+			if MODEL_SHADERS[k.def_shader] then
+				local ik = info and info.kids[k.id]
+				local v = volume(ik and ik.bb)
+				if v > best then part, best = k, v end
+			end
+		end
+		if part then
+			local tex = first_texture(part.def_texture) .. "," .. digit_code(c[1], c[2], c[3])
+			local ids = apply_shader(ctx, e.o, { part }, "zgo\\probe_digits", function() return tex end)
+			if #ids > 0 then
+				set[#set + 1] = { o = e.o, id = part.id, tex = tex, colour = c[4] }
+				watch[#watch + 1] = string.format("%s %.0f m away: %s", label(e.o), e.d, c[4])
+			end
+		else
+			ctx:note("%s: no skinned model sub-mesh to use", label(e.o))
+		end
+	end
+	if #set == 0 then return ctx:result("FAIL", "set_shader(zgo\\probe_digits) did not take on any body") end
+	-- each NPC must keep its own string: that's the per-NPC part
+	local own, distinct, nd = 0, {}, 0
+	for _, s in ipairs(set) do
+		local rb = readback(s.o, { s.id }, "zgo\\probe_digits", s.tex)
+		if rb == 1 then own = own + 1 end
+		if not distinct[s.tex] then distinct[s.tex], nd = true, nd + 1 end
+		ctx:note("%s: sub-mesh %d, %s, texture string %s, reads back %s", label(s.o), s.id, s.colour, s.tex, rb == 1 and "its own" or "something else")
+	end
+	ctx:news(string.format("The torsos turn plain colours for %d s: %s. Magenta = the pixel-shader slots failed; torso gone but its shadow there = the vertex-shader slots failed.",
+		hold_ms() / 1000, table.concat(watch, "; ")))
+	ctx:wait(hold_ms())
+	local bad = ctx:restore()
+	local left = 0
+	for _, s in ipairs(set) do left = left + #overrides(s.o) end
+	ctx:result((own == #set and left == 0 and bad == 0) and "MANUAL" or "FAIL",
+		"%d body(ies) got their own number (%d read their own texture string back, %d different strings); restored %s. Judge by eye: was each torso in the colour named above (red, green, blue), not magenta, not missing?",
+		#set, own, nd, left == 0 and "all" or (left .. " left over"))
+end)
+
+------------------------------------------------------------------------
+-- 4. FFI
+------------------------------------------------------------------------
+local IMAGE_BASE = 0x140000000
+
+def("ffi", 4, "FFI", true, function(ctx)
+	local req = rawget(_G, "require")
+	if type(req) ~= "function" then return ctx:result("FAIL", "require is not available to scripts in this build") end
+	local okf, ffi = pcall(req, "ffi")
+	if not okf or type(ffi) ~= "table" then return ctx:result("FAIL", "require(\"ffi\") refused: %s", tostring(ffi)) end
+	local j = rawget(_G, "jit")
+	local jv = type(j) == "table" and j.version or "?"
+	local pk = rawget(_G, "package")
+	local loadlib = type(pk) == "table" and type(pk.loadlib) == "function"
+	ctx:note("ffi present (os %s, arch %s), %s, package.loadlib %s", tostring(ffi.os), tostring(ffi.arch), tostring(jv), loadlib and "present" or "missing")
+	local status, details
+	if ffi.os ~= "Windows" then
+		status, details = "MANUAL", string.format("ffi works, but this is not Windows (ffi.os = %s): the image-base check only means something inside the game", tostring(ffi.os))
+	else
+		pcall(ffi.cdef, "void* GetModuleHandleA(const char* name);")   -- (refused harmlessly when declared before)
+		local okh, h = pcall(function() return ffi.C.GetModuleHandleA(nil) end)
+		local base = okh and h ~= nil and tonumber(ffi.cast("uintptr_t", h)) or nil
+		if base == IMAGE_BASE then
+			status, details = "PASS", string.format("%s, GetModuleHandleA(nil) = 0x%x, the fixed image base the native add-on expects", tostring(jv), base)
+		else
+			status, details = "FAIL", string.format("%s, GetModuleHandleA(nil) = %s, expected 0x140000000%s", tostring(jv),
+				base and string.format("0x%x", base) or "nothing", okh and "" or (": " .. tostring(h)))
+		end
+	end
+	-- the native add-on (workstream "native") reports for itself when present
+	if U.file_exists("$game_scripts$", "zgo_native.script") then
+		local m = module("zgo_native")
+		local fn = m and m.probe
+		if type(fn) == "function" then
+			local okp, r = pcall(fn)
+			if type(r) == "table" then
+				local parts = {}
+				for k, v in pairs(r) do parts[#parts + 1] = tostring(k) .. "=" .. tostring(v) end
+				table.sort(parts)
+				r = table.concat(parts, ", ")
+			end
+			ctx:note("zgo_native.probe(): %s %s", okp and "returned" or "stopped:", tostring(r))
+			if not okp and status == "PASS" then status = "FAIL" end
+			details = details .. string.format("; native add-on: %s", okp and tostring(r) or "its probe stopped, see above")
+		else
+			details = details .. "; zgo_native.script is there but has no probe()"
+		end
+	else
+		details = details .. "; no native add-on installed"
+	end
+	ctx:result(status, "%s", details)
+end)
+
+------------------------------------------------------------------------
+-- 5. Save and reload with cut bodies near you
+------------------------------------------------------------------------
+local armed = false          -- the next save records the cut bodies near you
+
+function record_bodies()
+	local out = {}
+	local state = severed_state()
+	for _, e in ipairs(nearby(RADIUS, dead, nil)) do
+		local o = e.o
+		local st = state[id_of(o)]
+		if type(st) == "table" and type(st.b) == "table" and #st.b > 0 then
+			local roots = {}
+			for _, b in ipairs(st.b) do roots[#roots + 1] = b end
+			table.sort(roots)
+			local p = o:position()
+			out[#out + 1] = { id = id_of(o), sec = o:section(), vis = visual_key(o) or "?", roots = roots,
+				baked = zgo_bake.is_baked(o, true) and 1 or 0, x = q2(p.x), y = q2(p.y), z = q2(p.z) }
+			if #out >= MAX_BODIES then break end
+		end
+	end
+	return out
+end
+
+def("save_reload", 5, "save and reload", false, function(ctx)
+	if U.is_client() then
+		return ctx:result("MANUAL", "not run: co-op clients don't save; run it on the host or in single player")
+	end
+	local list = record_bodies()
+	if #list == 0 then
+		armed = false
+		return ctx:result("MANUAL", "not run: no body with parts cut off within %d m. Cut a few bodies up (shotgun or grenade), stand near them, then press it again.", RADIUS)
+	end
+	armed = true
+	local cuts, baked = 0, 0
+	for _, c in ipairs(list) do
+		cuts = cuts + #c.roots
+		baked = baked + c.baked
+		ctx:note("%s [%s, id %s]: %s", c.vis, c.sec, tostring(c.id), table.concat(c.roots, " "))
+	end
+	ctx:news(string.format("%d cut bodies near you will be checked. Now save the game (any slot), load that save and wait %d s: the result goes to the log and the report.",
+		#list, SETTLE_MS / 1000))
+	ctx:result("MANUAL", "started: %d bodies (%d baked) with %d cuts. Next: save, load that save, wait %d s for the check.",
+		#list, baked, cuts, SETTLE_MS / 1000)
+end)
+
+def("save_reload_check", 5, "save and reload", false, function(ctx)
+	local rec = ctx.arg
+	if type(rec) ~= "table" or type(rec.bodies) ~= "table" then return ctx:result("FAIL", "the save's record is unreadable") end
+	if rec.level and rec.level ~= level_name() then
+		return ctx:result("MANUAL", "not run: the save was recorded on %s, this is %s", tostring(rec.level), level_name())
+	end
+	ctx:wait(SETTLE_MS)
+	local state = severed_state()
+	local ok_n, problems = 0, {}
+	-- kid mode gives baked bodies their parts back on screen: only ZGO's state counts then
+	local kid = not U.gore()
+	if kid then ctx:note("kid mode is on: whether the cut parts stay hidden on screen is not checked") end
+	for _, c in ipairs(rec.bodies) do
+		local o = level.object_by_id(c.id)
+		local issue = {}
+		if not o then
+			issue[#issue + 1] = "not online (far away or released)"
+		elseif o:section() ~= c.sec then
+			issue[#issue + 1] = "its id now belongs to " .. tostring(o:section())
+		else
+			local st = state[c.id]
+			local have = {}
+			for _, b in ipairs(type(st) == "table" and type(st.b) == "table" and st.b or {}) do have[b] = true end
+			for _, r in ipairs(c.roots or {}) do
+				if not have[r] then issue[#issue + 1] = r .. " missing from ZGO's state" end
+				local okv, vis = call(o, "bone_visible", r)
+				-- (an off-shader cut keeps its bones until the ragdoll exists: zgo_dismember.shown says how it is drawn)
+				local oks, how = pcall(zgo_dismember.shown, o, r)
+				if okv and vis and not (oks and how ~= nil) and not kid then issue[#issue + 1] = r .. " is on screen again" end
+			end
+			local p = o:position()
+			local moved = math.sqrt((p.x - c.x) ^ 2 + (p.y - c.y) ^ 2 + (p.z - c.z) ^ 2)
+			if moved > 0.5 then issue[#issue + 1] = string.format("moved %.1f m since the save (fell again?)", moved) end
+		end
+		if #issue == 0 then
+			ok_n = ok_n + 1
+			ctx:note("%s [id %s]: %s still cut, in place", tostring(c.vis), tostring(c.id), table.concat(c.roots or {}, " "))
+		else
+			problems[#problems + 1] = string.format("id %s: %s", tostring(c.id), table.concat(issue, ", "))
+			ctx:note("%s [id %s]: %s", tostring(c.vis), tostring(c.id), table.concat(issue, ", "))
+		end
+	end
+	ctx:result(#problems == 0 and "PASS" or "FAIL",
+		"%d of %d recorded bodies came back as saved%s%s. Also look: stumps capped, no pinched joints, nobody jumped or fell when the save loaded.",
+		ok_n, #rec.bodies, #problems > 0 and (": " .. table.concat(problems, "; ")) or "",
+		kid and " (kid mode is on: hidden parts not checked on screen)" or "")
+end)
+
+------------------------------------------------------------------------
+-- 6. Co-op: does every machine show the same?
+------------------------------------------------------------------------
+local function cut_sig(o, state)
+	local st = state[id_of(o)]
+	local roots = {}
+	for _, b in ipairs(type(st) == "table" and type(st.b) == "table" and st.b or {}) do roots[#roots + 1] = b end
+	table.sort(roots)
+	local parts = {}
+	for _, r in ipairs(roots) do
+		-- cut = bones hidden, or drawn cut another way (off shader, waiting for the
+		-- ragdoll): machines may draw the same cut differently (each player's option)
+		local ok, vis = call(o, "bone_visible", r)
+		local oks, how = pcall(zgo_dismember.shown, o, r)
+		local cut = (oks and how ~= nil) or (ok and not vis)
+		parts[#parts + 1] = r .. (cut and "-" or (ok and "+" or "?"))
+	end
+	local oka, alive = call(o, "alive")
+	return string.format("%s:%s:%s", tostring(select(2, call(o, "section"))), oka and (alive and "a" or "d") or "?", table.concat(parts, ","))
+end
+
+local function shader_sig(o)
+	-- (leaving out the sub-meshes ZGO's off-shader cuts switched: a host with the
+	-- off shader and a client without it still show the same cut)
+	local okc, cuts = pcall(zgo_dismember.cut_overrides, o)
+	cuts = okc and type(cuts) == "table" and cuts or {}
+	local parts = {}
+	for _, k in ipairs(overrides(o)) do
+		if cuts[k.id] == nil then parts[#parts + 1] = k.id .. "=" .. tostring(k.shader) end
+	end
+	return table.concat(parts, ",")
+end
+
+local function counts()
+	local okc, deb = pcall(zgo_debris.count)
+	local okd, st = pcall(zgo_decals.stats)
+	local decals = okd and type(st) == "table" and (st.placed or st.decals) or nil
+	local oks, ss = pcall(zgo_sync.get_stats)
+	return okc and tonumber(deb) or 0, decals and tonumber(decals) or nil, oks and type(ss) == "table" and ss or {}
+end
+
+-- this machine's view of the given ids: per id a 4-hex hash ("----" = not here)
+function view(ids)
+	local per, all, n = {}, {}, 0
+	local state = severed_state()
+	for i, id in ipairs(ids) do
+		local o = level.object_by_id(id)
+		if o then
+			local sig = cut_sig(o, state) .. "#" .. shader_sig(o)
+			per[i] = string.format("%04x", U.hash(sig) % 65536)
+			all[#all + 1] = id .. "=" .. sig
+			n = n + 1
+		else
+			per[i] = "----"
+			all[#all + 1] = id .. "=-"
+		end
+	end
+	local deb, dec, ss = counts()
+	return { per = per, total = string.format("%08x", U.hash(table.concat(all, ";"))), n = n,
+		debris = deb, decals = dec, sent = ss.sent or 0, recv = ss.recv or 0 }
+end
+
+local rounds = {}            -- nonce -> { ids, replies = { sender -> reply } }
+local next_nonce = 0
+
+local function coop_ids()
+	local ids = {}
+	for _, e in ipairs(nearby(RADIUS, dead, COOP_IDS)) do ids[#ids + 1] = id_of(e.o) end
+	table.sort(ids)
+	return ids
+end
+
+-- client: the host asks (Z|q|nonce|id,id,... or -)
+local function on_question(t)
+	if #t < 4 then return end
+	local ids = {}
+	if t[4] ~= "-" then for v in string.gmatch(t[4], "[^,]+") do ids[#ids + 1] = tonumber(v) end end
+	local v = view(ids)
+	zgo_sync.send_up({ "Z", "a", t[3], v.n, v.total, #v.per > 0 and table.concat(v.per) or "-", v.debris, v.decals or "-", v.recv })
+	U.dbg("probe 6: answered the host's question %s over %s bodies (%s)", t[3], #ids, v.total)
+end
+
+-- client: the host's verdict (Z|r|nonce|player|word|detail)
+local function on_verdict(t)
+	if #t < 5 then return end
+	local line = string.format("%s 6 co-op: the host compared player %s: %s%s", TAG, tostring(t[4]), tostring(t[5]), t[6] and (" (" .. t[6] .. ")") or "")
+	say(line)
+	append({ line })
+	hud("ZGO probe 6 co-op: " .. tostring(t[5]), 6)
+end
+
+local function on_down(t)
+	if t[2] == "q" then on_question(t) elseif t[2] == "r" then on_verdict(t) end
+end
+
+-- host: a client's answer (Z|a|nonce|n|total|per|debris|decals|recv),
+-- or a client asking the host to run the probe (Z|run)
+local function on_up(t, sender)
+	if t[2] == "run" then
+		if U.setting("general/debug") then
+			enqueue("coop")
+		else
+			zgo_sync.emit({ "Z", "r", "-", "all", "not run", "the host has Debug log off" })
+		end
+		return
+	end
+	if t[2] ~= "a" or #t < 9 then return end
+	local r = rounds[t[3]]
+	if not r then return end
+	local per = {}
+	if t[6] ~= "-" then for i = 1, #t[6], 4 do per[#per + 1] = string.sub(t[6], i, i + 3) end end
+	r.replies[tostring(sender or "?")] = { n = tonumber(t[4]), total = t[5], per = per, debris = tonumber(t[7]),
+		decals = tonumber(t[8]), recv = tonumber(t[9]) }
+end
+
+def("coop", 6, "co-op", true, function(ctx)
+	local ids = coop_ids()
+	local mine = view(ids)
+	ctx:note("this machine (%s): %d bodies within %d m, view %s, debris %d, decals %s, sync lines sent %d received %d",
+		mode_name(), mine.n, RADIUS, mine.total, mine.debris, tostring(mine.decals or "n/a"), mine.sent, mine.recv)
+	if not U.in_session() then
+		return ctx:result("MANUAL", "single player: view %s over %d bodies. In co-op, press this on the host (or on a client, which asks the host).",
+			mine.total, mine.n)
+	end
+	if U.is_client() then
+		zgo_sync.send_up({ "Z", "run" })
+		return ctx:result("MANUAL", "asked the host to compare (this machine: view %s over %d bodies); the host's verdict appears here when it comes", mine.total, mine.n)
+	end
+	local peers = tonumber(rawget(_G, "XrrPeerCount")) or 0
+	if peers < 1 then return ctx:result("MANUAL", "not run: no other player is connected (view %s over %d bodies)", mine.total, mine.n) end
+	next_nonce = next_nonce + 1
+	local nonce = string.format("n%x%x", time_global() % 65536, next_nonce)
+	local r = { ids = ids, replies = {} }
+	rounds[nonce] = r
+	ctx:undo(function() rounds[nonce] = nil end, "the co-op round")
+	zgo_sync.emit({ "Z", "q", nonce, #ids > 0 and table.concat(ids, ",") or "-" })
+	ctx:news("Asking the other players what they see; the answer takes a few seconds.")
+	local waited = 0
+	while waited < COOP_WAIT_MS do
+		local n = 0
+		for _ in pairs(r.replies) do n = n + 1 end
+		if n >= peers then break end
+		ctx:wait(250)
+		waited = waited + 250
+	end
+	ctx:restore()
+	local answered, matched, lines = 0, 0, {}
+	local senders = {}
+	for s in pairs(r.replies) do senders[#senders + 1] = s end
+	table.sort(senders)
+	for _, s in ipairs(senders) do
+		local rep = r.replies[s]
+		answered = answered + 1
+		local differ, absent = {}, {}
+		for i, id in ipairs(ids) do
+			local a, b = mine.per[i], rep.per[i] or "----"
+			if b == "----" then
+				if a ~= "----" then absent[#absent + 1] = tostring(id) end
+			elseif a ~= b then
+				differ[#differ + 1] = tostring(id)
+			end
+		end
+		local word = #differ == 0 and "match" or "mismatch"
+		if word == "match" then matched = matched + 1 end
+		local detail = string.format("cuts and shaders %s%s; debris host %d, player %s; decals host %s, player %s; sync lines host sent %d, player received %s",
+			#differ == 0 and "the same" or ("differ on ids " .. table.concat(differ, ",")),
+			#absent > 0 and (", not online there: " .. table.concat(absent, ",")) or "",
+			mine.debris, tostring(rep.debris or "?"), tostring(mine.decals or "n/a"), tostring(rep.decals or "n/a"),
+			mine.sent, tostring(rep.recv or "?"))
+		lines[#lines + 1] = string.format("player %s: %s", s, word)
+		ctx:note("player %s: %s: %s", s, word, detail)
+		zgo_sync.emit({ "Z", "r", nonce, s, word, (string.gsub(detail, "[|\n]", " ")) })
+	end
+	if answered == 0 then
+		return ctx:result("FAIL", "no player answered within %d s (ZGO switched off there, or another ZGO version?)", COOP_WAIT_MS / 1000)
+	end
+	ctx:result(matched == answered and answered >= peers and "PASS" or "FAIL", "%d of %d player(s) answered over %d bodies: %s",
+		answered, peers, #ids, table.concat(lines, "; "))
+end)
+
+------------------------------------------------------------------------
+-- 7. Props: set_visual_name on a one-bone loose object
+------------------------------------------------------------------------
+local function bone_count(o)
+	local ok, t = call(o, "list_bones")
+	if not ok or type(t) ~= "table" then return nil end
+	local n = 0
+	for _ in pairs(t) do n = n + 1 end
+	return n
+end
+
+local function cls_is(c, name)
+	local ok, v = pcall(function() return clsid[name] end)
+	return ok and v ~= nil and c == v
+end
+
+-- a plain physic_object (O_PHYS_S or O_PHYSIC; a destroyable would drop its
+-- shell on a visual change) with one bone
+local function one_bone_prop(o)
+	local ok, cls = call(o, "clsid")
+	return ok and (cls_is(cls, "script_phys") or cls_is(cls, "obj_physic")) and bone_count(o) == 1
+end
+
+-- a one-bone skinned model (set_visual_name recalculates bones: a model
+-- without a skeleton would crash it)
+local function swappable(key)
+	if not (key and U.file_exists("$game_meshes$", key .. ".ogf")) then return false end
+	local info = ogf_info(key)
+	return info ~= nil and (info.type == 3 or info.type == 10) and info.bones == 1
+end
+
+def("props", 7, "props", false, function(ctx)
+	if U.in_session() then
+		return ctx:result("MANUAL", "not run: in co-op a model swap would go through the server to everyone; run it in single player")
+	end
+	local props = nearby(PROP_RADIUS, one_bone_prop, 8)
+	local target = props[1]
+	if not target then
+		return ctx:result("MANUAL", "not run: no small loose object within %d m. Stand next to a bottle, can, small box or bucket lying around, then run it again.", PROP_RADIUS)
+	end
+	local o = target.o
+	local okv, orig = call(o, "get_visual_name")
+	if not (okv and type(orig) == "string") then return ctx:result("FAIL", "get_visual_name did not answer for %s", label(o)) end
+	local okey = zgo_bake.key(orig)
+	local new
+	for _, e in ipairs(props) do
+		local k = visual_key(e.o)
+		if k and k ~= okey and swappable(k) then new = k break end
+	end
+	if not new then
+		for _, k in ipairs(SPARE_PROPS) do if k ~= okey and swappable(k) then new = k break end end
+	end
+	if not new then return ctx:result("FAIL", "found no one-bone model to swap to (none of the base game's small props could be read)") end
+	local oid = id_of(o)
+	if not call(o, "set_visual_name", new, false) then return ctx:result("FAIL", "set_visual_name refused (%s -> %s)", okey, new) end
+	prop_swap = { id = oid, orig = orig }
+	ctx:undo(function()
+		prop_swap = nil
+		local obj = level.object_by_id(oid)
+		if obj and visual_key(obj) ~= okey then call(obj, "set_visual_name", orig, false) end
+	end, "the model of " .. label(o))
+	local now = visual_key(o)
+	ctx:note("%s, %.1f m: %s -> %s, reads back %s", label(o), target.d, okey, new, tostring(now))
+	ctx:news(string.format("The %s %.0f m away now looks like %s for %d s. Push it (walk into it, shoot it): the new model must move and fall with it. Then it turns back.",
+		okey, target.d, new, hold_ms() / 1000))
+	ctx:wait(hold_ms())
+	local bad = ctx:restore()
+	local back = visual_key(o) == okey
+	ctx:result(now == new and back and bad == 0 and "MANUAL" or "FAIL",
+		"set_visual_name %s, turned back %s. Judge by eye: did the model change, follow the physics, keep its collision, and turn back?",
+		now == new and "took (get_visual_name reads the new model)" or ("did not take (reads " .. tostring(now) .. ")"),
+		back and "fine" or "NOT: load a save if it still looks wrong")
+end)
+
+------------------------------------------------------------------------
+-- 8. Kid mode lane on the shader bus
+------------------------------------------------------------------------
+-- shader_bus.get / get_pending return ok, x, y, z, w (lua_help_ex.script)
+local function lane_x(b, fn)
+	local f = b[fn or "get"]
+	if type(f) ~= "function" then return nil end
+	local r = { pcall(f, LANE) }
+	if not r[1] then return nil end
+	local a = r[2]
+	if type(a) == "boolean" then return a and tonumber(r[3]) or nil end
+	if type(a) == "number" then return a end
+	if a ~= nil then
+		local okx, x = pcall(function() return a.x or a[1] end)
+		if okx then return tonumber(x) end
+	end
+	return nil
+end
+
+-- every ZGO module with a kid_mode handler (the ones zgo_settings.update
+-- calls today, and any other already loaded)
+function kid_handlers()
+	local out = {}
+	local function take(name, m)
+		if type(m) == "table" and type(rawget(m, "kid_mode")) == "function"
+			and not string.match(name, "^zgo_settings") and name ~= "zgo_probe" then out[name] = m end
+	end
+	for _, name in ipairs(KID_MODULES) do take(name, module(name)) end
+	for name, m in pairs(_G) do
+		if type(name) == "string" and string.match(name, "^zgo_") then take(name, m) end
+	end
+	return out
+end
+
+local function lane_writes(b)
+	if type(b.stats) ~= "function" then return nil end
+	local ok, okb, changes, last, bound, writes = pcall(b.stats, LANE)
+	return ok and okb and tonumber(writes) or nil
+end
+
+def("kid_lane", 8, "kid mode lane", true, function(ctx)
+	local b = bus()
+	if not (b and type(b.get) == "function") then return ctx:result("FAIL", "this exe has no shader_bus for scripts") end
+	local okv, ver = pcall(b.version)
+	local okh, has = pcall(b.has, LANE)
+	local registered = okh and has
+	local owner = select(2, pcall(b.owner_of, LANE))
+	local desc = select(2, pcall(b.describe, LANE))
+	local x0 = lane_x(b)
+	ctx:note("shader bus version %s; lane %s %s, owner %s (%s), x = %s, pending %s, writes %s", okv and tostring(ver) or "?", LANE,
+		registered and "registered" or "NOT registered", tostring(owner), tostring(desc), tostring(x0), tostring(lane_x(b, "get_pending")),
+		tostring(lane_writes(b)))
+	if not registered then
+		return ctx:result("FAIL", "the lane %s is not registered: zgo_settings never claimed it (the log has its reason) or another mod holds the name", LANE)
+	end
+	if owner ~= LANE_OWNER then
+		return ctx:result("FAIL", "the lane %s belongs to \"%s\", not to ZGO", LANE, tostring(owner))
+	end
+	if not U.gore() then
+		return ctx:result(x0 == 1 and "PASS" or "FAIL", "kid mode is on and the lane reads x = %s (expected 1). The flip test is skipped (it would show gore): untick kid mode to run it.", tostring(x0))
+	end
+	-- flip kid mode as zgo_settings.update sees it, and only there: the other
+	-- modules keep their gore (their kid_mode handlers are held for the probe)
+	local ZS = zgo_settings
+	local orig_gore = ZS.gore
+	local function kid() return false end
+	for name, m in pairs(kid_handlers()) do
+		local orig = m.kid_mode
+		m.kid_mode = function() end
+		ctx:undo(function() m.kid_mode = orig end, name .. ".kid_mode")
+	end
+	ZS.gore = kid
+	ctx:undo(function() if ZS.gore == kid then ZS.gore = orig_gore end end, "kid mode")
+	ctx:news(string.format("Kid mode is on for the blood shaders for %d s: blood on walls and bodies must vanish, then come back. Nothing else changes.", hold_ms() / 1000))
+	local w0 = lane_writes(b)
+	ctx:wait(1500)
+	local x1, p1 = lane_x(b), lane_x(b, "get_pending")
+	ctx:wait(math.max(0, hold_ms() - 1500))
+	ctx:restore()
+	ctx:wait(1500)
+	local x2 = lane_x(b)
+	local w2 = lane_writes(b)
+	local ok = x0 == 0 and x1 == 1 and x2 == 0
+	local extra = ""
+	if not ok then
+		-- tell "the bus works, ZGO doesn't write it" from "the bus doesn't work"
+		local reg = b.try_register
+		local okt, token = false, nil
+		if type(reg) == "function" then okt, token = pcall(reg, LANE, LANE_OWNER, LANE_DESC) end
+		if okt and token ~= nil then
+			local oks = pcall(b.set, token, 1, 0, 0, 0)
+			ctx:undo(function() b.set(token, 0, 0, 0, 0) end, "the lane")
+			ctx:wait(500)
+			local t1 = lane_x(b)
+			ctx:restore()
+			ctx:wait(500)
+			local t2 = lane_x(b)
+			extra = string.format("; written directly with the lane's token it reads %s then %s: %s", tostring(t1), tostring(t2),
+				oks and t1 == 1 and t2 == 0 and "the bus works, so ZGO's own write is what fails (zgo_settings must pass its token to shader_bus.set)"
+				or "the bus did not take the write either")
+		else
+			extra = "; could not get the lane's token to test the bus directly"
+		end
+	end
+	ctx:result(ok and "PASS" or "FAIL", "lane x: %s before, %s with kid mode on (pending %s), %s after (expected 0, 1, 0); writes %s -> %s%s. Judge by eye: did the blood vanish and come back?",
+		tostring(x0), tostring(x1), tostring(p1), tostring(x2), tostring(w0), tostring(w2), extra)
+end)
+
+------------------------------------------------------------------------
+-- 9. Baked models in use (read only)
+------------------------------------------------------------------------
+-- how many sub-meshes the baked model has: exact when the bake says so, else
+-- the lower bound every baked model meets (its sections + the body, and at
+-- least the highest child id the bake lists for a section)
+local function expected_children(o, info)
+	local ok, n = pcall(function() return zgo_bake.expected_children and zgo_bake.expected_children(o) end)
+	if ok and tonumber(n) then return tonumber(n), true end
+	if type(info) == "table" and tonumber(info.kids) then return tonumber(info.kids), true end
+	local want = 1
+	for _, v in pairs(type(info) == "table" and info or {}) do if v == true then want = want + 1 end end
+	-- (zgo_bake.parts: the child ids of every section; the body is the rest)
+	local okp, parts = pcall(zgo_bake.parts, o, true)
+	for _, e in pairs(okp and type(parts) == "table" and parts or {}) do
+		for _, id in ipairs(type(e) == "table" and type(e.kids) == "table" and e.kids or {}) do
+			if tonumber(id) and tonumber(id) > want then want = tonumber(id) end
+		end
+	end
+	return want, false
+end
+
+def("baked", 9, "baked models", true, function(ctx)
+	local okc, n_index = pcall(zgo_bake.count)
+	if not okc or (tonumber(n_index) or 0) == 0 then
+		return ctx:result("MANUAL", "not run: no baked models are installed (zgo_bake_index.script missing or empty): bake with the ZGO setup first")
+	end
+	local list = nearby(60, creature, MAX_BODIES)
+	if #list == 0 then return ctx:result("MANUAL", "not run: no NPC or body within 60 m; stand near a few and run it again") end
+	local checked, fine, problems, unbaked, seen = 0, 0, {}, 0, {}
+	for _, e in ipairs(list) do
+		local o = e.o
+		local key = visual_key(o)
+		local info = zgo_bake.info(o, true)
+		local kids = children(o)
+		if not info then
+			unbaked = unbaked + 1
+		elseif kids and key and not seen[key] then
+			seen[key] = true
+			checked = checked + 1
+			local want, exact = expected_children(o, info)
+			local disk = ogf_info(key)
+			local nd = disk and #disk.kids or nil
+			local function fits(n) return n and (exact and n == want or (not exact and n >= want)) end
+			local verdict
+			if fits(#kids) then
+				fine = fine + 1
+				verdict = "baked model in use"
+			elseif fits(nd) then
+				verdict = "the file is baked but the game still has the old model loaded: restart the game"
+				problems[#problems + 1] = key .. " (stale)"
+			else
+				verdict = "another mod's model wins over ZGO's (or the bake is gone): give ZGO a higher priority in MO2 (lower in the left pane), or bake again"
+				problems[#problems + 1] = key .. " (overridden)"
+			end
+			ctx:note("%s: %d sub-meshes in the game, baked %s %d, file %s: %s", key, #kids, exact and "exactly" or "at least",
+				want, nd and tostring(nd) or "unreadable", verdict)
+		end
+	end
+	if checked == 0 then
+		return ctx:result("MANUAL", "not run: none of the %d bodies near you uses a model from the bake (%d baked models in the index); stand near ordinary stalkers", #list, n_index)
+	end
+	local oke, on = pcall(zgo_bake.enabled)
+	ctx:result(#problems == 0 and "PASS" or "FAIL", "%d of %d baked model(s) near you are in use (%d other bodies use models the bake doesn't cover; %d in the index; switch %s)%s",
+		fine, checked, unbaked, n_index, oke and (on and "on" or "off") or "?",
+		#problems > 0 and (". Not in use: " .. table.concat(problems, ", ")) or "")
+end)
+
+------------------------------------------------------------------------
+-- MCM buttons (Diagnostics page; zgo_settings_probe)
+------------------------------------------------------------------------
+local function queued(id)
+	local p = probes[id]
+	if not p.safe and id ~= "save_reload" and not U.setting("diagnostics/experimental") then
+		say(string.format("%s %s: tick \"Allow the experimental probes\" first", TAG, p.name))
+		return
+	end
+	if enqueue(id) then
+		say(string.format("%s %s: queued, it starts when you close the menu", TAG, p.name))
+	end
+end
+
+SAFE = { "baked", "ffi", "kid_lane", "coop" }
+
+function run_all()
+	group = { results = {} }
+	for _, id in ipairs(SAFE) do queued(id) end
+	queue[#queue + 1] = { id = "_summary" }
+end
+
+function run_off_shader() queued("off_shader") end
+function run_dmg_shader() queued("dmg_shader") end
+function run_digits() queued("digits") end
+function run_ffi() queued("ffi") end
+function run_save_reload() queued("save_reload") end
+function run_coop() queued("coop") end
+function run_props() queued("props") end
+function run_kid_lane() queued("kid_lane") end
+function run_baked() queued("baked") end
+
+local function mark(word)
+	if not last_name then
+		say(string.format("%s nothing to mark yet: run a probe first", TAG))
+		return
+	end
+	local line = string.format("%s %s: USER says it %s", TAG, last_name, word)
+	say(line)
+	append({ line })
+end
+function mark_ok() mark("looked right") end
+function mark_bad() mark("looked wrong") end
+
+------------------------------------------------------------------------
+-- Engine callbacks
+------------------------------------------------------------------------
+local function save_state(m_data)
+	local rec
+	if armed and not U.is_client() then
+		local ok, list = pcall(record_bodies)
+		if ok then rec = { saveload = { level = level_name(), bodies = list } } end
+	end
+	if prop_swap then
+		rec = rec or {}
+		rec.prop = { id = prop_swap.id, vis = prop_swap.orig }
+	end
+	if rec then m_data.zgo_probe = rec end
+end
+
+local function load_state(m_data)
+	local rec = type(m_data) == "table" and m_data.zgo_probe
+	if type(rec) ~= "table" then return end
+	if type(rec.saveload) == "table" then
+		armed = false
+		enqueue("save_reload_check", rec.saveload)
+	end
+	if type(rec.prop) == "table" and rec.prop.id and rec.prop.vis then pending_prop_fix = rec.prop end
+end
+
+local function on_level_change()
+	armed = false
+	interrupt("level change")
+end
+
+local function on_save_input()
+	if active then interrupt("the game is being saved") end
+end
+
+local function on_update()
+	local ok, err = pcall(update)
+	if not ok then say(string.format("%s runner problem: %s", TAG, tostring(err))) end
+end
+
+function on_game_start()
+	RegisterScriptCallback("actor_on_update", on_update)
+	RegisterScriptCallback("save_state", save_state)
+	RegisterScriptCallback("load_state", load_state)
+	RegisterScriptCallback("on_level_changing", on_level_change)
+	pcall(RegisterScriptCallback, "on_before_level_changing", on_level_change)
+	pcall(RegisterScriptCallback, "on_before_save_input", on_save_input)
+	-- co-op probe (sync kind Z): answered even with Debug log off, it's cheap
+	zgo_sync.on("Z", on_down)
+	zgo_sync.on_up("Z", on_up)
+end
+
+-- (tests)
+_test = { view = view, digit_code = digit_code, ogf_info = ogf_info, children = children, record_bodies = record_bodies,
+	state = function() return { armed = armed, active = active and active.id, queue = #queue, rounds = rounds, prop_swap = prop_swap } end }

@@ -1,0 +1,37 @@
+--[[
+  Zone Gore Overhaul - options of the cuts workstream (zgo_dismember,
+  zgo_debris): how a cut is drawn with the 1.7 bake.
+  Data only; zgo_settings merges it (format in the header of zgo_settings.script).
+
+  All three sit on the Dismemberment page and are each player's own
+  (coop = "local"): the host decides WHAT comes off, every machine draws it
+  with its own bake. Every new way of drawing is experimental and off by
+  default; the defaults draw exactly what 1.6 drew.
+]]
+
+SETTINGS = {
+	{
+		page = "dismember",
+		items = {
+			{ id = "cap_style", type = "list", values = { "meat", "fitted", "fitted_rigid", "in_model" }, def = "meat",
+			  coop = "local", show_if = "dismember/stump_caps",
+			  labels = {
+				meat = { "Meat disk (as before)", "Кусок мяса (как раньше)" },
+				fitted = { "Fitted to the cut (experimental)", "По форме среза (экспериментально)" },
+				fitted_rigid = { "Fitted, fixed to the joint (experimental)", "По форме среза, неподвижно (экспериментально)" },
+				in_model = { "Inside the model (experimental)", "Внутри модели (экспериментально)" },
+			  },
+			  name = { "Stump cap shape", "Форма культи" },
+			  desc = { "What closes a stump where a part came off. Meat disk: a slab of raw meat over the cut, as before. Fitted to the cut (experimental): the cap the model baker made for that body and that cut (README, BAKED MODELS), flesh and a broken bone shaped exactly like the wound; it bends with the body. Fitted, fixed to the joint (experimental): the same cap held still on the joint above the cut, in case the first one looks wrong in your game. Inside the model (experimental): the caps that a bake with --experimental-caps puts inside every model, shown through the off shader (needs Cut with the off shader); without them the fitted caps are used. Fitted caps need a bake from version 1.7; without one, or on a body whose model another mod replaced, the meat disk is used. To check: pick a fitted shape and shoot a forearm and a thigh off a body: a fleshy cap with a bone stub must close the stump without a gap, also while the body moves. If the game shows an error about a model, or a cap floats away from the body, go back to Meat disk and report it. Each player's own setting.",
+			           "Чем закрыта культя там, где оторвалась часть тела. Кусок мяса: пластина сырого мяса поверх среза, как раньше. По форме среза (экспериментально): срез, который запекатель моделей сделал для этого тела и этого места (README, BAKED MODELS), мясо и обломок кости точно по форме раны; он сгибается вместе с телом. По форме среза, неподвижно (экспериментально): тот же срез, закреплённый на суставе выше раны, на случай если первый вариант выглядит в вашей игре неправильно. Внутри модели (экспериментально): срезы, которые запекание с --experimental-caps кладёт внутрь каждой модели; их включает шейдер «выключено» (нужно «Отрезать шейдером»), без них используется срез по форме. Срезам по форме нужно запекание версии 1.7; без него или на теле, чью модель заменил другой мод, остаётся кусок мяса. Проверка: выберите срез по форме и отстрелите трупу предплечье и бедро: культю должен закрывать мясной срез с обломком кости, без щели, и когда тело двигается тоже. Если игра выдаёт ошибку о модели или срез висит отдельно от тела, верните «Кусок мяса» и сообщите. У каждого игрока своя настройка." } },
+			{ id = "baked_pieces", type = "check", def = false, coop = "local",
+			  name = { "Light severed limbs (experimental)", "Лёгкие оторванные конечности (экспериментально)" },
+			  desc = { "A severed limb is drawn with the model baker's piece of that body (only the part that came off, with a closed, fleshy end) instead of a copy of the whole body with everything else shrunk away: lighter to draw, and no open hole at the cut. Needs a bake from version 1.7 with pieces (README, BAKED MODELS); without one, or on a body whose model another mod replaced, nothing changes. Experimental: the piece models have not been checked in the game yet. To check: tick it and shoot an arm off a body: the arm must fly off from where it was, look the same as on the body and show a closed end; if the hand had been shot off before, it is missing from the piece too. If the game shows an error about a model, untick it and report it. Each player's own setting.",
+			           "Оторванная конечность рисуется куском тела, который сделал запекатель моделей (только оторванная часть с закрытым мясным концом), а не копией всего тела, где всё остальное сжато в точку: легче для видеокарты и без открытой дыры на срезе. Нужно запекание версии 1.7 с кусками (README, BAKED MODELS); без него или на теле, чью модель заменил другой мод, ничего не меняется. Экспериментально: модели кусков в игре ещё не проверялись. Проверка: включите и отстрелите трупу руку: рука должна отлететь с того места, где была, выглядеть так же, как на теле, и иметь закрытый конец; если кисть была отстрелена раньше, её нет и на куске. Если игра выдаёт ошибку о модели, выключите и сообщите. У каждого игрока своя настройка." } },
+			{ id = "offshader_cuts", type = "check", def = false, coop = "local",
+			  name = { "Cut with the off shader (experimental)", "Отрезать шейдером (экспериментально)" },
+			  desc = { "With baked models, a part that comes off is switched off by this mod's own shader (zgo\\off) instead of by hiding its bones while the body falls: the joint above the cut is never squeezed, a part can come off before the body has fallen, and every cut shows at once. Bones are still hidden once the body lies as a ragdoll, so bullets and blood marks don't land on the missing part. Needs a bake from version 1.7 (README, BAKED MODELS); bodies without it, or wearing another mod's model, are cut as before. Experimental: first run probe 1 (Off shader) on the Diagnostics page; the part must vanish cleanly. Then tick this and shoot limbs and heads off a few NPCs and bodies: each part must vanish at once with its shadow, with no stretched skin at the joint; save and load: the parts stay off. If a part comes back, the wrong part vanishes or a joint looks squeezed, untick it and report it. Each player's own setting.",
+			           "С запечёнными моделями оторванная часть выключается собственным шейдером мода (zgo\\off), а не скрытием её костей, пока тело падает: сустав над срезом никогда не стягивается, часть может оторваться ещё до того, как тело упало, и каждый срез виден сразу. Когда тело уже лежит рэгдоллом, кости всё равно скрываются, чтобы пули и следы крови не попадали в недостающую часть. Нужно запекание версии 1.7 (README, BAKED MODELS); тела без него или с моделью другого мода режутся как раньше. Экспериментально: сначала запустите проверку 1 (Шейдер «выключено») на странице Диагностика, часть должна исчезнуть чисто. Затем включите это и отстрелите конечности и головы нескольким NPC и трупам: каждая часть должна сразу исчезнуть вместе с тенью, без растянутой кожи у сустава; сохранитесь и загрузитесь: части остаются оторванными. Если часть возвращается, исчезает не та часть или сустав выглядит стянутым, выключите и сообщите. У каждого игрока своя настройка." } },
+		},
+	},
+}

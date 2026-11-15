@@ -1,0 +1,214 @@
+--[[
+  Zone Gore Overhaul - co-op handshake: version and bakes (sync kind V)
+
+  The host tells every client which ZGO it runs and what it baked; each
+  client compares that with its own:
+    V|h|<version>|<body>|<props>        host -> clients
+    up V|c|<version>|<body>|<props>     client -> host (its own values, for the host's log)
+  version  zgo_main.VERSION, e.g. 1.7.0
+  body     zgo_bake_inputs.fingerprint: one md5 over the baker version, the
+           creature tables, the bake options and every source model, so two
+           machines with the same mod list and options have the same one
+           ("-" = no body bake)
+  props    zgo_props_fracture_index.bake: the same kind of content id for the
+           breakable-objects bake ("-" = none)
+
+  A difference is written to the log and shown to the player once, in
+  English or Russian, and nothing is refused: the host still decides every
+  effect, a client without the host's bake simply draws some of it the
+  simpler way (unbaked cuts, the game's own prop parts). Peers on another
+  sync protocol never hear each other at all (zgo_sync's event names carry
+  PROTO); zgo_sync logs that case itself.
+
+  The host sends V on its first update in a session, whenever the number of
+  co-op players changes, and every 30 s (players who join later).
+]]
+
+local U = zgo_util
+
+ANNOUNCE_MS = 30000
+
+local T = {
+	caption = { "Zone Gore Overhaul (co-op)", "Zone Gore Overhaul (кооператив)" },
+	version = { "The host runs Zone Gore Overhaul %s, you run %s: some gore may not match between you. Install the same version on every computer.",
+	            "У хоста Zone Gore Overhaul %s, у вас %s: часть эффектов может различаться. Установите одну и ту же версию на всех компьютерах." },
+	body_none_here = { "The host has baked body models and you don't: you see fewer cuts on bodies. Run ZGO Setup (tools\\zgo_setup in the ZGO folder) and press Bake.",
+	                   "У хоста есть запечённые модели тел, а у вас нет: разрезов на телах у вас будет меньше. Запустите ZGO Setup (tools\\zgo_setup в папке ZGO) и нажмите Bake." },
+	body_none_host = { "You have baked body models and the host doesn't: cuts on bodies may look different on your screen. That's fine; the host can run ZGO Setup too.",
+	                   "У вас есть запечённые модели тел, а у хоста нет: разрезы на телах у вас могут выглядеть иначе. Это не страшно; хост тоже может запустить ZGO Setup." },
+	body_differs = { "Your baked body models differ from the host's (another mod list or other ZGO Setup options): cuts and wounds may look a little different on your screen. Bake with the same mod list on every computer to match.",
+	                 "Ваши запечённые модели тел отличаются от моделей хоста (другой список модов или другие настройки ZGO Setup): разрезы и раны у вас могут выглядеть немного иначе. Для полного совпадения запеките с одинаковым списком модов на всех компьютерах." },
+	props_differs = { "Your breakable-objects bake differs from the host's: broken barrels and crates may use the game's own parts on your screen.",
+	                  "Ваше запекание разрушаемых предметов отличается от запекания хоста: сломанные бочки и ящики у вас могут состоять из стандартных частей игры." },
+	ok = { "Play goes on as usual.", "Игра продолжается как обычно." },
+}
+
+-- 2 when the game runs in Russian, else 1
+local function lang()
+	local ok, l = pcall(function() return ini_sys and ini_sys:r_string_ex("string_table", "language") end)
+	return (ok and l == "rus") and 2 or 1
+end
+local function fmt(key, l, ...)
+	local s = T[key][l]
+	if select("#", ...) == 0 then return s end
+	local ok, out = pcall(string.format, s, ...)
+	return ok and out or s
+end
+
+-- UTF-8 -> Windows-1251 for the game's fonts (same rule as zgo_setup_notice)
+local CP1251 = { [0x401] = 0xA8, [0x451] = 0xB8, [0xAB] = 0xAB, [0xBB] = 0xBB, [0x2013] = 0x96, [0x2014] = 0x97,
+	[0x2116] = 0xB9, [0xA0] = 0x20, [0x2026] = 0x85 }
+function to_cp1251(s)
+	if not string.find(s, "[\128-\255]") then return s end
+	local out, i, n = {}, 1, #s
+	while i <= n do
+		local c = string.byte(s, i)
+		local cp, len = c, 1
+		if c >= 0xF0 then cp, len = nil, 4
+		elseif c >= 0xE0 and i + 2 <= n then
+			cp, len = (c - 0xE0) * 4096 + (string.byte(s, i + 1) - 0x80) * 64 + (string.byte(s, i + 2) - 0x80), 3
+		elseif c >= 0xC0 and i + 1 <= n then
+			cp, len = (c - 0xC0) * 64 + (string.byte(s, i + 1) - 0x80), 2
+		elseif c >= 0x80 then cp = nil
+		end
+		local b
+		if cp and cp < 0x80 then b = cp
+		elseif cp and cp >= 0x410 and cp <= 0x44F then b = cp - 0x410 + 0xC0
+		elseif cp then b = CP1251[cp] end
+		out[#out + 1] = string.char(b or 63)
+		i = i + len
+	end
+	return table.concat(out)
+end
+
+------------------------------------------------------------------------
+-- What this machine has
+------------------------------------------------------------------------
+-- a generated script's field, only when its file exists (else "-")
+local function generated(name, field)
+	if not U.file_exists("$game_scripts$", name .. ".script") then return "-" end
+	local ok, v = pcall(function() return _G[name][field] end)
+	v = ok and v or nil
+	if type(v) ~= "string" or v == "" then return "-" end
+	return (string.gsub(v, "[|\n]", "_"))
+end
+
+function mine()
+	local ok, ver = pcall(function() return zgo_main.VERSION end)
+	return {
+		version = ok and type(ver) == "string" and ver or "?",
+		body = generated("zgo_bake_inputs", "fingerprint"),
+		props = generated("zgo_props_fracture_index", "bake"),
+	}
+end
+
+-- the differences between the host's values and this machine's, as text keys
+-- with their arguments: { { key, args... }, ... }
+function compare(host, me)
+	local out = {}
+	if host.version ~= me.version then out[#out + 1] = { "version", host.version, me.version } end
+	if host.body ~= me.body then
+		if me.body == "-" then out[#out + 1] = { "body_none_here" }
+		elseif host.body == "-" then out[#out + 1] = { "body_none_host" }
+		else out[#out + 1] = { "body_differs" } end
+	end
+	-- (no props bake on one side: the props notice says the same thing either way)
+	if host.props ~= me.props then out[#out + 1] = { "props_differs" } end
+	return out
+end
+
+-- the player's notice for a list of differences, in language l (1 en, 2 ru)
+function notice_text(diffs, l)
+	local parts = {}
+	for _, d in ipairs(diffs) do parts[#parts + 1] = fmt(d[1], l, unpack(d, 2)) end
+	parts[#parts + 1] = T.ok[l]
+	return table.concat(parts, " ")
+end
+
+------------------------------------------------------------------------
+-- Host
+------------------------------------------------------------------------
+local next_announce, last_peers = 0, nil
+local host_logged = {}     -- sender .. signature -> true
+
+local function fields(kind, v) return { "V", kind, v.version, v.body, v.props } end
+
+function announce()
+	if not U.has_peers() then return false end
+	zgo_sync.emit(fields("h", mine()))
+	return true
+end
+
+local function on_answer(t, sender)
+	if #t < 5 then return end
+	local peer = { version = t[3], body = t[4], props = t[5] }
+	local diffs = compare(mine(), peer)
+	local sig = tostring(sender) .. "|" .. table.concat(t, "|", 3, 5)
+	if host_logged[sig] then return end
+	host_logged[sig] = true
+	if #diffs == 0 then
+		U.dbg("co-op player %s runs the same ZGO %s and the same bakes", tostring(sender), peer.version)
+		return
+	end
+	local m = mine()
+	U.log("co-op player %s differs from this host: ZGO %s (host %s), body bake %s (host %s), props bake %s (host %s); play goes on",
+		tostring(sender), peer.version, m.version, peer.body, m.body, peer.props, m.props)
+end
+
+------------------------------------------------------------------------
+-- Client
+------------------------------------------------------------------------
+local shown = {}           -- host signature -> true (one notice per difference)
+local last_notice
+
+local function show(msg)
+	msg = to_cp1251(msg)
+	local ok = pcall(function()
+		db.actor:give_game_news(to_cp1251(T.caption[lang()]), msg, "ui_iconsTotal_grouping", 0, 25000)
+	end)
+	if not ok then pcall(function() actor_menu.set_msg(1, msg, 12) end) end
+end
+
+local function on_host(t)
+	if #t < 5 or t[2] ~= "h" then return end
+	local host = { version = t[3], body = t[4], props = t[5] }
+	local me = mine()
+	zgo_sync.send_up(fields("c", me))
+	local diffs = compare(host, me)
+	local sig = table.concat(t, "|", 3, 5)
+	if shown[sig] then return end
+	shown[sig] = true
+	if #diffs == 0 then
+		U.dbg("co-op handshake: same ZGO %s and the same bakes as the host", me.version)
+		return
+	end
+	U.log("co-op handshake: this machine differs from the host: ZGO %s (host %s), body bake %s (host %s), props bake %s (host %s); play goes on",
+		me.version, host.version, me.body, host.body, me.props, host.props)
+	last_notice = notice_text(diffs, lang())
+	show(last_notice)
+end
+
+-- for tests: the last notice shown (UTF-8)
+function last_shown() return last_notice end
+
+------------------------------------------------------------------------
+local function on_update()
+	if not (U.in_session() and not U.is_client() and U.enabled()) then return end
+	local now = time_global()
+	local peers = tonumber(rawget(_G, "XrrPeerCount")) or 0
+	if peers ~= last_peers or now >= next_announce then
+		last_peers = peers
+		next_announce = now + ANNOUNCE_MS
+		announce()
+	end
+end
+
+function reset()
+	next_announce, last_peers = 0, nil
+end
+
+function on_game_start()
+	zgo_sync.on("V", on_host)
+	zgo_sync.on_up("V", on_answer)
+	RegisterScriptCallback("actor_on_update", on_update)
+end

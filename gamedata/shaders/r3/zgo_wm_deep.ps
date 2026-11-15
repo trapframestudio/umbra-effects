@@ -1,0 +1,72 @@
+/**
+ * Zone Gore Overhaul - "Deep impact marks" (experimental), pixel shader.
+ *
+ * Wallmarks are drawn into the albedo target before lighting with
+ * blend destcolor/srccolor: result = 2 * colour * wall, 0.5 grey = no change
+ * (the stock stub_default_ma.ps does the same). The textures under
+ * zgo\impacts\deep\ carry a height in alpha (1 = the wall, 0 = deepest):
+ *   * steep parallax: the colour is looked up where the view ray meets the
+ *     height field, so gouges, breaches and craters look recessed. The
+ *     tangent frame comes from screen derivatives (wallmark vertices carry
+ *     no normal or tangent);
+ *   * cavity shading: deeper texels are darkened a little;
+ *   * age: I.Color.a is the mark's age / lifetime. The stock shader fades
+ *     linearly from the start; this keeps the mark for most of its life and
+ *     fades depth and colour over the last 40 %.
+ * Alpha is not written (colour write mask RGB, as the stock shader).
+ */
+#include "common.h"
+
+#define ZGO_WM_STEPS 10
+#define ZGO_WM_DEPTH 0.07
+
+struct zgo_wm_p
+{
+	float2 Tex0  : TEXCOORD0;
+	float4 Color : COLOR;
+	float3 WPos  : TEXCOORD1;
+};
+
+float4 main(zgo_wm_p I) : SV_Target
+{
+	float age = saturate(I.Color.a);
+	float fade = smoothstep(0.6, 1.0, age);
+
+	// cotangent frame from derivatives (Schueler): T = dP/du, B = dP/dv
+	float3 dp1 = ddx(I.WPos);
+	float3 dp2 = ddy(I.WPos);
+	float2 duv1 = ddx(I.Tex0);
+	float2 duv2 = ddy(I.Tex0);
+	float3 N = cross(dp1, dp2);
+	float nlen = length(N);
+	float2 uv = I.Tex0;
+	if (nlen > 1e-12)
+	{
+		N /= nlen;
+		float3 dp2perp = cross(dp2, N);
+		float3 dp1perp = cross(N, dp1);
+		float3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+		float3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+		float invmax = rsqrt(max(max(dot(T, T), dot(B, B)), 1e-20));
+		T *= invmax;
+		B *= invmax;
+		float3 V = normalize(eye_position - I.WPos);
+		float3 Vt = float3(dot(V, T), dot(V, B), abs(dot(V, N)));
+		float2 delta = Vt.xy / max(Vt.z, 0.3) * (ZGO_WM_DEPTH * (1.0 - fade)) / ZGO_WM_STEPS;
+		float layer = 1.0;
+		float h = s_base.SampleGrad(smp_base, uv, duv1, duv2).a;
+		[loop] for (int i = 0; i < ZGO_WM_STEPS && h < layer; i++)
+		{
+			uv -= delta;
+			layer -= 1.0 / ZGO_WM_STEPS;
+			h = s_base.SampleGrad(smp_base, uv, duv1, duv2).a;
+		}
+	}
+
+	float4 res = s_base.SampleGrad(smp_base, saturate(uv), duv1, duv2);
+	// cavity: up to 30 % darker at the bottom, never past the neutral border
+	res.rgb *= lerp(0.7, 1.0, res.a);
+	res.rgb = lerp(res.rgb, I.Color.rgb, fade);
+	res.a = 1.0;
+	return res;
+}

@@ -1,0 +1,29 @@
+// Zone Gore Overhaul: wound shader zgo\dmg, deferred (bump) pixel shader.
+// The stock deffer_base_bump.ps (whichever mod's copy wins: it writes the G-buffer
+// and, with SSS, the motion vectors) runs first, unchanged; zgo_paint
+// (zgo_dmg.h) then repaints only what lies inside an active wound: layers by
+// depth (blood rim, fat, muscle, bone, cavity), wet gloss, and the dented
+// surface's own normal. Outside a wound the pixel is exactly the stock one.
+// The input repeats the vertex shader's output in the same order
+// (SV_Position included), so ZGO_WOUND / ZGO_BIND line up with
+// zgo_dmg_bump.vs register for register.
+#define ZGO_DMG_PS
+#define main zgo_stock_main
+#include "deffer_base_bump.ps"
+#undef main
+#include "zgo_dmg.h"
+
+struct p_zgo_bump
+{
+	p_bumped	base;
+	float4	hpos	: SV_Position;
+	float4	wound	: ZGO_WOUND;
+	float4	bind	: ZGO_BIND;
+};
+
+f_deffer main(p_zgo_bump I)
+{
+	f_deffer O = zgo_stock_main(I.base);
+	zgo_paint(O, I.base.position.xyz, I.wound, I.bind);
+	return O;
+}

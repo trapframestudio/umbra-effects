@@ -1,0 +1,1140 @@
+--[[
+  Zone Gore Overhaul - props and destruction
+
+  What bullets, knives and explosions do to physics objects in the world
+  (crates, barrels, bottles, chairs, lamps). Driven by the zgo_util events
+  "bullet" (every impact this machine saw) and "explosion" (authority).
+
+    * hit feedback: dust, splinters, sparks, glass or fluff by material;
+    * extra push (host only, through the physics shell; the push replicates
+      in co-op like any physics, so it is applied exactly once);
+    * leaks: a hole below a container's fill line pours its liquid (stream
+      plus growing puddle decals) until drained; gas bottles and fire
+      extinguishers hiss a jet;
+    * native breaks: crates and jars the game itself breaks burst with dust,
+      splinters or glass (vanilla binder's death_callback, and a death
+      callback on unbound destroyables);
+    * hanging lamps: glass and sparks, a flicker when they survive, a
+      shower of glass when they go out;
+    * scripted breaks (Phase E2): objects the game can't break wear down
+      (health from material and mass) and at zero the host releases them;
+      every machine then draws the same pieces (zgo_props_debris) from the
+      host's seed;
+    * explosions: glass near a blast shatters, objects get kicked, health
+      drops with distance (Phase E4).
+
+  Materials, liquids and piece sets: zgo_props_data. Model boxes:
+  zgo_props_models (generated). Fracture rigs baked on the player's machine
+  (tools/zgo_fracture): zgo_props_fracture_index, when present.
+
+  Co-op (xrRazom; the host decides, every machine draws):
+    B|id|visual|src|px|py|pz|h|p|b|dx|dy|dz|imp|seed|mtl   a prop broke (host released it)
+    X|h|mtl|px|py|pz|nx|ny|nz|e|seed|tok                    hit feedback
+    X|l|id|sec|lx|ly|lz|liquid|ms|seed                       a leak started (hole in the prop's frame)
+    X|f|id|seed                                             a lamp flickers
+    X|s|px|py|pz|seed                                       a lamp's glass comes down
+    X|d|mtl|px|py|pz|size|seed                              a native destroyable broke
+    up K|id|sec|ammo|speed|px|py|pz|dx|dy|dz|tok            a client's round hit a prop
+  A client draws its own hits at once and forwards them (K); the host
+  applies damage and push (the host never simulated that round) and sends
+  X|h back with the client's token, which the shooter ignores.
+
+  Environmental, not gore: kid mode changes nothing here.
+]]
+
+local U = zgo_util
+local D = zgo_props_data
+local DEB = zgo_props_debris
+
+local STATIC = 65535
+local MAX_INFOS = 3000
+local DV_HIT, DV_SECOND = 4.0, 8.0     -- m/s caps of the extra push
+local NATIVE_DEDUPE_MS = 2500
+
+local infos, n_infos = {}, 0
+local live = {}                         -- particles held until done (GC destroys them)
+local win_t, win_n = -1e9, 0
+local next_prune = 0
+local sounds = {}
+local snd_ok = {}
+local leaks = {}
+local my_tokens = {}
+local recent_bullet = {}                -- target id -> time of the last bullet on it
+local seen_peer = {}                    -- target id -> time the host saw a peer's round on it
+local recent_blasts = {}
+local native_seen = {}                  -- { p, t } native bursts drawn lately
+local pushed = {}                       -- id -> { t, dv } extra push in the last second
+local hooked = {}                       -- id -> key: callbacks set on unbound destroyables
+local next_scan = 0
+local stats = { hits = 0, breaks = 0, leaks = 0, native = 0, lamps = 0, pushes = 0, fx = 0, skipped = 0, k_in = 0, k_out = 0 }
+local fracture = nil                    -- zgo_props_fracture_index.rigs, false when absent
+local fracture_native = {}              -- visuals the (experimental) bake made natively breakable
+local rig_cache = {}
+
+------------------------------------------------------------------------
+-- Settings
+------------------------------------------------------------------------
+local function opt(k) return U.setting("props/" .. k) end
+local function perf(k, d) return U.setting("performance/" .. k) or d end
+
+function active()
+	return U.enabled() and opt("enable") and true or false
+end
+
+local function near(p)
+	if not (db.actor and p) then return false end
+	local r = perf("props_range", 45)
+	return db.actor:position():distance_to_sqr(p) <= r * r
+end
+
+------------------------------------------------------------------------
+-- Classification (cached per id; ids get reused, so section + visual too)
+------------------------------------------------------------------------
+local function norm_visual(v)
+	v = string.lower(tostring(v or ""))
+	v = string.gsub(v, "/", "\\")
+	v = string.gsub(v, "%.ogf$", "")
+	return v
+end
+
+local function has(s, w) return s ~= nil and string.find(s, w, 1, true) ~= nil end
+
+local function model_box(vis)
+	local b = zgo_props_models.boxes[vis]
+	if b then return b end
+	b = D.PART_BOXES[vis]
+	return b
+end
+
+local function cls_is(c, name)
+	local ok, v = pcall(function() return clsid[name] end)
+	return ok and v ~= nil and c == v
+end
+
+local function kind_of(o)
+	local ok, c = pcall(o.clsid, o)
+	if not ok then return nil end
+	if cls_is(c, "hlamp_s") then return "lamp" end
+	if cls_is(c, "script_phys") then return "phys" end
+	if cls_is(c, "destrphys_s") then return "destr" end
+	return nil
+end
+
+local function keyword(list, s)
+	if not s or s == "" then return nil end
+	for _, kw in ipairs(list) do
+		if has(s, kw[1]) then return kw[2] end
+	end
+end
+
+local function material_of(vis, sec, kind)
+	if kind == "lamp" then return "lamp" end
+	local rig = D.RIGS[vis]
+	if rig and rig.mtl then return rig.mtl end
+	local m = keyword(D.KEYWORDS, vis)
+	if m then return m end
+	local b = zgo_props_models.boxes[vis]
+	if b and b[8] then
+		local em = zgo_props_models.MTL[b[8]]
+		if em and em ~= "generic" then return em end
+	end
+	return keyword(D.KEYWORDS, sec) or "generic"
+end
+
+local function shell_mass(o)
+	local ok, m = pcall(function()
+		local sh = o:get_physics_shell()
+		if not sh then return nil end
+		local n, total = sh:get_elements_number(), 0
+		for i = 0, n - 1 do
+			local el = sh:get_element_by_order(i)
+			if el then total = total + (el:get_mass() or 0) end
+		end
+		return total > 0 and total or nil
+	end)
+	return ok and m or nil
+end
+
+local fracture_rigs
+local function native_baked(vis)
+	fracture_rigs()
+	return fracture_native[vis] == true
+end
+
+function classify(o)
+	if not o then return nil end
+	local ok, id, sec, v = pcall(function() return o:id(), o:section(), o:get_visual_name() end)
+	if not (ok and id and sec) then return nil end
+	local vis = norm_visual(v)
+	local inf = infos[id]
+	if inf and inf.sec == sec and inf.vis == vis then return inf end
+	if not inf then
+		n_infos = n_infos + 1
+		if n_infos > MAX_INFOS then infos, n_infos = {}, 1 end
+	end
+	inf = { id = id, sec = sec, vis = vis }
+	infos[id] = inf
+	if U.is_creature(o) then return inf end
+	inf.kind = kind_of(o)
+	if not inf.kind then return inf end
+	inf.mtl = material_of(vis, string.lower(sec or ""), inf.kind)
+	local b = model_box(vis)
+	if b then
+		inf.box = { min = U.v3(b[1], b[2], b[3]), max = U.v3(b[4], b[5], b[6]) }
+	end
+	inf.mass = shell_mass(o) or (b and b[7] and b[7] > 0 and b[7]) or 20
+	if inf.kind ~= "lamp" then
+		inf.liquid = keyword(D.LEAKERS, vis) or keyword(D.LEAKERS, string.lower(sec or ""))
+		if inf.kind == "destr" then
+			inf.native = D.NATIVE[vis]
+			if not inf.native and native_baked(vis) then inf.native = inf.mtl end
+		end
+	end
+	return inf
+end
+
+-- zgo_impacts asks before drawing its own dust on an object
+function handles_impact(rec)
+	if not (rec and active() and opt("feedback")) then return false end
+	local tid = rec.target_id
+	if not tid or tid == STATIC then return false end
+	local o = level.object_by_id(tid)
+	local inf = o and classify(o)
+	return inf ~= nil and inf.kind ~= nil
+end
+
+------------------------------------------------------------------------
+-- Frames: where an object is and how it is turned
+------------------------------------------------------------------------
+local function rows_of(o)
+	local ok, m = pcall(o.xform, o)
+	if not (ok and m and m.i) then ok, m = pcall(o.bone_transform, o, 0) end
+	if ok and m and m.i and m.j and m.k then
+		return U.vcopy(m.i), U.vcopy(m.j), U.vcopy(m.k)
+	end
+	local okd, d = pcall(o.direction, o)
+	local k = okd and d and U.unit(U.v3(d.x, 0, d.z)) or U.v3(0, 0, 1)
+	return U.cross(U.v3(0, 1, 0), k), U.v3(0, 1, 0), k
+end
+
+-- pos + rotation, quantized (every co-op machine rebuilds the same rows)
+function frame_of(o)
+	local p = o:position()
+	local i, j, k = rows_of(o)
+	local h, pp, b = DEB.hpb_from_rows(i, j, k)
+	local f = { pos = U.qv(p), h = U.q3(h), p = U.q3(pp), b = U.q3(b) }
+	f.i, f.j, f.k = DEB.rows_from_hpb(f.h, f.p, f.b)
+	return f
+end
+
+local function frame_hpb(pos, h, p, b)
+	local f = { pos = pos, h = h, p = p, b = b }
+	f.i, f.j, f.k = DEB.rows_from_hpb(h, p, b)
+	return f
+end
+
+local function to_world(f, v) return U.add(f.pos, DEB.apply_rows(f.i, f.j, f.k, v)) end
+local function to_local(f, p)
+	local d = U.sub(p, f.pos)
+	return U.v3(U.dot(d, f.i), U.dot(d, f.j), U.dot(d, f.k))
+end
+
+local function box_center(box)
+	return U.v3((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, (box.min.z + box.max.z) / 2)
+end
+
+local function box_size(box)
+	return math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z)
+end
+
+------------------------------------------------------------------------
+-- Particles and sounds (main thread)
+------------------------------------------------------------------------
+local function prune(now)
+	local keep = {}
+	for _, p in ipairs(live) do
+		local ok, playing = pcall(p.obj.playing, p.obj)
+		if ok and playing and now - p.t < 20000 then
+			keep[#keep + 1] = p
+		elseif ok and playing then
+			pcall(p.obj.stop, p.obj)
+		end
+	end
+	live = keep
+end
+
+local function budget_ok(essential)
+	local now = time_global()
+	if now - win_t >= 1000 or now < win_t then win_t, win_n = now, 0 end
+	if not essential and win_n >= perf("props_fx", 16) then return false end
+	win_n = win_n + 1
+	return true
+end
+
+function play(name, pos, dir, essential)
+	if not (name and pos) then return false end
+	if not budget_ok(essential) then stats.skipped = stats.skipped + 1 return false end
+	local now = time_global()
+	if now >= next_prune or #live > 96 then
+		next_prune = now + 500
+		prune(now)
+	end
+	local ok, p = pcall(particles_object, name)
+	if not (ok and p) then return false end
+	if dir then
+		local d = U.unit(dir)
+		if d then pcall(p.set_direction, p, d) end
+	end
+	if not pcall(p.play_at_pos, p, pos) then return false end
+	live[#live + 1] = { obj = p, t = now }
+	stats.fx = stats.fx + 1
+	return true
+end
+
+local function play_sound(list, pos, seed)
+	if not (list and #list > 0 and pos and opt("sounds")) then return end
+	local path = list[(math.floor(seed or 0) % #list) + 1]
+	if snd_ok[path] == nil then snd_ok[path] = U.file_exists("$game_sounds$", path .. ".ogg") end
+	if not snd_ok[path] then return end
+	local now = time_global()
+	local keep = {}
+	for _, s in ipairs(sounds) do if now - s.t < 6000 then keep[#keep + 1] = s end end
+	sounds = keep
+	if #sounds >= 8 then return end
+	local ok, snd = pcall(function()
+		local s = sound_object(path)
+		s:play_at_pos(db.actor, pos, 0, sound_object.s3d)
+		return s
+	end)
+	-- held: a collected sound_object stops playing
+	if ok and snd then sounds[#sounds + 1] = { snd = snd, t = now } end
+end
+
+------------------------------------------------------------------------
+-- Hit feedback (every machine draws; h = { mtl, p, n, e, seed })
+------------------------------------------------------------------------
+function draw_hit(h)
+	if not (opt("feedback") and near(h.p)) then return end
+	local M = D.MATERIALS[h.mtl] or D.MATERIALS.generic
+	local g = U.rng(h.seed or 1)
+	local n = U.unit(h.n) or U.v3(0, 1, 0)
+	local p = U.along(h.p, n, 0.02)
+	for i, name in ipairs(M.fx) do
+		local d = U.cone(n, 0.35, g.next)
+		if i == 1 or g.next() < 0.75 then play(name, p, d) end
+	end
+	if M.spark > 0 and g.next() < M.spark * U.clamp(0.6 + 0.4 * (h.e or 1), 0.4, 1.3) then
+		play((h.e or 1) >= 1.3 and D.SPARKS[2] or D.SPARKS[1], p, U.cone(n, 0.5, g.next))
+	end
+	stats.hits = stats.hits + 1
+end
+
+local function emit_hit(h, tok)
+	local M = D.MATERIALS[h.mtl] or D.MATERIALS.generic
+	local n = U.unit(h.n) or U.v3(0, 1, 0)
+	zgo_sync.emit({ "X", "h", M.code, U.q3(h.p.x), U.q3(h.p.y), U.q3(h.p.z), U.q3(n.x), U.q3(n.y), U.q3(n.z),
+		U.q3(h.e or 1), h.seed or 1, tok or 0 })
+end
+
+------------------------------------------------------------------------
+-- Extra push (authority; replicates as physics)
+------------------------------------------------------------------------
+local function pushed_budget(id, dv)
+	local now = time_global()
+	local r = pushed[id]
+	if not r or now - r.t > 1000 then r = { t = now, dv = 0 } pushed[id] = r end
+	local room = math.max(0, DV_SECOND - r.dv)
+	dv = math.min(dv, room)
+	r.dv = r.dv + dv
+	return dv
+end
+
+-- impulse J (N s) along dir at point p; spin = share of the off-centre torque
+function apply_push(o, inf, dir, J, p, spin, cap)
+	if J <= 0 or not inf.mass then return false end
+	local dv = math.min(J / inf.mass, cap or DV_HIT)
+	dv = pushed_budget(inf.id, dv)
+	if dv <= 0.01 then return false end
+	J = dv * inf.mass
+	local ok, sh = pcall(o.get_physics_shell, o)
+	if not (ok and sh) then return false end
+	-- the engine applies a force for one physics step (fixed_step 0.01 s)
+	local F = U.mul(dir, J * 100)
+	local okf = pcall(sh.apply_force, sh, F.x, F.y, F.z)
+	if not okf then return false end
+	stats.pushes = stats.pushes + 1
+	if spin and spin > 0 and p and inf.box then
+		local f = frame_of(o)
+		local c = to_world(f, box_center(inf.box))
+		local T = U.mul(U.cross(U.sub(p, c), F), spin)
+		pcall(function()
+			local el = sh:get_element_by_order(0)
+			local fn = el and el.apply_torque
+			if fn then fn(el, T.x, T.y, T.z) end
+		end)
+	end
+	return true
+end
+
+local function bullet_push(o, inf, h, with_base)
+	if inf.kind == "lamp" then return end
+	local k = (opt("push") or 1) + (with_base and 1 or 0)
+	if k <= 0 then return end
+	apply_push(o, inf, h.dir, k * 6 * (h.e or 1) * U.clamp(h.impulse or 1, 0.5, 2), h.p, 0.5)
+end
+
+------------------------------------------------------------------------
+-- Breaking (Phase E2)
+------------------------------------------------------------------------
+fracture_rigs = function()
+	if fracture == nil then
+		fracture = false
+		if U.file_exists("$game_scripts$", "zgo_props_fracture_index.script") then
+			local ok, t, nat = pcall(function() return zgo_props_fracture_index.rigs, zgo_props_fracture_index.native end)
+			if ok and type(t) == "table" then fracture = t end
+			if ok and type(nat) == "table" then fracture_native = nat end
+		end
+	end
+	return fracture or nil
+end
+
+local function box_of_list(b)
+	if not b then return nil end
+	return { min = U.v3(b[1], b[2], b[3]), max = U.v3(b[4], b[5], b[6]) }
+end
+
+local function piece(model, s, t, b, still)
+	if not b then return nil end
+	local o = U.v3((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2)
+	local h = U.v3((b.max.x - b.min.x) / 2, (b.max.y - b.min.y) / 2, (b.max.z - b.min.z) / 2)
+	return { model = model, s = s, t = t, o = o, half = h, still = still }
+end
+
+-- a part set fitted into box tb (scale per axis + offset)
+local function fit_set(set, tb)
+	local ps = D.PART_SETS[set]
+	local rb = ps and box_of_list(model_box(ps.ref))
+	if not (rb and tb) then return nil end
+	local function ax(a)
+		local rs = rb.max[a] - rb.min[a]
+		local s = rs > 1e-3 and (tb.max[a] - tb.min[a]) / rs or 1
+		return s, tb.min[a] - s * rb.min[a]
+	end
+	local sx, tx = ax("x")
+	local sy, ty = ax("y")
+	local sz, tz = ax("z")
+	local s, t = U.v3(sx, sy, sz), U.v3(tx, ty, tz)
+	local out = {}
+	for _, m in ipairs(ps.parts) do
+		local pc = piece(m, s, t, box_of_list(model_box(m)))
+		if pc then out[#out + 1] = pc end
+	end
+	return #out > 0 and out or nil
+end
+
+--[[ how a visual breaks: { src = "f" (baked fracture) | "k" (kit-bash from
+     the game's parts) | "b" (a burst, no pieces), pieces = { ... } } or nil
+     when it doesn't. want = "f" / "k" / "b" asks for that source first
+     (a co-op client follows the host's choice when it can). ]]
+function rig_for(vis, mtl, want)
+	local key = vis .. "|" .. (want or "")
+	local c = rig_cache[key]
+	if c ~= nil then return c or nil end
+	local tb = box_of_list(model_box(vis))
+	local out
+	local fr = fracture_rigs()
+	local fr_rig = fr and fr[vis]
+	if fr_rig and want ~= "k" and want ~= "b" then
+		local pieces = {}
+		for _, p in ipairs(fr_rig.pieces or {}) do
+			pieces[#pieces + 1] = piece(p[1], U.v3(1, 1, 1), U.v3(0, 0, 0),
+				{ min = U.v3(p[2] - p[5], p[3] - p[6], p[4] - p[7]), max = U.v3(p[2] + p[5], p[3] + p[6], p[4] + p[7]) })
+		end
+		if #pieces > 0 then out = { src = "f", pieces = pieces } end
+	end
+	if not out and want ~= "b" then
+		local r = D.RIGS[vis]
+		local pieces
+		if r and r.set then
+			pieces = fit_set(r.set, tb)
+		elseif r and r.whole then
+			pieces = {}
+			for _, w in ipairs(r.whole) do
+				pieces[#pieces + 1] = piece(w[1], U.v3(1, 1, 1), U.v3(0, 0, 0), box_of_list(model_box(w[1])), w.still)
+			end
+		elseif D.NATIVE[vis] then
+			-- a plain physics object wearing a breakable model: the model's own parts
+			for name, ps in pairs(D.PART_SETS) do
+				if ps.ref == vis then pieces = fit_set(name, tb) break end
+			end
+		elseif mtl == "glass" and tb and box_size(tb) <= D.GLASS_AUTO_RIG then
+			pieces = fit_set("jar", tb)
+		end
+		if pieces and #pieces > 0 then out = { src = "k", pieces = pieces, extra_fx = r and r.extra_fx, hp = r and r.hp } end
+	end
+	if not out and tb and box_size(tb) <= 0.35 then
+		local M = D.MATERIALS[mtl]
+		if M and M.hp > 0 then out = { src = "b", pieces = {} } end
+	end
+	rig_cache[key] = out or false
+	return out
+end
+
+local function story_object(id)
+	local f = rawget(_G, "get_object_story_id")
+	if type(f) ~= "function" then return false end
+	local ok, sid = pcall(f, id)
+	return ok and sid ~= nil
+end
+
+-- a script binder (objects with [logic], invboxes, the vanilla crates):
+-- something else manages this object
+local function has_binder(o)
+	local ok, b = pcall(o.binded_object, o)
+	if ok and b ~= nil then return true end
+	local okd, st = pcall(function() return db.storage and db.storage[o:id()] end)
+	return okd and st ~= nil
+end
+
+local function explosive(sec)
+	local ok, b = pcall(function() return ini_sys:r_float_ex(sec, "blast") end)
+	return ok and tonumber(b) and tonumber(b) > 0
+end
+
+local function never(s)
+	for _, w in ipairs(D.NEVER) do if has(s, w) then return true end end
+	return false
+end
+
+-- may the host break this object? (glass = the explosion glass rule: no
+-- "breaking" option needed)
+function can_break(o, inf, glass)
+	if not (inf and inf.kind and inf.kind ~= "lamp") then return false end
+	if not (opt("breaking") or (glass and inf.mtl == "glass" and opt("blast_glass"))) then return false end
+	if inf.breakable == nil then
+		local sec = string.lower(inf.sec or "")
+		local ok = (inf.kind == "phys" or (inf.kind == "destr" and not inf.native))
+			and rig_for(inf.vis, inf.mtl) ~= nil
+			and not never(sec) and not never(inf.vis)
+			and not explosive(inf.sec)
+			and not story_object(inf.id)
+			and not has_binder(o)
+			and alife_object(inf.id) ~= nil
+		inf.breakable = ok and true or false
+	end
+	return inf.breakable
+end
+
+local function max_hp(inf)
+	local rig = rig_for(inf.vis, inf.mtl)
+	local tough = opt("toughness") or 1
+	if rig and rig.hp then return rig.hp * tough end
+	local M = D.MATERIALS[inf.mtl] or D.MATERIALS.generic
+	local hp = M.hp > 0 and M.hp or 40
+	return hp * U.clamp(math.sqrt((inf.mass or 20) / 20), 0.4, 3) * tough
+end
+
+local function release(id)
+	local se = alife_object(id)
+	if not se then return false end
+	local f = rawget(_G, "alife_release")
+	if type(f) == "function" and pcall(f, se, "zgo_props: broken") then return true end
+	return pcall(function() alife():release(se, true) end)
+end
+
+-- r: { vis, src, pos, h, p, b, dir, imp, seed, mtl }  (quantized values)
+function draw_break(r)
+	local f = frame_hpb(r.pos, r.h, r.p, r.b)
+	local tb = box_of_list(model_box(r.vis))
+	local center = tb and to_world(f, box_center(tb)) or U.v3(r.pos.x, r.pos.y + 0.3, r.pos.z)
+	if not near(center) then return 0 end
+	local M = D.MATERIALS[r.mtl] or D.MATERIALS.generic
+	local up = U.unit(U.add(U.v3(0, 1, 0), U.mul(r.dir, 0.5))) or U.v3(0, 1, 0)
+	for _, name in ipairs(M.burst) do play(name, center, up, true) end
+	local rig = rig_for(r.vis, r.mtl, r.src) or rig_for(r.vis, r.mtl)
+	if rig and rig.extra_fx then play(rig.extra_fx, center, up, true) end
+	play_sound(M.sound, center, r.seed)
+	local n = 0
+	if rig and #rig.pieces > 0 then
+		n = DEB.spawn(rig.pieces, f, { seed = r.seed, dir = r.dir, imp = r.imp,
+			burst = 1 + 1.5 * math.min(1, (r.imp or 0) / 4), center = center, mtl = r.mtl })
+	end
+	return n
+end
+
+function break_prop(o, inf, dir, imp)
+	local rig = rig_for(inf.vis, inf.mtl)
+	if not rig then return false end
+	local f = frame_of(o)
+	local id = inf.id
+	if not release(id) then
+		U.dbg("props: could not release %s", tostring(inf.sec))
+		inf.breakable = false
+		return false
+	end
+	infos[id] = nil
+	stats.breaks = stats.breaks + 1
+	local d = U.qv(U.unit(dir or U.v3(0, -1, 0)) or U.v3(0, -1, 0))
+	local seed = math.random(1, 2147483646)
+	local r = { vis = inf.vis, src = rig.src, pos = f.pos, h = f.h, p = f.p, b = f.b, dir = d,
+		imp = U.q3(U.clamp(imp or 0, 0, 12)), seed = seed, mtl = inf.mtl }
+	zgo_sync.emit({ "B", id, r.vis, r.src, r.pos.x, r.pos.y, r.pos.z, r.h, r.p, r.b, d.x, d.y, d.z, r.imp, seed,
+		(D.MATERIALS[inf.mtl] or D.MATERIALS.generic).code })
+	draw_break(r)
+	return true
+end
+
+-- damage from a hit; breaks the object at zero. Returns true when it broke.
+function damage(o, inf, amount, dir, imp, glass)
+	if not (amount and amount > 0) or not can_break(o, inf, glass) then return false end
+	inf.hp = (inf.hp or max_hp(inf)) - amount
+	if inf.hp > 0 then return false end
+	return break_prop(o, inf, dir, imp)
+end
+
+------------------------------------------------------------------------
+-- Leaks
+------------------------------------------------------------------------
+local PINNED = {}
+local mgr
+local function mark_section(sec)
+	if PINNED[sec] ~= nil then return PINNED[sec] or nil end
+	local ok, exists = pcall(ini_sys.section_exist, ini_sys, sec)
+	PINNED[sec] = (ok and exists) and sec or false
+	return PINNED[sec] or nil
+end
+
+local function place_puddle(sec, p, size)
+	sec = mark_section(sec)
+	if not sec then return false end
+	if not mgr then
+		local ok, m = pcall(wallmarks_manager)
+		mgr = ok and m or nil
+	end
+	if not mgr then return false end
+	local ttl = perf("props_marks_life", 480)
+	local ok = pcall(mgr.place, mgr, U.v3(0, -1, 0), U.v3(p.x, p.y + 0.15, p.z), 0.6, size, sec, db.actor, ttl, math.random() * 360)
+	return ok
+end
+
+local function stop_leak(i)
+	table.remove(leaks, i)
+end
+
+-- start drawing a leak (every machine); id is this machine's object id
+function add_leak(id, lp, liquid, ms, seed)
+	local L = D.LIQUIDS[liquid]
+	if not L then return end
+	local max = perf("props_leaks", 4)
+	if max <= 0 then return end
+	while #leaks >= max do stop_leak(1) end
+	local now = time_global()
+	leaks[#leaks + 1] = { id = id, l = lp, liquid = liquid, t0 = now, ms = ms, seed = seed, g = U.rng(seed),
+		next_fx = now, next_mark = now + 900, marks = 0 }
+	stats.leaks = stats.leaks + 1
+end
+
+local function fill_of(inf)
+	if not inf.fill then
+		local g = U.rng(U.hash(inf.vis) + inf.id)
+		inf.fill = 0.3 + 0.65 * g.next()
+	end
+	return inf.fill
+end
+
+-- host: does this hit open a leak?
+local function maybe_leak(o, inf, p)
+	if not (opt("leaks") and inf.liquid and inf.box) then return end
+	local L = D.LIQUIDS[inf.liquid]
+	if not L then return end
+	local f = frame_of(o)
+	local lp = to_local(f, p)
+	local H = math.max(0.05, inf.box.max.y - inf.box.min.y)
+	local rel = (lp.y - inf.box.min.y) / H
+	inf.holes = inf.holes or 0
+	if inf.holes >= 3 then return end
+	local ms
+	if L.jet then
+		if inf.jetted then return end
+		inf.jetted = true
+		ms = 3500 + math.random(0, 3500)
+	else
+		local fill = fill_of(inf)
+		if rel >= fill then return end
+		ms = math.floor(U.clamp((fill - rel) * H * 90, 6, 90) * 1000)
+		inf.fill = math.max(0, rel)     -- it drains down to the hole
+	end
+	inf.holes = inf.holes + 1
+	lp = U.qv(lp)
+	local seed = math.random(1, 2147483646)
+	zgo_sync.emit({ "X", "l", inf.id, inf.sec, lp.x, lp.y, lp.z, L.code, ms, seed })
+	add_leak(inf.id, lp, inf.liquid, ms, seed)
+end
+
+local function update_leaks(now)
+	for i = #leaks, 1, -1 do
+		local k = leaks[i]
+		local age = now - k.t0
+		local o = age < k.ms and level.object_by_id(k.id)
+		if not o then
+			stop_leak(i)
+		elseif now >= k.next_fx then
+			local L = D.LIQUIDS[k.liquid]
+			local inf = classify(o)
+			local f = frame_of(o)
+			local p = to_world(f, k.l)
+			local c = inf and inf.box and box_center(inf.box) or U.v3(0, k.l.y, 0)
+			local out = DEB.apply_rows(f.i, f.j, f.k, U.v3(k.l.x - c.x, L.jet and (k.l.y - c.y) or 0, k.l.z - c.z))
+			out = U.unit(out) or U.v3(1, 0, 0)
+			local flow = math.sqrt(math.max(0, 1 - age / k.ms))
+			if near(p) then
+				local d = L.jet and out or U.unit(U.add(out, U.v3(0, -0.25 - 0.5 * (1 - flow), 0))) or out
+				play(L.fx, U.along(p, out, 0.01), d, true)
+			end
+			k.next_fx = now + (L.jet and 140 or 220)
+			if not L.jet and k.marks < 4 and now >= k.next_mark and near(p) then
+				local land = U.along(p, out, 0.1 + 0.3 * flow)
+				local d = U.cast(U.v3(land.x, land.y + 0.05, land.z), U.v3(0, -1, 0), 3, rq_target.rqtStatic, o)
+				if d then
+					local gp = U.v3(land.x, land.y + 0.05 - d, land.z)
+					local sec = L.marks[k.g.int(1, #L.marks)]
+					local size = U.clamp(0.25 + 0.22 * k.marks + 0.15 * flow, 0.2, 1.4)
+					place_puddle(sec, gp, size)
+				end
+				k.marks = k.marks + 1
+				k.next_mark = now + 1500 + 1200 * k.marks
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Hanging lamps
+------------------------------------------------------------------------
+local function lamp_api(o)
+	if not o then return nil end
+	local ok, l = pcall(o.get_hanging_lamp, o)
+	return ok and l or nil
+end
+
+local function lamp_on(l)
+	local ok, on = pcall(l.is_on, l)
+	return ok and on and true or false
+end
+
+-- flicker a lamp that is on (every machine; restores it unless it died)
+function flicker(id, seed)
+	local o = level.object_by_id(id)
+	local l = lamp_api(o)
+	if not (l and lamp_on(l)) then return false end
+	local g = U.rng(seed)
+	local n = g.int(2, 3) * 2           -- off/on pairs: ends on
+	local t = 0
+	for s = 1, n do
+		t = t + g.int(30, 110)
+		local off = (s % 2) == 1
+		U.after(t, function()
+			local lo = lamp_api(level.object_by_id(id))
+			if not lo then return end
+			if off then pcall(lo.turn_off, lo) else pcall(lo.turn_on, lo) end
+		end)
+	end
+	stats.lamps = stats.lamps + 1
+	return true
+end
+
+local function lamp_shards(p, seed)
+	if not near(p) then return end
+	local g = U.rng(seed)
+	play("zgo\\props\\glass_burst", p, U.cone(U.v3(0, -1, 0), 0.6, g.next), true)
+	play(D.SPARKS[2], p, U.cone(U.v3(0, -1, 0), 0.8, g.next), true)
+	play_sound(D.MATERIALS.lamp.sound, p, seed)
+end
+
+-- lamps seen on lately (the scan and every hit): the engine may already have
+-- put a lamp out by the time the (deferred) bullet event arrives
+local lamp_seen = {}
+local function remember_lamp(id, on) lamp_seen[id] = { on = on, t = time_global() } end
+local function lamp_was_on(id, now_on)
+	if now_on then return true end
+	local r = lamp_seen[id]
+	return r ~= nil and r.on and time_global() - r.t < 4000
+end
+
+-- host: a lamp was hit (bullet or blast); decide a moment later what happened
+local function lamp_hit(o, p)
+	if not opt("lamps") then return end
+	local l = lamp_api(o)
+	if not l then return end
+	local id = o:id()
+	local was_on = lamp_was_on(id, lamp_on(l))
+	local hp = U.vcopy(p)
+	U.after(150, function()
+		local lo = lamp_api(level.object_by_id(id))
+		if not lo then return end
+		local seed = math.random(1, 2147483646)
+		local on_now = lamp_on(lo)
+		remember_lamp(id, on_now)
+		if was_on and not on_now then
+			zgo_sync.emit({ "X", "s", U.q3(hp.x), U.q3(hp.y), U.q3(hp.z), seed })
+			lamp_shards(hp, seed)
+		elseif was_on and math.random() < 0.5 then
+			zgo_sync.emit({ "X", "f", id, seed })
+			flicker(id, seed)
+		end
+	end)
+end
+
+------------------------------------------------------------------------
+-- Native breaks (the game's own destroyables)
+------------------------------------------------------------------------
+-- every machine; dedupes bursts close in space and time (local detection
+-- and the host's line can both arrive)
+function native_burst(mtl, c, size, seed)
+	if not opt("native_bursts") then return false end
+	local now = time_global()
+	local keep, dup = {}, false
+	for _, s in ipairs(native_seen) do
+		if now - s.t < NATIVE_DEDUPE_MS then
+			keep[#keep + 1] = s
+			if s.p:distance_to_sqr(c) < 0.6 * 0.6 then dup = true end
+		end
+	end
+	native_seen = keep
+	if dup then return false end
+	native_seen[#native_seen + 1] = { p = U.vcopy(c), t = now }
+	if not near(c) then return false end
+	local M = D.MATERIALS[mtl] or D.MATERIALS.generic
+	local up = U.v3(0, 1, 0)
+	play(M.burst[1], c, up, true)
+	if size > 0.5 and M.burst[2] then play(M.burst[2], c, up, true) end
+	play_sound(M.sound, c, seed or 0)
+	stats.native = stats.native + 1
+	return true
+end
+
+function on_native_death(o)
+	if not (o and active()) then return end
+	local inf = classify(o)
+	if not inf then return end
+	local mtl = inf.native or inf.mtl or "wood"
+	local f = frame_of(o)
+	local c = inf.box and to_world(f, box_center(inf.box)) or U.v3(f.pos.x, f.pos.y + 0.3, f.pos.z)
+	local size = inf.box and box_size(inf.box) or 0.6
+	local seed = math.random(1, 2147483646)
+	if U.is_authority() then
+		zgo_sync.emit({ "X", "d", (D.MATERIALS[mtl] or D.MATERIALS.generic).code, U.q3(c.x), U.q3(c.y), U.q3(c.z), U.q3(size), seed })
+	end
+	native_burst(mtl, c, size, seed)
+end
+
+local function hook_binder()
+	local ok, cls = pcall(function() return bind_physic_object.generic_physics_binder end)
+	if not (ok and cls) then return false end
+	if rawget(_G, "zgo_props_binder_hooked") then return true end
+	local okd, orig = pcall(function() return cls.death_callback end)
+	if not (okd and type(orig) == "function") then return false end
+	local okw = pcall(function()
+		cls.death_callback = function(self, victim, who)
+			local okn, err = pcall(on_native_death, victim or self.object)
+			if not okn then U.log("props: native burst: %s", tostring(err)) end
+			return orig(self, victim, who)
+		end
+	end)
+	if okw then rawset(_G, "zgo_props_binder_hooked", true) end
+	return okw
+end
+
+------------------------------------------------------------------------
+-- Inputs
+------------------------------------------------------------------------
+local function energy_of(ammo, speed)
+	local B = zgo_ballistics
+	local info = B.ammo_info(ammo)
+	local p = B.make(info, speed)
+	local e = p.energy or 1
+	if p.kind == "buck" then e = e / math.max(1, p.pellets or 1) * 1.5 end
+	return e, info and info.impulse or 1
+end
+
+-- authority: one round on one prop (h: p, dir, e, impulse, seed, tok, base)
+function host_hit(o, inf, h)
+	h.mtl = inf.mtl
+	h.n = U.mul(h.dir, -1)
+	h.seed = h.seed or math.random(1, 2147483646)
+	if not h.drawn then draw_hit(h) end
+	emit_hit(h, h.tok)
+	bullet_push(o, inf, h, h.base)
+	if inf.kind == "lamp" then
+		lamp_hit(o, h.p)
+		return
+	end
+	maybe_leak(o, inf, h.p)
+	local M = D.MATERIALS[inf.mtl] or D.MATERIALS.generic
+	damage(o, inf, (h.e or 1) * 10 * M.bullet, h.dir, U.clamp(2 * (h.e or 1), 0.5, 6))
+end
+
+local function on_bullet(rec)
+	if not (rec and rec.pos and rec.dir and active() and db.actor) then return end
+	local tid = rec.target_id
+	if not tid or tid == STATIC then return end
+	if rec.ammo == nil or rec.ammo == "" then return end   -- explosion fragments: the blast handles them
+	local o = level.object_by_id(tid)
+	if not o or U.is_creature(o) then return end
+	local inf = classify(o)
+	if not (inf and inf.kind) then return end
+	local now = time_global()
+	recent_bullet[tid] = now
+	local dir = U.unit(rec.dir) or U.v3(0, 0, 1)
+	local e, imp = energy_of(rec.ammo, rec.speed)
+	local h = { p = U.vcopy(rec.pos), dir = dir, e = e, impulse = imp, mtl = inf.mtl, n = U.mul(dir, -1) }
+	if U.is_client() then
+		if rec.shooter ~= db.actor:id() then return end
+		local tok = math.random(100000000, 999999999)
+		my_tokens[tok] = now
+		h.seed = math.random(1, 2147483646)
+		draw_hit(h)
+		zgo_sync.send_up({ "K", tid, inf.sec, rec.ammo or "-", U.q3(rec.speed or 0), U.q3(h.p.x), U.q3(h.p.y), U.q3(h.p.z),
+			U.q3(dir.x), U.q3(dir.y), U.q3(dir.z), tok })
+		stats.k_out = stats.k_out + 1
+		return
+	end
+	-- the host never acts on a peer's round itself: the peer forwards it (K)
+	if rec.shooter ~= nil and U.is_peer(rec.shooter) then seen_peer[tid] = now return end
+	host_hit(o, inf, h)
+end
+
+-- a client's round (host)
+local function find_prop(id, sec, p)
+	local o = level.object_by_id(id)
+	if o and o:section() == sec and o:position():distance_to_sqr(p) < 4 then return o end
+	local best
+	if level.iterate_nearest then
+		pcall(level.iterate_nearest, p, 1.5, function(obj)
+			if obj and obj:section() == sec then best = obj return true end
+		end)
+	end
+	return best
+end
+
+local function on_up_k(t)
+	if #t < 12 or not active() then return end
+	local id, sec, ammo = tonumber(t[2]), t[3], t[4] ~= "-" and t[4] or nil
+	local p = U.v3(tonumber(t[6]) or 0, tonumber(t[7]) or 0, tonumber(t[8]) or 0)
+	local dir = U.unit(U.v3(tonumber(t[9]) or 0, tonumber(t[10]) or 0, tonumber(t[11]) or 1)) or U.v3(0, 0, 1)
+	local o = id and find_prop(id, sec, p)
+	if not o then return end
+	local inf = classify(o)
+	if not (inf and inf.kind) then return end
+	stats.k_in = stats.k_in + 1
+	local now = time_global()
+	recent_bullet[inf.id] = now
+	local e, imp = energy_of(ammo, tonumber(t[5]))
+	-- the host never simulated this round: its push is the engine's share plus
+	-- ours (unless the host saw the round after all)
+	local saw = seen_peer[inf.id] and now - seen_peer[inf.id] < 250
+	host_hit(o, inf, { p = p, dir = dir, e = e, impulse = imp, tok = tonumber(t[12]) or 0, base = not saw })
+end
+
+-- melee (and other non-bullet hits) on unbound destroyables: host
+local function melee_hit(id, amount, who_id)
+	if not (active() and U.is_authority() and opt("melee_breaks")) then return end
+	local now = time_global()
+	if recent_bullet[id] and now - recent_bullet[id] < 400 then return end
+	for _, b in ipairs(recent_blasts) do if now - b.t < 800 then return end end
+	local who = who_id and level.object_by_id(who_id)
+	if not who or not (U.is_creature(who) or (db.actor and who_id == db.actor:id()) or U.is_peer(who_id)) then return end
+	local o = level.object_by_id(id)
+	local inf = o and classify(o)
+	if not (inf and inf.kind) then return end
+	local M = D.MATERIALS[inf.mtl] or D.MATERIALS.generic
+	local dir = U.unit(U.sub(o:position(), who:position())) or U.v3(0, 0, 1)
+	damage(o, inf, (amount or 0) * 40 * M.melee, dir, 1.5)
+end
+
+-- (engine thread) -> main thread -> a moment later, when the bullet or
+-- explosion events of the same hit have certainly been seen
+local function on_prop_hit(obj, amount, dir, who)
+	local okid, id = pcall(obj.id, obj)
+	local okw, wid = pcall(function() return who and who:id() end)
+	if okid then
+		U.defer(U.after, 120, function(...) melee_hit(...) end, id, tonumber(amount) or 0, okw and wid or nil)
+	end
+end
+
+local function on_prop_death(victim)
+	if victim then U.defer(on_native_death, victim) end
+end
+
+-- callbacks on unbound destroyables near the actor (bound ones go through
+-- the vanilla binder, which resets its own callbacks every update)
+local function scan(now)
+	if not (db.actor and level.iterate_nearest) then return end
+	local found = {}
+	pcall(level.iterate_nearest, db.actor:position(), 35, function(o)
+		found[#found + 1] = o
+	end)
+	for _, o in ipairs(found) do
+		local inf = classify(o)
+		if inf and inf.kind == "lamp" then
+			local l = lamp_api(o)
+			if l then remember_lamp(inf.id, lamp_on(l)) end
+		elseif inf and inf.kind == "destr" then
+			local key = inf.sec .. "|" .. inf.vis
+			if hooked[inf.id] ~= key and not has_binder(o) then
+				hooked[inf.id] = key
+				if inf.native then
+					pcall(o.set_callback, o, callback.death, on_prop_death)
+				end
+				pcall(o.set_callback, o, callback.hit, on_prop_hit)
+			end
+		end
+	end
+end
+
+-- explosions (authority): kick, damage, glass
+local function blast_info(eid)
+	local o = eid and level.object_by_id(eid)
+	local sec = o and o:section()
+	local r, charge = 6, 1
+	if sec then
+		local okr, rr = pcall(function() return ini_sys:r_float_ex(sec, "blast_r") end)
+		if okr and tonumber(rr) then r = tonumber(rr) end
+		local kd = zgo_blast.KINDS and zgo_blast.KINDS[sec]
+		if kd then
+			charge = kd.charge
+		else
+			local okb, b = pcall(function() return ini_sys:r_float_ex(sec, "blast") end)
+			if okb and tonumber(b) then charge = U.clamp(tonumber(b) / 3, 0.3, 3) end
+		end
+	end
+	return U.clamp(r, 2, 20), charge
+end
+
+local function on_explosion(rec)
+	if not (rec and rec.center and active() and U.is_authority()) then return end
+	if not level.iterate_nearest then return end
+	local now = time_global()
+	recent_blasts[#recent_blasts + 1] = { t = now, p = U.vcopy(rec.center) }
+	while #recent_blasts > 8 do table.remove(recent_blasts, 1) end
+	local radius, charge = blast_info(rec.eid)
+	local list = {}
+	pcall(level.iterate_nearest, rec.center, radius, function(o)
+		list[#list + 1] = o
+	end)
+	local kick = opt("blast_push") or 1
+	for _, o in ipairs(list) do
+		local inf = classify(o)
+		if inf and inf.kind and inf.id ~= rec.eid then
+			local f = frame_of(o)
+			local c = inf.box and to_world(f, box_center(inf.box)) or o:position()
+			local d = c:distance_to(rec.center)
+			local fall = math.max(0, 1 - d / radius) ^ 2
+			if fall > 0 then
+				local away = U.unit(U.sub(c, rec.center)) or U.v3(0, 1, 0)
+				if inf.kind == "lamp" then
+					if opt("blast_glass") then lamp_hit(o, c) end
+				else
+					local M = D.MATERIALS[inf.mtl] or D.MATERIALS.generic
+					local glass = inf.mtl == "glass" and opt("blast_glass") and fall > 0.15
+					local amount = glass and 1e6 or (fall > 0.15 and M.blast * charge * 120 * fall or 0)
+					local broke = damage(o, inf, amount, away, 3 + 6 * fall, glass)
+					if not broke and kick > 0 then
+						local dir = U.unit(U.add(away, U.v3(0, 0.6, 0))) or away
+						apply_push(o, inf, dir, kick * charge * 60 * fall, c, 0, 8)
+					end
+				end
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Co-op lines (clients)
+------------------------------------------------------------------------
+local function num(t, i) return tonumber(t[i]) or 0 end
+
+local function on_b(t)
+	if #t < 16 then return end
+	local mtl = D.BY_CODE[t[16]] or "generic"
+	draw_break({ vis = t[3], src = t[4], pos = U.v3(num(t, 5), num(t, 6), num(t, 7)), h = num(t, 8), p = num(t, 9), b = num(t, 10),
+		dir = U.v3(num(t, 11), num(t, 12), num(t, 13)), imp = num(t, 14), seed = num(t, 15), mtl = mtl })
+end
+
+local function on_x(t)
+	local sub = t[2]
+	if sub == "h" and #t >= 12 then
+		local tok = num(t, 12)
+		if tok ~= 0 and my_tokens[tok] then my_tokens[tok] = nil return end
+		draw_hit({ mtl = D.BY_CODE[t[3]] or "generic", p = U.v3(num(t, 4), num(t, 5), num(t, 6)),
+			n = U.v3(num(t, 7), num(t, 8), num(t, 9)), e = num(t, 10), seed = num(t, 11) })
+	elseif sub == "l" and #t >= 10 then
+		local o = U.resolve(num(t, 3), t[4])
+		local liquid = D.LIQUID_BY_CODE[t[8]]
+		if o and liquid then add_leak(o:id(), U.v3(num(t, 5), num(t, 6), num(t, 7)), liquid, num(t, 9), num(t, 10)) end
+	elseif sub == "f" and #t >= 4 then
+		local o = U.resolve(num(t, 3))
+		if o then flicker(o:id(), num(t, 4)) end
+	elseif sub == "s" and #t >= 6 then
+		lamp_shards(U.v3(num(t, 3), num(t, 4), num(t, 5)), num(t, 6))
+	elseif sub == "d" and #t >= 8 then
+		native_burst(D.BY_CODE[t[3]] or "wood", U.v3(num(t, 4), num(t, 5), num(t, 6)), num(t, 7), num(t, 8))
+	end
+end
+
+------------------------------------------------------------------------
+-- Frame update and lifecycle
+------------------------------------------------------------------------
+local function prune_maps(now)
+	for k, t in pairs(my_tokens) do if now - t > 5000 then my_tokens[k] = nil end end
+	for k, t in pairs(recent_bullet) do if now - t > 2000 then recent_bullet[k] = nil end end
+	for k, t in pairs(seen_peer) do if now - t > 2000 then seen_peer[k] = nil end end
+	for k, r in pairs(pushed) do if now - r.t > 1500 then pushed[k] = nil end end
+	for k, r in pairs(lamp_seen) do if now - r.t > 6000 then lamp_seen[k] = nil end end
+end
+
+local next_maps = 0
+local function on_update()
+	if not U.enabled() then return end
+	local now = time_global()
+	local ok, err = pcall(function()
+		DEB.update()
+		if #leaks > 0 then update_leaks(now) end
+		if now >= next_scan then
+			next_scan = now + 2000
+			if active() then
+				hook_binder()
+				scan(now)
+			end
+		end
+		if now >= next_maps then
+			next_maps = now + 1000
+			prune_maps(now)
+			if now >= next_prune then next_prune = now + 500 prune(now) end
+		end
+	end)
+	if not ok then U.log("props update error: %s", tostring(err)) end
+end
+
+function reset()
+	DEB.reset()
+	for _, p in ipairs(live) do pcall(p.obj.stop, p.obj) end
+	live, leaks, sounds = {}, {}, {}
+	infos, n_infos = {}, 0
+	my_tokens, recent_bullet, seen_peer, pushed, hooked, lamp_seen = {}, {}, {}, {}, {}, {}
+	recent_blasts, native_seen = {}, {}
+	next_scan = 0
+end
+
+function get_stats() return stats end
+function leak_count() return #leaks end
+
+function on_game_start()
+	U.on_event("bullet", on_bullet)
+	U.on_event("explosion", on_explosion)
+	zgo_sync.on("B", on_b)
+	zgo_sync.on("X", on_x)
+	zgo_sync.on_up("K", on_up_k)
+	RegisterScriptCallback("actor_on_update", on_update)
+	RegisterScriptCallback("on_level_changing", reset)
+end

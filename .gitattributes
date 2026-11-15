@@ -1,0 +1,3 @@
+# Never let git touch line endings or encodings: README.txt and zgo_mcm.script are CRLF,
+# the ui_st xml files are cp1251.
+* -text

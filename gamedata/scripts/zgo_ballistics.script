@@ -1,0 +1,140 @@
+--[[
+  Zone Gore Overhaul - hit profiles
+
+  Turns "what hit this body" into a small profile the effect code scales by:
+    kind     bullet | buck | slug | blast | melee | other
+    cls      1 pistol, 2 intermediate rifle, 3 full-power rifle,
+             4 magnum / slug, 5 anti-materiel
+    energy   ~0.3 .. 3.5  (1 = intermediate rifle round at normal range)
+    pellets  buckshot pellet count
+    speed    impact speed in m/s when known
+
+  Source of truth is bullet_on_impact (ammo section + impact speed + exact
+  entry point). The hit callback that follows is matched to it by target id.
+  When that's missing (e.g. a co-op peer's bullet that only the peer saw and
+  hasn't forwarded yet) the shooter's weapon / loaded ammo is used instead.
+]]
+
+local BASE_E = { 0.55, 1.0, 1.45, 2.0, 2.9 }
+local VREF   = { 340, 850, 830, 850, 900 }   -- ~muzzle velocity per class
+
+-- ordered: first match wins
+local PATTERNS = {
+	{ "gauss", 5 }, { "12%.7x55", 4 }, { "12%.7x", 5 }, { "14%.5", 5 }, { "50bmg", 5 }, { "_50_", 5 },
+	{ "barrikada", 5 }, { "magnum_300", 4 }, { "300wm", 4 }, { "338", 4 }, { "9%.3x", 4 }, { "408", 4 },
+	{ "7%.62x54", 3 }, { "pkm", 3 }, { "7%.62x51", 3 }, { "308", 3 }, { "30%-06", 3 }, { "7%.92x57", 3 }, { "6%.5x", 3 },
+	{ "5%.45x39", 2 }, { "5%.56x45", 2 }, { "7%.62x39", 2 }, { "7%.92x33", 2 }, { "9x39", 2 }, { "5%.8x42", 2 }, { "300blk", 2 }, { "6%.8", 2 },
+	{ "357", 1 }, { "9x18", 1 }, { "9x19", 1 }, { "9x21", 1 }, { "11%.43", 1 }, { "45acp", 1 }, { "7%.62x25", 1 },
+	{ "5%.7x28", 1 }, { "4%.6x30", 1 }, { "22lr", 1 }, { "7%.65", 1 }, { "380", 1 },
+}
+local SLUG_WORDS = { "zhekan", "slug", "barrikada", "dart", "poleva", "brenneke" }
+local BUCK_WORDS = { "buck", "shrapnel", "drob", "pellet" }
+
+local by_section = {}
+
+local function ini_num(sec, key, default)
+	if not (ini_sys and ini_sys:section_exist(sec)) then return default end
+	local ok, v = pcall(function() return ini_sys:r_float_ex(sec, key) end)
+	return (ok and v) or default
+end
+
+local function has_word(s, words)
+	for _, w in ipairs(words) do if string.find(s, w, 1, true) then return true end end
+	return false
+end
+
+-- static part of a profile, cached per ammo section
+function ammo_info(sec)
+	if not sec or sec == "" then return nil end
+	local c = by_section[sec]
+	if c then return c end
+	local s = string.lower(sec)
+	local pellets = math.floor(ini_num(sec, "buck_shot", 1) or 1)
+	c = { ammo = sec, kind = "bullet", cls = 2, pellets = 1, impulse = ini_num(sec, "k_impulse", 1) or 1 }
+	if has_word(s, SLUG_WORDS) then
+		c.kind, c.cls = "slug", string.find(s, "barrikada", 1, true) and 5 or 4
+	elseif pellets > 1 or has_word(s, BUCK_WORDS) then
+		c.kind, c.cls, c.pellets = "buck", 2, math.max(pellets, 6)
+	elseif string.find(s, "og%-7") or string.find(s, "vog") or string.find(s, "m209") or string.find(s, "rpg") then
+		c.kind, c.cls = "blast", 5
+	else
+		for _, p in ipairs(PATTERNS) do
+			if string.find(s, p[1]) then c.cls = p[2] break end
+		end
+	end
+	by_section[sec] = c
+	return c
+end
+
+function make(info, speed)
+	info = info or { kind = "bullet", cls = 2, pellets = 1, impulse = 1 }
+	local p = { kind = info.kind, cls = info.cls, pellets = info.pellets or 1, ammo = info.ammo, speed = speed }
+	local vf = 1
+	if speed and speed > 1 then
+		vf = zgo_util.clamp((speed / VREF[p.cls]) ^ 2, 0.35, 1.3)
+	end
+	if p.kind == "buck" then
+		p.energy = 0.42 * math.sqrt(p.pellets) * vf          -- 9 pellets ~ 1.25
+	elseif p.kind == "slug" then
+		p.energy = (p.cls == 5 and 3.0 or 2.2) * vf
+	elseif p.kind == "blast" then
+		p.energy = 3.2
+	else
+		p.energy = BASE_E[p.cls] * vf * zgo_util.clamp(0.75 + 0.25 * (info.impulse or 1), 0.8, 1.3)
+	end
+	return p
+end
+
+function melee()  return { kind = "melee", cls = 1, pellets = 1, energy = 0.45 } end
+-- explosions: the hit power (after armour) says how close it was; >= ~4.2 gibs
+function blast(power)
+	local e = power and zgo_util.clamp(2.4 + 1.1 * power, 2.4, 5.5) or 3.2
+	return { kind = "blast", cls = 5, pellets = 1, energy = e }
+end
+function other(power)
+	return { kind = "other", cls = 2, pellets = 1, energy = zgo_util.clamp(0.5 + (power or 0.3), 0.4, 1.8) }
+end
+
+------------------------------------------------------------------------
+-- bullet_on_impact cache (target id -> last impact)
+------------------------------------------------------------------------
+local impacts = {}
+local MATCH_MS = 300
+
+function remember_impact(target_id, rec)
+	rec.t = time_global()
+	impacts[target_id] = rec
+end
+
+function take_impact(target_id)
+	local r = impacts[target_id]
+	if r and time_global() - r.t <= MATCH_MS then
+		impacts[target_id] = nil
+		return r
+	end
+end
+
+function peek_impact(target_id)
+	local r = impacts[target_id]
+	if r and time_global() - r.t <= MATCH_MS then return r end
+end
+
+function prune()
+	local now = time_global()
+	for id, r in pairs(impacts) do
+		if now - r.t > 2000 then impacts[id] = nil end
+	end
+end
+
+function reset() impacts = {} end
+
+-- fallback: the ammo currently loaded in a weapon object
+function weapon_ammo(wpn)
+	if not wpn then return nil end
+	local ok, sec = pcall(function()
+		local list = utils_item and utils_item.get_ammo(wpn:section(), wpn:id())
+		local t = wpn:get_ammo_type()
+		return list and t and list[t + 1]
+	end)
+	return ok and sec or nil
+end

@@ -1,0 +1,1064 @@
+--[[
+  Zone Gore Overhaul - severed limbs, gibs and stump caps
+
+  A severed limb is a level script attachment posed bone by bone:
+    * with the baker's limb pieces (MCM "Light severed limbs", experimental)
+      it is the piece model: the cut section and everything below it, with a
+      closed end; bone 0 is the cut root (docs/formats/pieces.md);
+    * otherwise it is the victim's own model: bone 0 is overwritten with a
+      near-zero scale at the attachment origin, which collapses everything
+      that is not the limb into the stump point (vertices shared with the
+      torso taper off into a natural stump).
+    Every bone of the severed chain is overwritten with its pose captured at
+    the moment of severing, moved by a scripted rigid body. A piece's bones
+    carry the victim's names and frames, so the same matrices pose both.
+  Engine notes (xray-monolith script_attachment):
+    * game_object:bone_transform() is already a WORLD matrix (XFORM * bone);
+    * a level attachment's bone callbacks return model-space matrices that
+      are used as-is (overwrite), placed by the attachment position;
+    * level attachments must be removed with level.remove_attachment();
+    * a model that doesn't exist is fatal (model_Create), and an attachment
+      must be a skeleton (R_ASSERT dcast_PKinematics): baked models are only
+      used after their file was found.
+  The body is a two-point stick (Verlet, fixed 60 Hz step, seeded, so every
+  co-op machine computes the same flight and rest pose): gravity, ray-cast
+  ground and wall contact, bounce, friction, roll; it settles flat. The cut
+  end drips while it flies; on the host it splats where it lands and leaves a
+  small pool where it comes to rest.
+
+  Gibs and meat stump caps use raw-meat meshes when another installed mod
+  provides them (GAMMA ships dynamics\zpf\raw_* from TDLemon's mutant parts).
+  Fitted stump caps (MCM "Stump cap shape", experimental) are the baker's
+  caps: the cut surface of that body, flesh and bone, attached so that its
+  rim follows the body's own seam (docs/formats/caps.md).
+
+  Everything here is visual only and not saved; on load the limbs are gone
+  but the bodies stay dismembered (see zgo_dismember).
+]]
+
+local U = zgo_util
+
+local GRAVITY  = 9.81
+local STEP     = 1 / 60
+local SLEEP_V  = 0.08
+-- (Performance page: time on the ground, removal distance)
+local function max_age() return (U.setting("performance/debris_lifetime") or 240) * 1000 end
+local function far_sqr() local r = U.setting("performance/debris_range") or 150 return r * r end
+local items    = {}     -- active debris
+local serial   = 0
+local caps     = {}     -- "id:parent:cut" -> { name, id, parent, cut, kind, model } (attachments on that object)
+local WORLD_TYPE = (rawget(_G, "script_attachment_type") and script_attachment_type.World) or 1
+
+------------------------------------------------------------------------
+-- Model availability
+------------------------------------------------------------------------
+local GIB_MODELS = {
+	"dynamics\\zpf\\raw_flesh", "dynamics\\zpf\\raw_dog", "dynamics\\zpf\\raw_snork",
+	"dynamics\\zpf\\raw_tushkano", "dynamics\\zpf\\meat_boar", "dynamics\\zpf\\meat_dog",
+	"dynamics\\zpf\\meat_pseudodog", "dynamics\\zpf\\meat_bloodsucker",
+	"dynamics\\vanilla\\mutant_food\\meat_dog", "dynamics\\vanilla\\mutant_food\\meat_boar",
+	"dynamics\\vanilla\\mutant_food\\meat_flesh",
+}
+local gib_models
+
+function gib_model_list()
+	if not gib_models then
+		gib_models = {}
+		for _, m in ipairs(GIB_MODELS) do
+			if U.file_exists("$game_meshes$", m .. ".ogf") then gib_models[#gib_models + 1] = m end
+		end
+		U.log("gib meshes available: %s", #gib_models)
+	end
+	return gib_models
+end
+
+-- is this model's file in the game's file system? (asked once per model)
+local model_files = {}
+local function model_file(m)
+	local c = model_files[m]
+	if c == nil then
+		c = U.file_exists("$game_meshes$", m .. ".ogf")
+		model_files[m] = c
+		if not c then U.log("baked model %s.ogf is missing (bake again?): using the old way", m) end
+	end
+	return c
+end
+
+local function strip_ogf(v)
+	if not v then return nil end
+	local e = string.find(string.lower(v), ".ogf", 1, true)
+	return e and string.sub(v, 1, e - 1) or v
+end
+
+------------------------------------------------------------------------
+-- Level attachments
+------------------------------------------------------------------------
+local function level_add(name, model)
+	local la = level.add_attachment
+	if la then
+		local ok, att = pcall(la, name, model)
+		if ok and att then return att end
+		U.dbg("level.add_attachment failed: %s", tostring(att))
+	end
+	-- older builds: create on the actor, then move it to the level
+	local ok, att = pcall(db.actor.add_attachment, db.actor, name, model)
+	if not (ok and att) then return nil end
+	pcall(att.set_parent_level, att)
+	return att
+end
+
+local function level_remove(name)
+	local lr = level.remove_attachment
+	if lr and pcall(lr, name) then return end
+	pcall(db.actor.remove_attachment, db.actor, name)
+end
+
+------------------------------------------------------------------------
+-- Small matrix helpers (X-Ray Fmatrix: rows i, j, k = axes, c = origin;
+-- mul_43(A, B) applies B first, then A)
+------------------------------------------------------------------------
+local function mat_from_axes(x, y, z, c)
+	local m = matrix()
+	m:identity()
+	m.i = x; m.j = y; m.k = z; m.c = c
+	m._14_ = 0; m._24_ = 0; m._34_ = 0; m._44_ = 1
+	return m
+end
+
+local function mat_copy(src)
+	local m = matrix()
+	m:set(src)
+	return m
+end
+
+local function mat_mul(a, b)
+	local m = matrix()
+	m:mul_43(a, b)
+	return m
+end
+
+-- world matrix of a bone (the engine call already includes the object XFORM)
+local function world_bone(obj, bone)
+	local ok, bm = pcall(obj.bone_transform, obj, bone)
+	if not ok or not bm then return nil end
+	return mat_copy(bm)
+end
+
+-- orthonormal frame with x along a stick and y = transported reference u
+local function frame(x, u)
+	local z = U.unit(U.cross(x, u)) or U.v3(0, 0, 1)
+	local y = U.cross(z, x)
+	return x, y, z
+end
+
+local function rotate_about(v, axis, ang)
+	-- Rodrigues
+	local c, s = math.cos(ang), math.sin(ang)
+	local d = U.dot(axis, v)
+	local cr = U.cross(axis, v)
+	return U.v3(v.x * c + cr.x * s + axis.x * d * (1 - c),
+		v.y * c + cr.y * s + axis.y * d * (1 - c),
+		v.z * c + cr.z * s + axis.z * d * (1 - c))
+end
+
+------------------------------------------------------------------------
+-- Rigid stick body
+------------------------------------------------------------------------
+local function ground_below(p, ignore)
+	local d = U.cast(U.v3(p.x, p.y + 0.6, p.z), U.v3(0, -1, 0), 3, rq_target.rqtStatic, ignore)
+	return d and (p.y + 0.6 - d) or nil
+end
+
+local function new_body(a, b, radius, vel, spin, roll_rate)
+	local axis = U.unit(U.sub(b, a)) or U.v3(1, 0, 0)
+	local ref = math.abs(axis.y) < 0.9 and U.v3(0, 1, 0) or U.v3(1, 0, 0)
+	local u = U.unit(U.sub(ref, U.mul(axis, U.dot(axis, ref)))) or U.v3(0, 0, 1)
+	-- previous positions encode the initial velocity (+ tumble: ends get opposite kicks)
+	local kick = U.mul(spin, 0.5)
+	return {
+		a = U.vcopy(a), b = U.vcopy(b),
+		pa = U.sub(a, U.mul(U.sub(vel, kick), STEP)),
+		pb = U.sub(b, U.mul(U.add(vel, kick), STEP)),
+		len = math.max(U.len(U.sub(b, a)), 0.05),
+		r = radius, u = u, roll = roll_rate or 0, sleep_t = 0, asleep = false,
+		x0 = axis, u0 = u, a0 = U.vcopy(a), contacts = 0,
+	}
+end
+
+local function verlet_point(p, pp, dt, damp)
+	local nx = p.x + (p.x - pp.x) * damp
+	local ny = p.y + (p.y - pp.y) * damp - GRAVITY * dt * dt
+	local nz = p.z + (p.z - pp.z) * damp
+	return U.v3(nx, ny, nz), U.vcopy(p)
+end
+
+-- returns new p, pp, contact normal (or nil), impact speed
+local function collide_point(p, pp, r, ignore, ground_cache)
+	local normal, impact = nil, 0
+	-- wall / obstacle along the motion
+	local mv = U.sub(p, pp)
+	local ml = U.len(mv)
+	if ml > 1e-4 then
+		local md = U.mul(mv, 1 / ml)
+		local d = U.cast(pp, md, ml + r, rq_target.rqtStatic, ignore)
+		if d then
+			local p0, n = U.surface_at(pp, md, ml + r + 0.1, ignore)
+			if p0 and n then
+				p = U.along(p0, n, r)
+				-- reflect remaining velocity, lose most of it
+				local vn = U.dot(mv, n)
+				local vt = U.sub(mv, U.mul(n, vn))
+				local nv = U.add(U.mul(vt, 0.55), U.mul(n, -vn * 0.25))
+				pp = U.sub(p, nv)
+				normal, impact = n, math.abs(vn) / STEP
+			end
+		end
+	end
+	-- ground
+	local gy = ground_cache.y
+	if gy == nil or math.abs(ground_cache.x - p.x) + math.abs(ground_cache.z - p.z) > 0.15 then
+		gy = ground_below(p, ignore)
+		ground_cache.x, ground_cache.z, ground_cache.y = p.x, p.z, gy
+	end
+	if gy and p.y < gy + r then
+		local vy = p.y - pp.y
+		p = U.v3(p.x, gy + r, p.z)
+		local vx, vz = (p.x - pp.x) * 0.72, (p.z - pp.z) * 0.72
+		pp = U.v3(p.x - vx, p.y + (vy < 0 and vy * 0.28 or 0), p.z - vz)
+		normal = U.v3(0, 1, 0)
+		impact = math.max(impact, -vy / STEP)
+	end
+	return p, pp, normal, impact
+end
+
+local function step_body(B, ignore)
+	if B.asleep then return end
+	B.ga, B.gb = B.ga or {}, B.gb or {}
+	B.a, B.pa = verlet_point(B.a, B.pa, STEP, 0.995)
+	B.b, B.pb = verlet_point(B.b, B.pb, STEP, 0.995)
+	local na, nb, ia, ib
+	B.a, B.pa, na, ia = collide_point(B.a, B.pa, B.r, ignore, B.ga)
+	B.b, B.pb, nb, ib = collide_point(B.b, B.pb, B.r, ignore, B.gb)
+	-- stick length constraint (two iterations)
+	for _ = 1, 2 do
+		local d = U.sub(B.b, B.a)
+		local l = U.len(d)
+		if l > 1e-5 then
+			local corr = U.mul(d, (l - B.len) / l * 0.5)
+			B.a = U.add(B.a, corr)
+			B.b = U.sub(B.b, corr)
+		end
+	end
+	local contact = na or nb
+	if contact then
+		B.roll = B.roll * 0.82
+		B.contacts = B.contacts + 1
+		-- remember the hardest impact of this step (for landing splats)
+		local imp = math.max(ia or 0, ib or 0)
+		if imp > (B.impact or 0) then
+			B.impact, B.impact_n, B.impact_p = imp, contact, U.vcopy(na and B.a or B.b)
+		end
+	end
+	-- parallel-transport the reference vector, then apply roll
+	local x = U.unit(U.sub(B.b, B.a)) or B.x0
+	local u = U.unit(U.sub(B.u, U.mul(x, U.dot(x, B.u)))) or B.u
+	if math.abs(B.roll) > 1e-3 then u = rotate_about(u, x, B.roll * STEP) end
+	B.u = u
+	-- sleep when both ends rest
+	local va = U.len(U.sub(B.a, B.pa)) / STEP
+	local vb = U.len(U.sub(B.b, B.pb)) / STEP
+	if contact and va < SLEEP_V and vb < SLEEP_V then
+		B.sleep_t = B.sleep_t + STEP
+		if B.sleep_t > 0.6 then B.asleep = true end
+	else
+		B.sleep_t = 0
+	end
+	B.airborne = not contact
+end
+
+-- advance a body in fixed steps (deterministic for every machine)
+-- the body a piece came from, looked up fresh: a game_object kept across
+-- frames points at freed memory once the corpse is released, and the engine
+-- dereferences it in ray_pick (a native crash pcall can't catch)
+local function ignored(it)
+	return it.ignore_id and level.object_by_id(it.ignore_id) or nil
+end
+
+local function advance(it, dt)
+	it.acc = math.min((it.acc or 0) + dt, 0.12)
+	local n = 0
+	local ign = it.acc + 1e-9 >= STEP and ignored(it) or nil
+	while it.acc >= STEP and n < 8 do
+		it.acc = it.acc - STEP
+		it.sim_t = (it.sim_t or 0) + STEP
+		step_body(it.body, ign)
+		n = n + 1
+	end
+	return n
+end
+
+-- rotation matrix (no translation) taking the initial frame to the current one
+local function body_rotation(B)
+	local x0, y0, z0 = frame(B.x0, B.u0)
+	local x, y, z = frame(U.unit(U.sub(B.b, B.a)) or B.x0, B.u)
+	local F0 = mat_from_axes(x0, y0, z0, U.v3(0, 0, 0))
+	local F  = mat_from_axes(x, y, z, U.v3(0, 0, 0))
+	local F0i = matrix()
+	F0i:invert(F0)
+	return mat_mul(F, F0i)
+end
+
+------------------------------------------------------------------------
+-- Blood from flying parts (visual everywhere; decals on the authority)
+------------------------------------------------------------------------
+local function near_actor(p)
+	return db.actor and p:distance_to_sqr(db.actor:position()) < 1600
+end
+
+local function blood_tick(it, now)
+	local B = it.body
+	-- drips from the cut end while it is fresh
+	local age = now - it.t0
+	if it.drips and age < it.drips and now >= (it.next_drip or 0) and near_actor(B.a) then
+		local k = 1 - age / it.drips
+		zgo_fx.play(math.random() < 0.7 and "zgo\\drip_fall" or "zgo\\drip_fall_double", B.a, U.v3(0, -1, 0), { local_only = true, minor = true })
+		it.next_drip = now + math.floor(U.rand(70, 140) / math.max(k, 0.25))
+	end
+	-- first hard landing: splat
+	if B.impact and B.impact > 1.4 and not it.splatted then
+		it.splatted = true
+		zgo_fx.play("zgo\\splat_small", B.impact_p, B.impact_n, { local_only = true })
+		if U.is_authority() then
+			pcall(zgo_decals.debris_splat, B.impact_p, B.impact_n, (it.kind == "limb" and not it.chunk) and 1 or 0.5, ignored(it))
+		end
+	end
+	B.impact = nil
+	-- at rest: a small pool under the cut end (limbs only)
+	if B.asleep and not it.pooled and it.kind == "limb" then
+		it.pooled = true
+		if U.is_authority() then pcall(zgo_decals.debris_pool, B.a, it.pool_size or 0.3, ignored(it)) end
+	end
+end
+
+------------------------------------------------------------------------
+-- Severed limb
+------------------------------------------------------------------------
+local function new_name(prefix)
+	serial = serial + 1
+	return string.format("zgo_%s_%s_%s", prefix, serial, math.random(1000, 9999))
+end
+
+local function remove_item(it)
+	if it.att then
+		if it.owner == "level" then level_remove(it.name)
+		else
+			local owner = level.object_by_id(it.owner)
+			if owner then pcall(owner.remove_attachment, owner, it.name) end
+		end
+		it.att = nil
+	end
+end
+
+-- over the limit, the oldest piece lying still goes first (gibs before
+-- limbs); only when everything is still in the air does the oldest flying one
+local function enforce_limit()
+	local max = U.setting("performance/max_debris") or 14
+	while #items > max do
+		local pick
+		for _, kind in ipairs({ "gib", "limb" }) do
+			for i, it in ipairs(items) do
+				if it.kind == kind and it.body and it.body.asleep then pick = i break end
+			end
+			if pick then break end
+		end
+		remove_item(table.remove(items, pick or 1))
+	end
+end
+
+-- descendants (inclusive) of root bone in an attachment's skeleton
+local function chain_of(att, root_name)
+	local ok, bones = pcall(att.list_bones, att)
+	if not ok or type(bones) ~= "table" then return nil end
+	local id_of, name_of = {}, {}
+	for k, v in pairs(bones) do
+		if type(k) == "number" and type(v) == "string" then id_of[v], name_of[k] = k, v
+		elseif type(k) == "string" and type(v) == "number" then id_of[k], name_of[v] = v, k end
+	end
+	local root = id_of[root_name]
+	if not root then return nil end
+	local set, out = { [root] = true }, { root }
+	local changed = true
+	while changed do
+		changed = false
+		for id, _ in pairs(name_of) do
+			if not set[id] then
+				local okp, par = pcall(att.bone_parent, att, id)
+				if okp and par and set[par] then
+					set[id] = true
+					out[#out + 1] = id
+					changed = true
+				end
+			end
+		end
+	end
+	return out, name_of, id_of
+end
+
+-- The baker's limb piece for root on this body, when it may be used (MCM
+-- "Light severed limbs", the bake has it, the file is there and the body
+-- wears the baked model): { model, root } or nil
+function baked_piece(obj, root_name)
+	if not U.setting("dismember/baked_pieces") then return nil end
+	local p = zgo_bake.piece(obj, root_name)
+	if not (p and p.model and p.root == root_name) then return nil end
+	if zgo_bake.loaded_matches(obj) == false then return nil end
+	if not model_file(p.model) then return nil end
+	return p
+end
+
+-- the limb's model as a level attachment: the piece (root = bone 0) or the
+-- victim's whole model; returns att, name, chain, name_of, id_of, piece
+local function limb_attachment(obj, root_name, visual)
+	local piece = baked_piece(obj, root_name)
+	if piece then
+		local name = new_name("limb")
+		local att = level_add(name, piece.model)
+		if att then
+			local chain, name_of, id_of = chain_of(att, root_name)
+			-- (a piece's root is bone 0; anything else is not the layout we know)
+			if chain and chain[1] == 0 then return att, name, chain, name_of, id_of, piece end
+			level_remove(name)
+			U.log("limb piece %s does not start at %s: using the whole model", piece.model, root_name)
+		else
+			U.log("limb piece %s could not be attached: using the whole model", piece.model)
+		end
+	end
+	local name = new_name("limb")
+	local att = level_add(name, visual)
+	if not att then return nil end
+	local chain, name_of, id_of = chain_of(att, root_name)
+	return att, name, chain, name_of, id_of, nil
+end
+
+--[[ Sever a limb off obj, starting at bone root_name.
+     vel: initial velocity (world); opts.seed: shared random seed;
+     opts.gone: bone names already missing on the victim (hidden on the limb).
+     Must be called on the main thread, BEFORE the bone is hidden on obj.
+     Returns true when the limb was spawned (plus its start and tip). ]]
+function spawn_limb(obj, root_name, vel, opts)
+	opts = opts or {}
+	if not (U.setting("dismember/severed_limbs") and U.gore() and db.actor and obj) then return false end
+	local visual = strip_ogf(obj:get_visual_name())
+	if not visual or obj:get_bone_id(root_name) == 65535 then return false end
+
+	-- capture the victim's pose first (world matrices)
+	local root_w = world_bone(obj, root_name)
+	if not root_w then return false end
+
+	local att, name, chain, name_of, id_of, piece = limb_attachment(obj, root_name, visual)
+	if not att then U.dbg("limb attachment failed for %s", visual) return false end
+	pcall(att.set_type, att, WORLD_TYPE)
+	if not chain or #chain == 0 then level_remove(name) return false end
+
+	-- co-op: the host's start point, so the piece flies the same way everywhere
+	local a0 = opts.a0 and U.vcopy(opts.a0) or U.qv(root_w.c)
+	local tip, far = a0, 0
+	local rel = {}
+	for _, id in ipairs(chain) do
+		local bn = name_of[id]
+		local w = bn and obj:get_bone_id(bn) ~= 65535 and world_bone(obj, bn)
+		if w then
+			local m = mat_copy(w)
+			m.c = U.sub(w.c, a0)
+			rel[#rel + 1] = { id = id, m = m }
+			local d = w.c:distance_to(a0)
+			if d > far then far, tip = d, U.vcopy(w.c) end
+		end
+	end
+	if #rel == 0 then level_remove(name) return false end
+	if far < 0.12 then
+		-- hands / feet / heads: give the stick some length along the bone
+		local dir = U.unit(U.v3(root_w.i.x, root_w.i.y, root_w.i.z)) or U.v3(0, -1, 0)
+		tip = U.along(a0, dir, 0.15)
+		far = 0.15
+	end
+	tip = opts.tip and U.vcopy(opts.tip) or U.qv(tip)
+	far = tip:distance_to(a0)
+
+	local g = U.rng(opts.seed or math.random(1, 2147483000))
+	local spin = U.v3(g.range(-2.5, 2.5), g.range(-1, 2), g.range(-2.5, 2.5))
+	local radius = opts.radius or U.clamp(far * 0.12, 0.04, 0.09)
+	local body = new_body(a0, tip, radius, vel, spin, g.range(-6, 6))
+
+	local it = {
+		kind = "limb", name = name, att = att, owner = "level", body = body, rel = rel,
+		ignore_id = obj:id(), t0 = time_global(), mats = {}, drips = 4500,
+		pool_size = U.clamp(0.22 + far * 0.25, 0.22, 0.42), piece = piece and piece.model or nil,
+	}
+	-- matrices handed to the engine; updated in place every frame
+	local collapse = matrix()
+	collapse:identity()
+	collapse:scale(0.0005, 0.0005, 0.0005)
+	collapse.c = U.v3(0, 0, 0)
+	it.collapse = collapse
+	for _, r in ipairs(rel) do it.mats[r.id] = mat_copy(r.m) end
+
+	local cb_ok, cb_err = pcall(function()
+		att:set_position(a0)
+		-- the whole model: everything but the limb shrinks into the stump;
+		-- a piece is only the limb, its bone 0 is the cut root itself
+		if not piece then att:bone_callback(0, function() return it.collapse end, true) end
+		for _, r in ipairs(rel) do
+			local m = it.mats[r.id]
+			if piece or r.id ~= 0 then att:bone_callback(r.id, function() return m end, true) end
+		end
+	end)
+	if not cb_ok then
+		U.log("limb bone callbacks failed: %s", tostring(cb_err))
+		level_remove(name)
+		return false
+	end
+	-- parts that were already shot off this limb stay missing
+	for _, bn in ipairs(opts.gone or {}) do
+		local id = id_of[bn]
+		if id then pcall(att.set_bone_visible, att, id, false, true) end
+	end
+	items[#items + 1] = it
+	enforce_limit()
+	U.dbg("limb %s spawned from %s (%s bones, length %s) at %s %s %s", root_name, piece and piece.model or visual, #rel, U.r3(far),
+		U.r3(a0.x), U.r3(a0.y), U.r3(a0.z))
+	return true, a0, tip
+end
+
+local function pose_limb(it)
+	local B = it.body
+	local R = body_rotation(B)
+	for _, r in ipairs(it.rel) do
+		local m = it.mats[r.id]
+		m:mul_43(R, r.m)
+	end
+	pcall(it.att.set_position, it.att, B.a)
+end
+
+local function update_limb(it, dt, now)
+	local B = it.body
+	if B.asleep and it.posed_asleep then return end
+	advance(it, dt)
+	pose_limb(it)
+	blood_tick(it, now)
+	if B.asleep then it.posed_asleep = true end
+end
+
+------------------------------------------------------------------------
+-- Gibs (chunks thrown by head bursts and explosions)
+------------------------------------------------------------------------
+-- Body gibs (MCM "Gib look": Pieces of the body): the bake's pieces of the
+-- victim's own model (zgo_bake.gibs, docs/formats/gibs.md), each one a bone
+-- of one model; every other bone is hidden, so the attachment draws that
+-- piece only. It starts exactly where it was on the body (the bone it came
+-- from * its frame) and flies like a wound chunk. Without them (no bake,
+-- another mod's model, Meat models picked): G.A.M.M.A.'s meat items.
+local thrown = {}          -- [body id] = { [piece] = true }: each piece flies once while others are left
+local thrown_n = 0
+
+local function body_gib_set(obj)
+	if not (obj and U.setting("dismember/gib_style") ~= "meat" and U.is_creature(obj)) then return nil end
+	local gs = zgo_bake.gibs(obj)
+	if not (gs and gs.model and (gs.count or 0) > 0) then return nil end
+	if zgo_bake.loaded_matches(obj) == false or not model_file(gs.model) then return nil end
+	return gs
+end
+
+-- the pieces to throw: nearest the blast (or, with prefer, from those bones
+-- first), some shuffling from the shared seed, pieces already thrown last
+local function choose_pieces(obj, gs, pos, count, g, prefer)
+	local id = obj:id()
+	local used = thrown[id]
+	if not used then
+		if thrown_n > 300 then thrown, thrown_n = {}, 0 end
+		used = {}
+		thrown[id] = used
+		thrown_n = thrown_n + 1
+	end
+	local cand = {}
+	for i, pc in ipairs(gs.pieces) do
+		if obj:get_bone_id(pc.bone) ~= 65535 then
+			local d
+			if prefer then
+				d = prefer[pc.bone] and 0 or 1
+			else
+				local ok, bp = pcall(obj.bone_position, obj, pc.bone)
+				d = (ok and bp and pos) and bp:distance_to(pos) or 1
+			end
+			cand[#cand + 1] = { i = i, s = d + g.range(0, 0.15) + (used[i] and 5 or 0) }
+		end
+	end
+	table.sort(cand, function(x, y)
+		if x.s ~= y.s then return x.s < y.s end
+		return x.i < y.i
+	end)
+	local out = {}
+	for k = 1, math.min(count, #cand) do
+		out[k] = cand[k].i
+		used[cand[k].i] = true
+	end
+	return out
+end
+
+local function piece_matrix(pc)
+	if not pc.rel then
+		local m = pc.m
+		pc.rel = mat_from_axes(U.v3(m.i.x, m.i.y, m.i.z), U.v3(m.j.x, m.j.y, m.j.z), U.v3(m.k.x, m.k.y, m.k.z),
+			U.v3(m.c.x, m.c.y, m.c.z))
+	end
+	return pc.rel
+end
+
+local function body_gib(obj, gs, i, dir, g)
+	local pc = gs.pieces[i]
+	if not pc or obj:get_bone_id(pc.bone) == 65535 then return false end
+	local W = world_bone(obj, pc.bone)
+	if not W then return false end
+	local P = mat_mul(W, piece_matrix(pc))
+	local o = U.vcopy(P.c)
+	local ax = U.cone(U.v3(1, 0, 0), 3, g.next)
+	local a, b = U.along(o, ax, -0.03), U.along(o, ax, 0.03)
+	local name = new_name("gib")
+	local att = level_add(name, gs.model)
+	if not att then return false end
+	local m = mat_copy(P)
+	m.c = U.sub(o, a)
+	local it = { kind = "limb", chunk = true, name = name, att = att, owner = "level", ignore_id = obj:id(),
+		t0 = time_global(), rel = { { id = i, m = m } }, mats = { [i] = mat_copy(m) },
+		drips = 1500, pooled = true, piece = gs.model }
+	local ok, err = pcall(function()
+		att:set_type(WORLD_TYPE)
+		for bi = 1, gs.count do
+			if bi ~= i then att:set_bone_visible(bi, false, false) end
+		end
+		att:set_position(a)
+		local mm = it.mats[i]
+		att:bone_callback(i, function() return mm end, true)
+	end)
+	if not ok then
+		U.log("body gib %s could not be set up: %s", gs.model, tostring(err))
+		level_remove(name)
+		return false
+	end
+	local d = U.cone(dir, 0.8, g.next)
+	it.body = new_body(a, b, 0.03, U.mul(d, g.range(2.5, 6.0)),
+		U.v3(g.range(-6, 6), g.range(-6, 6), g.range(-6, 6)), g.range(-12, 12))
+	items[#items + 1] = it
+	return true
+end
+
+local function meat_gibs(pos, dir, count, ignore, g)
+	local models = gib_model_list()
+	if #models == 0 then return end
+	for _ = 1, count do
+		local name = new_name("gib")
+		local att = level_add(name, models[g.int(1, #models)])
+		if att then
+			local sc = g.range(0.35, 0.7)
+			pcall(function()
+				att:set_type(WORLD_TYPE)
+				att:set_scale(sc)
+				att:set_position(pos)
+			end)
+			local d = U.cone(dir, 0.9, g.next)
+			local v = U.mul(d, g.range(2.5, 6.5))
+			local half = U.cone(U.v3(1, 0, 0), 3, g.next)
+			local body = new_body(U.along(pos, half, -0.04), U.along(pos, half, 0.04), 0.03, v,
+				U.v3(g.range(-4, 4), g.range(-4, 4), g.range(-4, 4)), g.range(-12, 12))
+			local it = { kind = "gib", name = name, att = att, owner = "level", body = body, ignore_id = ignore and ignore:id() or nil, t0 = time_global(),
+				hpb = U.v3(g.next() * 360, g.next() * 360, g.next() * 360),
+				spin = U.v3(g.range(-500, 500), g.range(-500, 500), g.range(-500, 500)),
+				drips = sc > 0.55 and 1500 or nil }
+			items[#items + 1] = it
+		end
+	end
+end
+
+-- count gibs from pos along dir. ignore: the body they come out of (body
+-- gibs need it). seed: shared random seed. opts.pieces: the body pieces to
+-- throw (co-op: the host's choice); opts.prefer: { [bone] = true } to take
+-- pieces from first. Returns the body pieces thrown (a list, maybe empty) or
+-- nil when no body gibs were possible.
+function spawn_gibs(pos, dir, count, ignore, seed, opts)
+	if not (U.setting("dismember/gibs") and U.gore() and db.actor and pos and dir) then return nil end
+	count = math.max(0, math.floor(tonumber(count) or 0))
+	local g = U.rng(seed or math.random(1, 2147483000))
+	local used
+	local gs = body_gib_set(ignore)
+	if gs and count > 0 then
+		used = {}
+		local list = opts and opts.pieces or choose_pieces(ignore, gs, pos, count, g, opts and opts.prefer)
+		for _, i in ipairs(list) do
+			if #used >= count then break end
+			local ok, done = pcall(body_gib, ignore, gs, i, dir, g)
+			if not ok then U.log("body gib failed: %s", tostring(done)) end
+			if ok and done then used[#used + 1] = i end
+		end
+		-- the rest as meat (co-op: the same rest as on the host, unless a piece
+		-- of the host's list is missing here)
+		count = count - #used
+	end
+	if count > 0 then meat_gibs(pos, dir, count, ignore, g) end
+	enforce_limit()
+	return used
+end
+
+------------------------------------------------------------------------
+-- Wound chunks (zgo_wounds): the bake's own piece of a wound
+------------------------------------------------------------------------
+-- (experimental damage bake) zgo_bake.chunks(obj, section): one model per
+-- section; bone site_<i> (bone id i) holds site i's chunk in the frame of the
+-- site's bone (docs/formats/damage.md). Placed at that bone's world matrix it
+-- sits exactly in the wound; then it flies like a severed limb.
+local function chunk_piece(obj, section, site_index, pos, dir, g)
+	if not (obj and section and type(site_index) == "number" and site_index >= 1) then return false end
+	local ch = zgo_bake.chunks(obj, section)
+	if not (ch and ch.model and (ch.count or 0) >= site_index) then return false end
+	if zgo_bake.loaded_matches(obj) == false or not model_file(ch.model) then return false end
+	local list = zgo_bake.sites(obj, section)
+	local site = list and list[site_index]
+	local bone = site and site.bone
+	if not bone or obj:get_bone_id(bone) == 65535 then return false end
+	local W = world_bone(obj, bone)
+	if not W then return false end
+	local name = new_name("chunk")
+	local att = level_add(name, ch.model)
+	if not att then return false end
+	local a0 = U.vcopy(pos)
+	local m = mat_copy(W)
+	m.c = U.sub(W.c, a0)
+	local it = { kind = "limb", chunk = true, name = name, att = att, owner = "level", ignore_id = obj:id(),
+		t0 = time_global(), rel = { { id = site_index, m = m } }, mats = { [site_index] = mat_copy(m) },
+		drips = 1500, pooled = true, piece = ch.model }
+	local ok, err = pcall(function()
+		att:set_type(WORLD_TYPE)
+		for b = 1, ch.count do
+			if b ~= site_index then att:set_bone_visible(b, false, false) end
+		end
+		att:set_position(a0)
+		local mm = it.mats[site_index]
+		att:bone_callback(site_index, function() return mm end, true)
+	end)
+	if not ok then
+		U.log("wound chunk %s could not be set up: %s", ch.model, tostring(err))
+		level_remove(name)
+		return false
+	end
+	local d = U.cone(dir, 0.6, g.next)
+	it.body = new_body(a0, U.along(a0, d, 0.06), 0.03, U.mul(d, g.range(2.0, 4.5)),
+		U.v3(g.range(-6, 6), g.range(-6, 6), g.range(-6, 6)), g.range(-10, 10))
+	items[#items + 1] = it
+	return true
+end
+
+-- A wound throws chunks: the site's own baked chunk when the bake has one
+-- (experimental damage bake, body wearing the baked model), plus count - 1
+-- gibs; without it, count gibs (spawn_gibs: body pieces from the wound's part
+-- of the body first). Same seed, same result on every machine. Returns how
+-- many baked chunks flew (0 or 1).
+function spawn_chunks(obj, section, site_index, pos, dir, count, seed)
+	count = math.max(1, math.floor(tonumber(count) or 1))
+	if not (U.setting("dismember/gibs") and U.gore() and db.actor and pos and dir) then return 0 end
+	local g = U.rng(seed or math.random(1, 2147483000))
+	local okc, done = pcall(chunk_piece, obj, section, site_index, pos, dir, g)
+	if not okc then U.log("wound chunk failed: %s", tostring(done)) done = false end
+	local n = done and 1 or 0
+	if count - n > 0 then
+		-- body gibs from this wound's part of the body first
+		local prefer
+		local list = section and zgo_bake.sites(obj, section)
+		if list then
+			prefer = {}
+			for _, st in ipairs(list) do if st.bone then prefer[st.bone] = true end end
+		end
+		spawn_gibs(pos, dir, count - n, obj, seed, { prefer = prefer })
+	end
+	enforce_limit()
+	return n
+end
+
+local function update_gib(it, dt, now)
+	local B = it.body
+	if B.asleep and it.posed_asleep then return end
+	local steps = advance(it, dt)
+	local c = U.mul(U.add(B.a, B.b), 0.5)
+	-- tumble while airborne, slow down on contact
+	local k = B.sleep_t > 0 and 0.2 or 1
+	local sdt = steps * STEP
+	it.hpb = U.v3(it.hpb.x + it.spin.x * sdt * k, it.hpb.y + it.spin.y * sdt * k, it.hpb.z + it.spin.z * sdt * k)
+	if B.contacts > 0 then it.spin = U.mul(it.spin, 0.9) end
+	pcall(function()
+		it.att:set_position(c)
+		it.att:set_rotation(it.hpb)
+	end)
+	blood_tick(it, now)
+	if B.asleep then it.posed_asleep = true end
+end
+
+------------------------------------------------------------------------
+-- Stump caps
+------------------------------------------------------------------------
+-- Every cap is an attachment on the body, hung on the bone the limb came off
+-- (attachments follow a bone whether it is drawn or not). One cap per cut:
+-- both thighs hang on the pelvis, so caps are keyed by the cut bone too.
+--   meat   a flat disk of raw meat over the cut (any install with G.A.M.M.A.)
+--   fitted the bake's cap for this cut, every bone called back to the body's
+--          own bone of the same name: the rim stays on the seam as the body
+--          bends (docs/formats/caps.md "Mode B")
+--   rigid  the bake's cap fixed to the parent bone (caps.md "Mode A"): exact
+--          while the joint keeps its bind pose; the fallback when the engine
+--          has no named bone_callback
+-- MCM "Stump cap shape": meat (default), fitted, fitted_rigid, in_model (the
+-- caps inside the model, zgo_dismember; attachments when there are none).
+function cap_style()
+	local s = U.setting("dismember/cap_style")
+	if s == "fitted" or s == "fitted_rigid" or s == "in_model" then return s end
+	return "meat"
+end
+
+local function cap_key(id, parent, cut) return string.format("%s:%s:%s", id, parent, cut or "") end
+
+local function remove_cap(obj, key)
+	local c = caps[key]
+	if not c then return end
+	if obj then pcall(obj.remove_attachment, obj, c.name) end
+	caps[key] = nil
+end
+
+-- Meat disks. The engine draws an object attachment at XFORM * parent bone
+-- * offset, so the offset (in the parent bone's frame) puts the disk on the
+-- joint where the severed bone started, and its rotation turns the disk's
+-- face (mesh +y) along the limb so it covers the cut instead of sticking out
+-- sideways.
+local CAP_DISKS = { ["dynamics\\zpf\\raw_flesh"] = 0.21, ["dynamics\\zpf\\raw_dog"] = 0.21 }   -- diameter, m (thin axis y)
+local CAP_SIZE = {   -- stump diameter by the severed bone, m
+	{ "head", 0.12 }, { "neck", 0.12 }, { "ponytail", 0.12 }, { "upperarm", 0.11 }, { "forearm", 0.085 },
+	{ "hand", 0.065 }, { "thigh", 0.17 }, { "calf", 0.12 }, { "horselink", 0.08 }, { "foot", 0.08 },
+}
+
+local function cap_diameter(cut_bone)
+	local b = cut_bone and string.lower(cut_bone) or ""
+	for _, e in ipairs(CAP_SIZE) do
+		if string.find(b, e[1], 1, true) then return e[2] end
+	end
+	return 0.1
+end
+
+-- X-Ray setHPB (degrees) whose j axis is the unit vector n
+function hpb_for_up(n)
+	local p = math.acos(U.clamp(n.y, -1, 1))
+	local sp = math.sin(p)
+	local h = sp > 1e-4 and math.atan2(n.x, -n.z) or 0
+	return U.v3(math.deg(h), math.deg(p), 0)
+end
+
+-- size: multiplier on the stump diameter (mutants a bit thinner)
+function add_meat_cap(obj, parent_bone, size, cut_bone)
+	if not (U.setting("dismember/stump_caps") and U.gore() and obj and parent_bone) then return end
+	local models = gib_model_list()
+	if #models == 0 or obj:get_bone_id(parent_bone) == 65535 then return end
+	local off
+	if cut_bone and obj:get_bone_id(cut_bone) ~= 65535 then
+		local pm, cm = world_bone(obj, parent_bone), world_bone(obj, cut_bone)
+		if pm and cm then
+			local d = U.sub(cm.c, pm.c)
+			off = U.v3(U.dot(d, pm.i), U.dot(d, pm.j), U.dot(d, pm.k))
+		end
+	end
+	local disks = {}
+	for _, m in ipairs(models) do if CAP_DISKS[m] then disks[#disks + 1] = m end end
+	local model = #disks > 0 and disks[math.random(1, #disks)] or models[1]
+	local scale = cap_diameter(cut_bone) * (size or 1) / (CAP_DISKS[model] or 0.21)
+	local rot
+	local n = off and U.unit(off)
+	if n and CAP_DISKS[model] then
+		if math.random() < 0.5 then n = U.v3(-n.x, -n.y, -n.z) end   -- either face of the meat
+		rot = hpb_for_up(n)
+	else
+		rot = U.v3(math.random() * 360, math.random() * 360, math.random() * 360)
+	end
+
+	local key = cap_key(obj:id(), parent_bone, cut_bone)
+	remove_cap(obj, key)
+	local name = new_name("cap")
+	local ok, att = pcall(obj.add_attachment, obj, name, model)
+	if not (ok and att) then return end
+	pcall(function()
+		att:set_type(WORLD_TYPE)
+		att:set_parent_bone(parent_bone)
+		if off then att:set_position(off) end
+		att:set_scale(scale)
+		att:set_rotation(rot)
+	end)
+	caps[key] = { name = name, id = obj:id(), parent = parent_bone, cut = cut_bone, kind = "meat", model = model }
+	return name
+end
+
+-- nil until the first fitted cap; false once the engine refused
+-- bone_callback(bone name, parent bone name, true)
+local named_callbacks
+
+local function attach_cap(obj, model, parent)
+	local name = new_name("cap")
+	local ok, att = pcall(obj.add_attachment, obj, name, model)
+	if not (ok and att) then return nil, nil, att end
+	pcall(function()
+		att:set_type(WORLD_TYPE)
+		-- no offset, rotation or scale: the cap's model space is the parent
+		-- bone's bind frame (caps.md "The frame")
+		att:set_parent_bone(parent)
+	end)
+	return att, name
+end
+
+-- The bake's fitted cap for the cut at cut_bone, hung on parent_bone.
+-- rigid: fixed to the parent bone instead of following each bone.
+-- Returns the attachment name, or nil (no cap in the bake, file missing,
+-- the body wears another model, ...: the caller falls back to meat).
+function add_fitted_cap(obj, parent_bone, cut_bone, rigid)
+	if not (obj and parent_bone and cut_bone) then return nil end
+	local c = zgo_bake.cap(obj, cut_bone)
+	if not (c and c.model and c.parent == parent_bone and #(c.bones or {}) > 0) then return nil end
+	if zgo_bake.loaded_matches(obj) == false then return nil end
+	if not model_file(c.model) then return nil end
+	if obj:get_bone_id(parent_bone) == 65535 then return nil end
+	-- every cap bone must be on the body too, or the engine pins it to the origin
+	for _, b in ipairs(c.bones) do
+		if obj:get_bone_id(b) == 65535 then rigid = true break end
+	end
+	local key = cap_key(obj:id(), parent_bone, cut_bone)
+	remove_cap(obj, key)
+	local att, name, err = attach_cap(obj, c.model, c.parent)
+	if not att then
+		U.log("fitted stump cap %s could not be attached: %s", c.model, tostring(err))
+		return nil
+	end
+	local kind = "rigid"
+	if not rigid and named_callbacks ~= false then
+		local ok, cerr = pcall(function()
+			for _, b in ipairs(c.bones) do att:bone_callback(b, b, true) end
+		end)
+		if ok then
+			kind, named_callbacks = "fitted", true
+		else
+			named_callbacks = false
+			U.log("fitted stump caps: this engine has no bone_callback(bone, bone, true) (%s); caps stay fixed to the joint above the cut",
+				tostring(cerr))
+			-- some callbacks may be set already: start again without them
+			pcall(obj.remove_attachment, obj, name)
+			att, name = attach_cap(obj, c.model, c.parent)
+			if not att then return nil end
+		end
+	end
+	caps[key] = { name = name, id = obj:id(), parent = parent_bone, cut = cut_bone, kind = kind, model = c.model }
+	return name
+end
+
+-- The cap for a cut, in the MCM's shape: fitted when the bake has one,
+-- meat otherwise. size: multiplier on a meat disk's diameter. Returns the
+-- attachment name (nil: no cap).
+function add_stump_cap(obj, parent_bone, size, cut_bone)
+	if not (U.setting("dismember/stump_caps") and U.gore() and obj and parent_bone) then return end
+	if obj:get_bone_id(parent_bone) == 65535 then return end
+	local style = cap_style()
+	if style ~= "meat" and cut_bone then
+		local name = add_fitted_cap(obj, parent_bone, cut_bone, style == "fitted_rigid")
+		if name then return name end
+	end
+	return add_meat_cap(obj, parent_bone, size, cut_bone)
+end
+
+-- a bone further up the limb was cut off too: caps hanging off bones that
+-- are gone now would float where the hidden bone is (attachments follow a
+-- bone whether it's drawn or not)
+function drop_caps(obj, is_gone)
+	local id = obj:id()
+	for key, c in pairs(caps) do
+		if c.id == id and is_gone(c.parent) then remove_cap(obj, key) end
+	end
+end
+
+-- the cap of one cut (it is being put back)
+function drop_cap(obj, cut_bone)
+	local id = obj:id()
+	for key, c in pairs(caps) do
+		if c.id == id and c.cut == cut_bone then remove_cap(obj, key) end
+	end
+end
+
+-- the object went offline (its attachments went with it)
+function clear_caps_for(id)
+	for key, c in pairs(caps) do
+		if c.id == id then caps[key] = nil end
+	end
+end
+
+-- the caps on one object: { { name, parent, cut, kind, model }, ... }
+function caps_of(id)
+	local out = {}
+	for _, c in pairs(caps) do
+		if c.id == id then out[#out + 1] = { name = c.name, parent = c.parent, cut = c.cut, kind = c.kind, model = c.model } end
+	end
+	table.sort(out, function(a, b) return a.name < b.name end)
+	return out
+end
+
+------------------------------------------------------------------------
+-- Frame update
+------------------------------------------------------------------------
+local last_t
+
+function update()
+	if #items == 0 then last_t = nil return end
+	local now = time_global()
+	local dt = last_t and (now - last_t) / 1000 or STEP
+	last_t = now
+	dt = U.clamp(dt, 0, 0.1)
+	local apos = db.actor and db.actor:position()
+	local age, far_r2 = max_age(), far_sqr()
+	for i = #items, 1, -1 do
+		local it = items[i]
+		local far = apos and it.body and it.body.a:distance_to_sqr(apos) > far_r2
+		if not it.att or now - it.t0 > age or far then
+			remove_item(it)
+			table.remove(items, i)
+		else
+			local ok, err
+			if it.kind == "limb" then ok, err = pcall(update_limb, it, dt, now) else ok, err = pcall(update_gib, it, dt, now) end
+			if not ok then
+				U.log("debris update failed, removing: %s", tostring(err))
+				remove_item(it)
+				table.remove(items, i)
+			end
+		end
+	end
+end
+
+-- kid mode switched on: every severed part, gib and stump cap goes (the cuts
+-- come back with their caps when it is switched off, see zgo_dismember)
+function kid_mode(kid)
+	if not kid then return end
+	for _, it in ipairs(items) do remove_item(it) end
+	items, last_t = {}, nil
+	for key, c in pairs(caps) do
+		local o = level.object_by_id(c.id)
+		if o then pcall(o.remove_attachment, o, c.name) end
+	end
+	caps = {}
+end
+
+function reset()
+	for _, it in ipairs(items) do remove_item(it) end
+	items, caps, last_t = {}, {}, nil
+	model_files, named_callbacks = {}, nil
+end
+
+function count() return #items end
+
+-- for tests / status
+function list() return items end

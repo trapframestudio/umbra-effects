@@ -1,0 +1,426 @@
+--[[
+  Zone Gore Overhaul - explosion craters (used by zgo_impacts)
+
+  The zgo_util "explosion" event (authority only: single player or the co-op
+  host) gives where an explosive went off. The host works out the surface
+  under it once and decides everything with one seed:
+    C|x|y|z|nx|ny|nz|fam|charge|ceil|seed|flags          host -> clients
+      x y z     ground point under the blast (or the blast centre in the air)
+      n         the surface normal there (pointing out of the surface)
+      fam       zgo_impacts_data.FAMILIES index of the surface (0 = none)
+      charge    TNT relative to a hand grenade (zgo_blast.KINDS, else blast/3)
+      ceil      height of a ceiling above the blast (0 = none / outdoors)
+      flags     1 on the ground, 2 on a wall (scorch only), 4 debris,
+                8 ceiling grit
+  Every machine (host included) then draws the same crater from the line:
+    * a dark pit and a scorch mark sized by charge^(1/3), on the surface;
+    * pock marks where seeded fragment rays hit nearby walls and floor;
+    * a ring of dust rolling out along the ground, a column of dirt or grit,
+      a flash of dust, smoke that hangs (Performance -> Explosion smoke);
+    * clods of earth or chunks of concrete (meshes/zgo/world) thrown with
+      seeded velocities and a small fixed-step simulation, so they come to
+      rest in the same places on every machine, and a low rim of thrown-up
+      dirt or rubble around the pit;
+    * indoors (a ceiling within 6 m), grit and dust falling from the ceiling.
+  Nothing here is gore: kid mode leaves it alone. Visual only: nothing
+  blocks movement or bullets and nothing goes into saves.
+]]
+
+local U = zgo_util
+local D = zgo_impacts_data
+
+local STEP = 1 / 60
+local MAX_STEPS = 6
+local GRAVITY = 9.8
+local CEIL_MAX = 6
+local CLOD_SIZE = 0.16          -- m across, a clod mesh at scale 1
+local RIM_SIZE = 1.6            -- m across, a rim mesh at scale 1
+
+local pieces = {}               -- { name, att, kind, t0, body = { p, v, hpb, spin, rest } }
+local seq = 0
+local recent = {}               -- eid -> time (one crater per explosion)
+local stats = { craters = 0, sent = 0, pocks = 0, pieces = 0, grit = 0 }
+local acc = 0
+local last_t
+
+local WORLD_TYPE = (rawget(_G, "script_attachment_type") and script_attachment_type.World) or 1
+
+local function on(key) return U.setting(key) ~= false end
+local function lifetime_ms() return (U.setting("performance/world_mark_lifetime") or 480) * 1000 end
+local function max_pieces() return U.setting("performance/world_debris") or 8 end
+
+------------------------------------------------------------------------
+-- How big
+------------------------------------------------------------------------
+-- known_sec: the "explosion" event's section (zgo_blast), for a grenade object already gone
+function charge_of(eid, known_sec)
+	local o = eid and level.object_by_id(eid)
+	local ok, sec = pcall(function() return o and o:section() end)
+	sec = ok and sec or nil
+	if not sec and type(known_sec) == "string" and known_sec ~= "" then sec = known_sec end
+	local B = rawget(_G, "zgo_blast")
+	local K = type(B) == "table" and rawget(B, "KINDS")
+	if sec and K and K[sec] and K[sec].charge then return K[sec].charge, sec end
+	if sec then
+		local okb, b = pcall(function() return ini_sys:r_float_ex(sec, "blast") end)
+		b = okb and tonumber(b)
+		if b and b > 0 then return U.clamp(b / 3, 0.3, 3), sec end
+	end
+	return D.DEFAULT_CHARGE, sec
+end
+
+------------------------------------------------------------------------
+-- Rays (one pick: distance, triangle normal facing the ray, material)
+------------------------------------------------------------------------
+function pick(start, dir, range)
+	local ok, rq = pcall(ray_pick, start, dir, range, rq_target.rqtStatic, db.actor)
+	if not (ok and rq) then return nil end
+	local okq, hit = pcall(rq.query, rq)
+	if not (okq and hit) then return nil end
+	local d = rq:get_distance()
+	local n, mat
+	local okr, res = pcall(rq.get_result, rq)
+	if okr and res then
+		local okm, m = pcall(function() return res.material_name end)
+		if okm then mat = m end
+	end
+	local okn, nn = pcall(rq.get_normal, rq)
+	if okn and nn then n = U.unit(U.v3(nn.x, nn.y, nn.z)) end
+	n = n or U.v3(-dir.x, -dir.y, -dir.z)
+	if U.dot(n, dir) > 0 then n = U.v3(-n.x, -n.y, -n.z) end
+	return d, n, mat
+end
+
+local function debris_kind(fam)
+	if fam == "earth" then return "earth" end
+	if fam == "stone" or fam == "brick" or fam == "plaster" then return "stone" end
+	return nil
+end
+
+local function mark_fam(fam) return fam == "earth" and "earth" or "stone" end
+
+------------------------------------------------------------------------
+-- Host: decide
+------------------------------------------------------------------------
+local AROUND = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 }, { 0, 1, 0 } }
+
+function on_explosion(rec)
+	if not (rec and rec.center and db.actor) or not U.enabled() or U.is_client() then return end
+	if not on("world/craters") then return end
+	local B = rawget(_G, "zgo_blast")
+	if type(B) == "table" and type(rawget(B, "is_explosive")) == "function" then
+		local ok, yes = pcall(B.is_explosive, rec.eid)
+		if ok and not yes then return end
+	end
+	local now = time_global()
+	if rec.eid and recent[rec.eid] and now - recent[rec.eid] < 1500 and now >= recent[rec.eid] then return end
+	if rec.eid then recent[rec.eid] = now end
+	local c = rec.center
+	if not zgo_impacts.near_players(c, (U.setting("performance/world_range") or 80) + 30) then return end
+	local charge = charge_of(rec.eid, rec.sec)
+	local s = charge ^ (1 / 3)
+	local reach = 0.6 + 0.6 * s
+	local up = U.v3(c.x, c.y + 0.25, c.z)
+	local p, n, fam, flags = U.vcopy(c), U.v3(0, 1, 0), nil, 0
+	local d, gn, mat = pick(up, U.v3(0, -1, 0), 0.25 + reach)
+	if d then
+		p, n, fam, flags = U.along(up, U.v3(0, -1, 0), d), gn, zgo_impacts.family_of(mat), 1
+	else
+		-- against a wall (a rocket into a building): the nearest surface around it
+		local best
+		for _, a in ipairs(AROUND) do
+			local dir = U.v3(a[1], a[2], a[3])
+			local dd, nn, mm = pick(c, dir, reach)
+			if dd and (not best or dd < best.d) then best = { d = dd, n = nn, m = mm, dir = dir } end
+		end
+		if best then p, n, fam, flags = U.along(c, best.dir, best.d), best.n, zgo_impacts.family_of(best.m), 2 end
+	end
+	if fam == "glass" then fam = "stone" end
+	local ceil = 0
+	do   -- ceiling height above the point the crater is drawn on
+		local h = pick(U.v3(c.x, c.y + 0.1, c.z), U.v3(0, 1, 0), CEIL_MAX)
+		if h then ceil = math.max(0, c.y + 0.1 + h - p.y) end
+	end
+	if ceil > 0 then flags = flags + 8 end
+	if flags % 2 == 1 and on("world/crater_debris") and debris_kind(fam) and n.y > 0.6 then flags = flags + 4 end
+	local line = { "C", U.q3(p.x), U.q3(p.y), U.q3(p.z), U.q3(n.x), U.q3(n.y), U.q3(n.z),
+		fam and D.CODE[fam] or 0, U.q3(charge), U.q3(ceil), math.random(1, 2147483000), flags }
+	stats.craters = stats.craters + 1
+	U.dbg("world: crater %s %s charge %.2f flags %d", U.f3(p.x) .. "," .. U.f3(p.y) .. "," .. U.f3(p.z), tostring(fam), charge, flags)
+	if U.has_peers() then
+		local copy = {}
+		for i, v in ipairs(line) do copy[i] = v end
+		zgo_sync.emit(copy)
+		stats.sent = stats.sent + 1
+	end
+	draw(parse(line))
+end
+
+------------------------------------------------------------------------
+-- Every machine: draw a crater line
+------------------------------------------------------------------------
+local function num(v)
+	local x = tonumber(v)
+	if x == nil or x ~= x or math.abs(x) > 1e6 then return nil end
+	return x
+end
+
+local function seed_of(v)
+	local x = tonumber(v)
+	if x == nil or x ~= x or math.abs(x) > 4e9 then return 1 end
+	return math.floor(math.abs(x)) % 2147483647
+end
+
+function parse(t)
+	if type(t) ~= "table" or #t < 12 then return nil end
+	local x, y, z, nx, ny, nz = num(t[2]), num(t[3]), num(t[4]), num(t[5]), num(t[6]), num(t[7])
+	if not (x and y and z and nx and ny and nz) then return nil end
+	local n = U.unit(U.v3(nx, ny, nz))
+	if not n then return nil end
+	return { p = U.v3(x, y, z), n = n, fam = D.FAMILIES[num(t[8]) or 0], charge = U.clamp(num(t[9]) or 1, 0.1, 10),
+		ceil = U.clamp(num(t[10]) or 0, 0, CEIL_MAX + 1), seed = seed_of(t[11]), flags = math.floor(num(t[12]) or 0) }
+end
+
+local function has(flags, bit) return math.floor(flags / bit) % 2 == 1 end
+
+function on_line(t)
+	if not U.enabled() then return end
+	local c = parse(t)
+	if c then draw(c) end
+end
+
+local function place(sec, p, n, size, rot)
+	return zgo_impacts.place_mark(sec, p, n, size, rot, true)
+end
+
+function draw(c)
+	if not (c and db.actor) then return end
+	if not zgo_impacts.near_players(c.p, U.setting("performance/world_range") or 80) then return end
+	local g = U.rng(c.seed)
+	local s = c.charge ^ (1 / 3)
+	local scale = U.setting("world/mark_size") or 1
+	local deep = U.setting("world/deep_marks") == true
+	local mf = mark_fam(c.fam)
+	local FXP = zgo_impacts_fx
+	local ground, wall = has(c.flags, 1), has(c.flags, 2)
+	local n = c.n
+	-- marks: the pit and the scorch around it (the engine adds its own explosion_marks too)
+	if ground or wall then
+		place(D.section("scorch", mf, g.int(1, 3), deep), c.p, n, U.clamp(0.75 * s * scale, 0.2, 4.5), g.int(0, 359))
+		if ground then
+			place(D.section("crater", mf, g.int(1, 2), deep), c.p, n, U.clamp(0.42 * s * scale, 0.15, 4.5), g.int(0, 359))
+		end
+	end
+	-- fragment pocks: seeded rays over the half-space the surface faces
+	local origin = U.along(c.p, n, 0.3)
+	local rays = math.floor(5 + 5 * s)
+	local reach = 3 + 2.5 * s
+	for _ = 1, rays do
+		local dir = U.cone(n, 1.45, g.next)
+		dir = U.unit(U.v3(dir.x, dir.y * 0.35, dir.z)) or dir   -- fragments fly flat
+		local var, sz = g.int(1, 3), g.range(0.03, 0.06) * scale
+		local d, hn = pick(origin, dir, reach)
+		if d and d > 0.5 then
+			if place(D.section("pock", "all", var), U.along(origin, dir, d), hn, sz, g.int(0, 359)) then stats.pocks = stats.pocks + 1 end
+		end
+	end
+	-- dust and smoke
+	local dk = debris_kind(c.fam) or "stone"
+	if ground or wall then
+		FXP.play(D.fx("crater_ring_" .. dk), U.along(c.p, n, 0.05), n, { essential = true })
+		FXP.play(D.fx("crater_column_" .. dk), U.along(c.p, n, 0.05), U.cone(n, 0.15, g.next), { essential = true })
+		if ground and c.fam ~= "metal" then FXP.play(D.fx("crater_clods_" .. dk), U.along(c.p, n, 0.05), n, { essential = true }) end
+	end
+	FXP.play(D.fx("crater_flash_dust"), U.along(c.p, n, 0.3), n, { essential = true })
+	local hang = U.setting("performance/world_smoke") or 10
+	if hang > 0 then
+		FXP.play(D.fx("crater_smoke"), U.along(c.p, n, 0.4), U.v3(0, 1, 0), { essential = true, hold_ms = hang * 1000 })
+	end
+	-- indoors: the ceiling sheds grit over a few seconds
+	if has(c.flags, 8) and c.ceil > 0.5 then
+		local top = U.v3(c.p.x, c.p.y + c.ceil - 0.08, c.p.z)
+		FXP.play(D.fx("ceiling_grit"), top, U.v3(0, -1, 0), { essential = true })
+		FXP.play(D.fx("ceiling_dust"), top, U.v3(0, -1, 0), { essential = true })
+		stats.grit = stats.grit + 1
+		for i = 1, math.floor(1 + s * 1.5) do
+			local ox, oz, delay = g.range(-2.5, 2.5) * s, g.range(-2.5, 2.5) * s, math.floor(g.range(250, 2200))
+			U.after(delay, function()
+				local from = U.v3(c.p.x + ox, c.p.y + 0.2, c.p.z + oz)
+				local h = pick(from, U.v3(0, 1, 0), CEIL_MAX)
+				if h then
+					zgo_impacts_fx.play(D.fx("ceiling_grit"), U.v3(from.x, from.y + h - 0.08, from.z), U.v3(0, -1, 0))
+					stats.grit = stats.grit + 1
+				end
+			end)
+		end
+	end
+	-- rubble rim and clods
+	if has(c.flags, 4) and max_pieces() > 0 then
+		local kind = debris_kind(c.fam)
+		if kind then
+			local rim = D.RIM[kind][g.int(1, #D.RIM[kind])]
+			spawn_rim(D.MESH_DIR .. rim, c.p, n, U.clamp(1.5 * s * scale / RIM_SIZE, 0.3, 4), g)
+			local count = math.min(max_pieces(), math.floor(3 + 3 * s))
+			for _ = 1, count do
+				local m = D.CLODS[kind][g.int(1, #D.CLODS[kind])]
+				local v = U.mul(U.cone(n, 0.75, g.next), g.range(2.2, 5.5) * math.sqrt(s))
+				local sc = g.range(0.6, 1.4) * U.clamp(s, 0.8, 1.6)
+				spawn_clod(D.MESH_DIR .. m, U.along(c.p, n, 0.12), v, sc, g)
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Pieces (level attachments: models must be skeletons, see data header)
+------------------------------------------------------------------------
+local function level_add(name, model)
+	local la = level.add_attachment
+	if la then
+		local ok, att = pcall(la, name, model)
+		if ok and att then return att end
+	end
+	local ok, att = pcall(db.actor.add_attachment, db.actor, name, model)
+	if not (ok and att) then return nil end
+	pcall(att.set_parent_level, att)
+	return att
+end
+
+local function level_remove(name)
+	local lr = level.remove_attachment
+	if lr and pcall(lr, name) then return end
+	pcall(db.actor.remove_attachment, db.actor, name)
+end
+
+local function new_name(kind)
+	seq = seq + 1
+	return "zgo_world_" .. kind .. "_" .. seq
+end
+
+local function enforce_limit()
+	local max = max_pieces()
+	while #pieces > max do
+		local it = table.remove(pieces, 1)
+		level_remove(it.name)
+	end
+end
+
+local function hpb_up(n, yaw)
+	if n.y > 0.97 then return U.v3(yaw, 0, 0) end
+	local Dz = rawget(_G, "zgo_debris")
+	local f = type(Dz) == "table" and rawget(Dz, "hpb_for_up")
+	if type(f) == "function" then
+		local ok, r = pcall(f, n)
+		if ok and r then return r end
+	end
+	return U.v3(yaw, 0, 0)
+end
+
+function spawn_rim(model, p, n, scale, g)
+	local name = new_name("rim")
+	local att = level_add(name, model)
+	if not att then return false end
+	local ok = pcall(function()
+		att:set_type(WORLD_TYPE)
+		att:set_scale(scale)
+		att:set_position(U.along(p, n, -0.02))
+		att:set_rotation(hpb_up(n, g.range(0, 360)))
+	end)
+	if not ok then level_remove(name) return false end
+	pieces[#pieces + 1] = { name = name, att = att, kind = "rim", t0 = time_global() }
+	stats.pieces = stats.pieces + 1
+	enforce_limit()
+	return true
+end
+
+function spawn_clod(model, p, v, scale, g)
+	local name = new_name("clod")
+	local att = level_add(name, model)
+	if not att then return false end
+	local hpb = U.v3(g.range(0, 360), g.range(0, 360), g.range(0, 360))
+	local ok = pcall(function()
+		att:set_type(WORLD_TYPE)
+		att:set_scale(scale)
+		att:set_position(p)
+		att:set_rotation(hpb)
+	end)
+	if not ok then level_remove(name) return false end
+	pieces[#pieces + 1] = { name = name, att = att, kind = "clod", t0 = time_global(),
+		body = { p = U.vcopy(p), v = U.vcopy(v), hpb = hpb, r = CLOD_SIZE * 0.5 * scale,
+			spin = U.v3(g.range(-600, 600), g.range(-600, 600), g.range(-600, 600)), steps = 0 } }
+	stats.pieces = stats.pieces + 1
+	enforce_limit()
+	return true
+end
+
+-- one fixed step of a clod: gravity, a swept ray along the move, bounce
+local function step(b)
+	b.steps = b.steps + 1
+	b.v.y = b.v.y - GRAVITY * STEP
+	local mv = U.mul(b.v, STEP)
+	local len = U.len(mv)
+	if len < 1e-6 then return end
+	local dir = U.mul(mv, 1 / len)
+	local d, n = pick(b.p, dir, len + b.r)
+	if d then
+		local stop = math.max(0, d - b.r)
+		b.p = U.along(b.p, dir, stop)
+		-- reflect, lose most of the speed into the ground
+		local vn = U.dot(b.v, n)
+		b.v = U.sub(b.v, U.mul(n, 1.35 * vn))
+		b.v = U.mul(b.v, 0.45)
+		b.spin = U.mul(b.spin, 0.5)
+		if U.len(b.v) < 0.7 and n.y > 0.5 then b.rest = true end
+	else
+		b.p = U.add(b.p, mv)
+	end
+	-- a piece that never lands (thrown off a ledge into nothing) stops after 4 s
+	if b.steps > 240 then b.rest = true end
+end
+
+function update()
+	local now = time_global()
+	if not last_t or now < last_t then last_t = now end
+	local dt = math.min((now - last_t) / 1000, 0.25)
+	last_t = now
+	-- one crater per explosion id: forget old ids
+	for id, t in pairs(recent) do if now - t > 3000 or now < t then recent[id] = nil end end
+	if #pieces == 0 then acc = 0 return end
+	acc = math.min(acc + dt, STEP * MAX_STEPS)
+	local steps = math.floor(acc / STEP)
+	acc = acc - steps * STEP
+	local life = lifetime_ms()
+	local keep = {}
+	for _, it in ipairs(pieces) do
+		if now - it.t0 > life or now < it.t0 then
+			level_remove(it.name)
+		else
+			local b = it.body
+			if b and not b.rest and steps > 0 then
+				for _ = 1, steps do
+					step(b)
+					if b.rest then break end
+				end
+				local k = steps * STEP
+				b.hpb = U.v3((b.hpb.x + b.spin.x * k) % 360, (b.hpb.y + b.spin.y * k) % 360, (b.hpb.z + b.spin.z * k) % 360)
+				pcall(function()
+					it.att:set_position(b.p)
+					it.att:set_rotation(b.hpb)
+				end)
+			end
+			keep[#keep + 1] = it
+		end
+	end
+	pieces = keep
+end
+
+function reset()
+	for _, it in ipairs(pieces) do level_remove(it.name) end
+	pieces = {}
+	recent = {}
+	acc, last_t = 0, nil
+end
+
+function count() return #pieces end
+function list() return pieces end
+function get_stats() return stats end

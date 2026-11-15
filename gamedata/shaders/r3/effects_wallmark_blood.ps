@@ -1,0 +1,52 @@
+/**
+ * @ Version: SCREEN SPACE SHADERS - UPDATE 17
+ * @ Description: Blood Decal - Pixel Shader
+ * @ Modified time: 2023-07-06 12:28
+ * @ Author: https://www.moddb.com/members/ascii1457
+ * @ Mod: https://www.moddb.com/mods/stalker-anomaly/addons/screen-space-shaders
+ *
+ * MODIFIED (Painter of the Zone - xrRazom Patch / Zone Gore Overhaul): adds
+ * spreading blood pools. Pool textures (wm_blood_zgo_pool*) are tagged in the green channel and store,
+ * in alpha, the moment each texel gets wet (0..0.9; 1 = never). I.Color.a is the
+ * decal's age / lifetime, so a short-lived "grow" decal reveals the pool as it
+ * ages. Every other blood decal takes the original SSS path unchanged.
+ * Kid mode (zgo_settings): shader bus lane zgo_view.x = 1 hides every blood
+ * decal, the game's own included, until it is switched off again.
+ */
+
+#include "common.h"
+
+uniform float4 ssfx_blood_decals;
+uniform float4 bus_zgo_view;
+
+float4 main ( p_TL I ) : SV_Target
+{
+	if (bus_zgo_view.x > 0.5)
+		return float4(0, 0, 0, 0);
+
+	float4 res = s_base.Sample( smp_base, I.Tex0 );
+
+	// Spreading pool (G marker: ~1.0 = growing, ~0.5 = settled)
+	if (res.g > 0.3)
+	{
+		float arrival = res.a;
+		bool  growing = res.g > 0.75;
+		float thick   = saturate(1.0 - arrival / 0.9);
+		float3 col    = float3(0.251, 0.0235, 0.0157) * (0.85 + 0.3 * res.r) * lerp(1.0, 0.7, thick);
+		float reveal  = growing ? min(I.Color.a / 0.8 * 0.92, 0.95) : 0.95;
+		float cov     = saturate((reveal - arrival) * 40.0);
+		if (!growing) cov *= 1.0 - I.Color.a;   // settled pool: normal lifetime fade
+		return float4(col * ssfx_blood_decals.x, cov * saturate(ssfx_blood_decals.y));
+	}
+
+	// Color intensity
+	res.rgb *= ssfx_blood_decals.x;
+
+	// Alpha adjustments
+	res.a = saturate(res.a * 1.7f - 0.7f) * ssfx_blood_decals.y;
+
+	// Lifespan fade-out
+	res.a *= 1.0 - I.Color.a;
+
+	return float4(res.rgb, res.a);
+}

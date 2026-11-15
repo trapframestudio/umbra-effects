@@ -1,0 +1,453 @@
+--[[
+  Zone Gore Overhaul - entry point
+  Version 1.7.1
+
+  A blood / gore overhaul for S.T.A.L.K.E.R. Anomaly (GAMMA), single player
+  and xrRazom co-op. Built on Painter of the Zone by sunn (Apache 2.0) -
+  see CREDITS.txt and LICENSE-PainterOfTheZone.txt in the mod root.
+
+  Flow:
+    bullet_on_impact          -> remember exact entry point / ammo / speed
+                                 (clients forward their own to the host)
+    on_before_hit_after_calcs -> queue the hit (callbacks may run off the
+                                 main thread on this engine)
+    actor_on_update           -> process: hit profile, particles, decal
+                                 streams, wounds, bleeding, dismemberment;
+                                 tick pools / trails / spurts / debris; sync
+    death callbacks           -> pools, stop trails
+    explosions                -> fragments (bullet_on_init / _impact, no
+                                 ammo section) and the blast hit are
+                                 collected per explosive and resolved per
+                                 body in zgo_blast, corpses included
+]]
+
+VERSION = "1.7.1"
+
+local U = zgo_util
+local B = zgo_ballistics
+
+local paused = false
+local pause_reason
+-- NPC-vs-NPC hits get blood within the detail distance (Performance page)
+local function npc_range_sqr() local r = U.setting("performance/detail_range") or 55 return r * r end
+local HEAD_BONES = { bip01_head = true, jaw_1 = true, eye_left = true, eye_right = true, eyelid_1 = true }
+local next_prune = 0
+
+------------------------------------------------------------------------
+-- Conflicts: Painter (or the Painter co-op patch) would paint everything twice
+------------------------------------------------------------------------
+local function find_conflict()
+	if U.file_exists("$game_scripts$", "short_range_blood_wm.script") then
+		return "Painter of the Zone"
+	end
+	if U.file_exists("$game_scripts$", "potz_xrr_patch.script") then
+		return "Painter of the Zone - xrRazom Patch"
+	end
+end
+
+local function active()
+	return not paused and U.enabled() and db.actor ~= nil
+end
+
+------------------------------------------------------------------------
+-- Hit processing (main thread)
+------------------------------------------------------------------------
+local function is_head(obj, bone)
+	if HEAD_BONES[bone] then return true end
+	return IsMonster(obj) and bone and string.find(bone, "head", 1, true) ~= nil
+end
+
+local function profile_for(rec, impact)
+	if rec.htype == hit.explosion then return B.blast(rec.power) end
+	if rec.htype == hit.wound then return B.melee() end
+	if rec.htype ~= hit.fire_wound then return nil end
+	if impact and impact.ammo then
+		return B.make(B.ammo_info(impact.ammo), impact.speed)
+	end
+	local wpn = rec.wid and level.object_by_id(rec.wid)
+	local ammo = wpn and B.weapon_ammo(wpn)
+	if ammo then return B.make(B.ammo_info(ammo), nil) end
+	return B.other(rec.power)
+end
+
+local function bone_name_of(obj, bone_id)
+	if not bone_id or bone_id < 0 or bone_id == 65535 then return nil end
+	local ok, name = pcall(obj.bone_name, obj, bone_id)
+	if ok and name and name ~= "" then return name end
+end
+
+-- shared by living hits and corpse hits
+local function run_effects(obj, ev)
+	local ok, err = pcall(zgo_fx.hit, ev)
+	if not ok then U.log("fx error: %s", tostring(err)) end
+	ok, err = pcall(zgo_decals.paint_hit, ev)
+	if not ok then U.log("decal error: %s", tostring(err)) end
+	if ev.allow_dismember then
+		ok, err = pcall(zgo_dismember.consider, ev)
+		if not ok then U.log("dismember error: %s", tostring(err)) end
+	end
+	U.emit_event("hit", obj, ev)
+end
+
+local function build_event(obj, rec, impact, prof)
+	local bone = (impact and bone_name_of(obj, impact.element)) or bone_name_of(obj, rec.bone)
+	local pos = impact and impact.pos
+	if not pos then
+		local b = bone and obj:get_bone_id(bone) ~= 65535 and bone or "bip01_spine1"
+		pos = obj:get_bone_id(b) ~= 65535 and obj:bone_position(b) or U.v3(obj:position().x, obj:position().y + 1.2, obj:position().z)
+	end
+	local dir = U.unit((impact and impact.dir) or rec.dir or U.v3(0, 0, 1)) or U.v3(0, 0, 1)
+	local head = is_head(obj, bone)
+	local armor, helmet = zgo_fx.armor_of(obj)
+	-- weak rounds against hard armour: mostly a hit on the armour
+	local penetrated = true
+	if prof.kind ~= "blast" and prof.cls <= 1 and prof.energy < 0.7 then
+		if (head and helmet == "helmet") or (not head and armor == "exo") then penetrated = math.random() < 0.35 end
+	end
+	local vol = U.clamp(0.5 + 0.45 * prof.energy, 0.4, 2) * (head and 1.2 or 1) * (penetrated and 1 or 0.35)
+	return {
+		id = obj:id(), bone = bone, pos = pos, dir = dir, prof = prof, vol = vol,
+		head = head, neck = bone == "bip01_neck", armor = armor, helmet = helmet,
+		penetrated = penetrated,
+		exits = penetrated and zgo_decals.roll_exit(prof, head) or false,
+	}
+end
+
+function process_hit(rec)
+	local obj = level.object_by_id(rec.id)
+	if not obj then return end
+	local impact = B.take_impact(rec.id)
+	-- a co-op peer's bullet: its impact data arrives separately; give it a moment
+	if not impact and rec.htype == hit.fire_wound and rec.peer and not rec.retried then
+		rec.retried = true
+		U.after(180, process_hit, rec)
+		return
+	end
+	local prof = profile_for(rec, impact)
+	if not prof then return end
+	local ev = build_event(obj, rec, impact, prof)
+	ev.dead = (not obj:alive()) or (obj.health or 1) <= 0.005
+	ev.was_dead = false
+	ev.allow_dismember = rec.player
+	U.dbg("hit %s bone %s kind %s cls %s E %s dead %s", obj:section(), tostring(ev.bone), prof.kind, prof.cls,
+		U.r3(prof.energy), tostring(ev.dead))
+	run_effects(obj, ev)
+
+	-- where the wound is, in the hit bone's frame (it moves with the body)
+	local bone = ev.bone and obj:get_bone_id(ev.bone) ~= 65535 and ev.bone or nil
+	local off = bone and zgo_fx.world_to_bone_local(obj, bone, ev.pos)
+
+	if not ev.dead then
+		zgo_decals.add_bleed(ev.id, ev.vol)
+		zgo_decals.start_bleeding(ev.id, ev.vol, bone and { bone = bone, off = off } or nil)
+		if bone and ev.penetrated and prof.kind ~= "blast" then
+			zgo_decals.start_soak(ev.id, obj:section(), bone, off, zgo_fx.world_dir_to_bone_local(obj, bone, ev.dir), ev.vol)
+		end
+	else
+		zgo_decals.add_bleed(ev.id, ev.vol * 1.5)
+	end
+
+	-- an opened artery pulses; a killing shot still gets the last heartbeats
+	if bone and ev.penetrated and prof.kind ~= "melee" and prof.kind ~= "blast" then
+		local base = zgo_fx.ARTERY[bone] or (prof.energy > 1.6 and 0.08 or 0)
+		local p = base >= 1 and 1 or base * U.clamp(0.6 + 0.4 * prof.energy, 0.6, 1.3)
+		if math.random() < p then
+			if zgo_dismember.bone_gone(obj, bone) then
+				-- this shot took the part off: the severed artery pumps from the
+				-- stump (the hidden bone itself sits collapsed at the joint above)
+				local s = zgo_dismember.stump_for(obj, bone)
+				if s then
+					zgo_fx.start_sequence(obj:id(), obj:section(), s.par, "artery", ev.dead and math.random(2500, 4000) or 7000,
+						s.off, s.dloc, ev.dead)
+				end
+			else
+				local out_exit = ev.exits and math.random() < 0.4
+				local outward = out_exit and ev.dir or U.v3(-ev.dir.x, -ev.dir.y, -ev.dir.z)
+				local wp = out_exit and U.along(ev.pos, ev.dir, 0.12) or ev.pos
+				zgo_fx.open_artery(obj, bone, wp, outward, ev.dead)
+			end
+		end
+	end
+end
+
+-- a bullet into a body that is already dead
+function process_corpse_hit(tid, impact)
+	local obj = level.object_by_id(tid)
+	if not (obj and U.is_creature(obj)) or obj:alive() then return end
+	if not U.is_player_shooter(impact.shooter) then return end
+	local prof = B.make(B.ammo_info(impact.ammo), impact.speed)
+	local rec = { id = tid, dir = impact.dir }
+	local ev = build_event(obj, rec, impact, prof)
+	ev.vol = ev.vol * 0.55          -- no heartbeat, less pressure
+	ev.dead, ev.was_dead, ev.allow_dismember = true, true, true
+	run_effects(obj, ev)
+end
+
+------------------------------------------------------------------------
+-- Engine callbacks
+------------------------------------------------------------------------
+local function on_hit(s_hit, target, bone_id)
+	if not active() or not U.is_authority() then return end
+	if not (s_hit and target) or target:id() == db.actor:id() then return end
+	if not U.is_creature(target) or U.is_peer(target:id()) then return end
+	local t = s_hit.type
+	local shooter = s_hit.draftsman
+	local sid = shooter and shooter:id()
+	-- explosions (blast wave + fragments) are collected per explosive, living or dead
+	local wid = s_hit.weapon_id
+	if t == hit.explosion or (t == hit.fire_wound and zgo_blast.is_explosive(wid)) then
+		-- GAMMA's armour subtracts its whole explosion protection from the blast;
+		-- overpressure up close gets through anyway (zgo_blast, README)
+		if t == hit.explosion and target:alive() then
+			local ok, floor = pcall(zgo_blast.overpressure, target, wid)
+			if not ok then U.log("overpressure error: %s", tostring(floor))
+			elseif floor and floor > (s_hit.power or 0) then s_hit.power = floor end
+		end
+		local d = s_hit.direction
+		U.defer(t == hit.explosion and zgo_blast.on_blast_hit or zgo_blast.on_frag_hit, {
+			id = target:id(), eid = wid, sid = sid, power = s_hit.power, bone = bone_id,
+			dir = d and U.v3(d.x, d.y, d.z), alive = target:alive(),
+		})
+		return
+	end
+	-- bodies that were already dead are handled from bullet_on_impact
+	if not target:alive() then return end
+	if t ~= hit.fire_wound and t ~= hit.wound then return end
+	local player = U.is_player_shooter(sid)
+	if not player then
+		if not U.setting("general/npc_shooters") then return end
+		if target:position():distance_to_sqr(db.actor:position()) > npc_range_sqr() then return end
+	end
+	local d = s_hit.direction
+	U.defer(process_hit, {
+		id = target:id(), bone = bone_id, htype = t, power = s_hit.power,
+		dir = d and U.v3(d.x, d.y, d.z), wid = s_hit.weapon_id, sid = sid,
+		player = player,
+		peer = sid and sid ~= db.actor:id() and player or false,
+	})
+end
+
+local function on_bullet(bullet)
+	if not active() then return end
+	do   -- every impact, static geometry too, for feature modules (main thread)
+		local p, d = bullet.position, bullet.direction
+		if p and d then
+			U.defer(U.emit_event, "bullet", { pos = U.v3(p.x, p.y, p.z), dir = U.v3(d.x, d.y, d.z), speed = bullet.speed,
+				ammo = bullet.section, element = bullet.element, target_id = bullet.target_id, shooter = bullet.parent_id,
+				weapon_id = bullet.weapon_id, material = bullet.material, distance = bullet.distance })
+		end
+	end
+	local tid = bullet.target_id
+	if not tid or tid == 65535 then return end
+	-- explosion fragments carry no ammo section
+	if bullet.section == nil or bullet.section == "" then
+		if U.is_client() then return end   -- never forwarded: the host sees every fragment
+		if zgo_blast.on_frag_impact(bullet.weapon_id, tid, bullet.position, bullet.direction, bullet.element, bullet.parent_id) then
+			return
+		end
+	end
+	local p, d = bullet.position, bullet.direction
+	local rec = {
+		pos = U.v3(p.x, p.y, p.z), dir = U.v3(d.x, d.y, d.z), speed = bullet.speed,
+		ammo = bullet.section, element = bullet.element, shooter = bullet.parent_id,
+	}
+	-- was the body already dead when this bullet arrived? (the killing shot is a normal hit)
+	local o = level.object_by_id(tid)
+	rec.corpse = o ~= nil and U.is_creature(o) and not o:alive()
+	B.remember_impact(tid, rec)
+	if U.is_client() then
+		if rec.shooter == db.actor:id() then
+			U.defer(function()
+				zgo_sync.send_up({ "H", tid, rec.ammo or "-", rec.speed or 0, rec.pos.x, rec.pos.y, rec.pos.z,
+					rec.dir.x, rec.dir.y, rec.dir.z, rec.element or -1, rec.corpse and 1 or 0 })
+			end)
+		end
+	elseif rec.corpse then
+		U.defer(process_corpse_hit, tid, rec)
+	end
+end
+
+-- the first fragment of an explosion says where it went off
+local function on_bullet_init(bullet)
+	local sec = bullet.section
+	if sec ~= nil and sec ~= "" then return end
+	if not active() or not U.is_authority() then return end
+	zgo_blast.on_frag_init(bullet.weapon_id, bullet.position, bullet.parent_id)
+end
+
+local function on_death(victim, who)
+	if not active() or not victim then return end
+	zgo_decals.stop_bleeding(victim:id())
+	if U.is_authority() then zgo_decals.on_corpse(victim) end
+	U.emit_event("death", victim, who)
+end
+
+-- a released body's id gets reused: forget what was cut off it
+local function on_unregister(se_obj)
+	if se_obj and se_obj.id then pcall(zgo_dismember.forget, se_obj.id) end
+end
+
+local function on_update()
+	if paused then return end
+	U.flush_jobs()
+	U.update_timers()
+	-- (kid mode applies even with the mod switched off: it also hides the game's own blood)
+	local kok, kerr = pcall(zgo_settings.update)
+	if not kok then U.log("settings update error: %s", tostring(kerr)) end
+	if not U.enabled() then
+		zgo_sync.flush()
+		return
+	end
+	local ok, err = pcall(function()
+		zgo_decals.update_pools()
+		if U.is_authority() then
+			zgo_decals.update_trails()
+			zgo_blast.update()
+		end
+		zgo_fx.update_sequences()
+		zgo_debris.update()
+		zgo_dismember.update()
+	end)
+	if not ok then U.log("update error: %s", tostring(err)) end
+	local now = time_global()
+	if now >= next_prune then
+		next_prune = now + 1000
+		B.prune()
+	end
+	zgo_sync.flush()
+end
+
+-- GAMMA's "No NPC Friendly Fire" cancels every hit an NPC lands on a friendly
+-- or neutral NPC, a grenade's blast and shrapnel included, so an NPC's grenade
+-- hurt nobody but its target. Explosions now hurt whoever is near; that mod
+-- still cancels bullets and still patches relations up afterwards, so allies
+-- caught in a blast don't turn on the thrower.
+function patch_friendly_fire()
+	local mod = rawget(_G, "grok_no_npc_friendly_fire")
+	local orig = type(mod) == "table" and rawget(mod, "npc_on_before_hit")
+	if type(orig) ~= "function" or rawget(mod, "zgo_wrapped") then return end
+	local function wrapped(npc, shit, bone_id, flags)
+		local ok, blast = pcall(zgo_blast.is_blast_hit, shit)
+		if not (ok and blast and active() and U.setting("explosions/friendly_blasts")) then
+			return orig(npc, shit, bone_id, flags)
+		end
+		local power, keep = shit.power, flags and flags.ret_value
+		local okc, res = pcall(orig, npc, shit, bone_id, flags)
+		shit.power = power
+		if flags then flags.ret_value = keep end
+		if okc then return res end
+	end
+	rawset(mod, "npc_on_before_hit", wrapped)
+	rawset(mod, "zgo_wrapped", true)
+	UnregisterScriptCallback("npc_on_before_hit", orig)
+	RegisterScriptCallback("npc_on_before_hit", wrapped)
+	U.log("explosions get past G.A.M.M.A. No NPC Friendly Fire")
+end
+
+local function on_first_update()
+	local c = find_conflict()
+	if c then
+		paused, pause_reason = true, c
+		U.hud_msg(string.format("Zone Gore Overhaul is paused: disable \"%s\" (they do the same job).", c))
+		return
+	end
+	local okp, errp = pcall(patch_friendly_fire)
+	if not okp then U.log("friendly-fire patch: %s", tostring(errp)) end
+	if zgo_sync.register() then
+		-- client -> host: a peer's bullet impact
+		zgo_sync.on_up("H", function(t)
+			if #t < 12 then return end
+			local tid = tonumber(t[2])
+			local rec = {
+				ammo = t[3] ~= "-" and t[3] or nil, speed = tonumber(t[4]),
+				pos = U.v3(tonumber(t[5]), tonumber(t[6]), tonumber(t[7])),
+				dir = U.v3(tonumber(t[8]), tonumber(t[9]), tonumber(t[10])),
+				element = tonumber(t[11]), shooter = nil,
+			}
+			-- the peer's dummy is the shooter on this machine; corpse hits are always player hits
+			B.remember_impact(tid, rec)
+			local obj = level.object_by_id(tid)
+			if t[12] == "1" and obj and U.is_creature(obj) and not obj:alive() and rec.ammo then
+				rec.shooter = db.actor:id()
+				process_corpse_hit(tid, rec)
+			end
+		end)
+		zgo_decals.register_sync()
+		zgo_fx.register_sync()
+		zgo_dismember.register_sync()
+	end
+	zgo_debris.gib_model_list()
+	U.log("Zone Gore Overhaul %s running (%s)", VERSION,
+		U.in_session() and (U.is_client() and "co-op client" or "co-op host") or "single player")
+end
+
+local function on_level_change()
+	zgo_debris.reset()
+	zgo_fx.reset()
+	zgo_decals.reset()
+	zgo_dismember.reset()
+	zgo_blast.reset()
+	zgo_sync.reset()
+	pcall(zgo_handshake.reset)
+	B.reset()
+	U.clear_jobs()
+	U.clear_timers()
+end
+
+local function save_state(m_data)
+	if not U.is_client() then zgo_dismember.save_data(m_data) end
+end
+
+local function load_state(m_data)
+	zgo_dismember.load_data(m_data)
+end
+
+-- every save in Anomaly goes through exec_console_cmd("save ..."), and the
+-- engine saves inside that call: baked bodies show their cut parts for that
+-- instant (see zgo_dismember.before_save)
+local function wrap_saves()
+	local orig = rawget(_G, "exec_console_cmd")
+	if type(orig) ~= "function" or rawget(_G, "zgo_exec_console_cmd") then return end
+	rawset(_G, "zgo_exec_console_cmd", orig)
+	rawset(_G, "exec_console_cmd", function(name, ...)
+		local saving = type(name) == "string" and (name == "save" or string.sub(name, 1, 5) == "save ")
+		-- everything else is a tail call: this frame leaves the stack, so the
+		-- engine's caller diagnostics (e.g. SHADER-BUS warnings) name the real mod
+		if not saving then return orig(name, ...) end
+		local ok, err = pcall(zgo_dismember.before_save)
+		if not ok then U.log("before save: %s", tostring(err)) end
+		ok, err = pcall(orig, name, ...)
+		pcall(zgo_dismember.after_save)
+		if not ok then error(err, 0) end
+	end)
+end
+
+function on_game_start()
+	wrap_saves()
+	RegisterScriptCallback("on_before_hit_after_calcs", on_hit)
+	RegisterScriptCallback("bullet_on_impact", on_bullet)
+	RegisterScriptCallback("bullet_on_init", on_bullet_init)
+	RegisterScriptCallback("npc_on_death_callback", on_death)
+	RegisterScriptCallback("monster_on_death_callback", on_death)
+	RegisterScriptCallback("actor_on_update", on_update)
+	RegisterScriptCallback("actor_on_first_update", on_first_update)
+	RegisterScriptCallback("on_level_changing", on_level_change)
+	RegisterScriptCallback("server_entity_on_unregister", on_unregister)
+	RegisterScriptCallback("save_state", save_state)
+	RegisterScriptCallback("load_state", load_state)
+	-- settings are cached for a moment; drop the cache when MCM saves
+	RegisterScriptCallback("on_option_change", zgo_settings.invalidate)
+	pcall(RegisterScriptCallback, "mcm_option_change", zgo_settings.invalidate)
+	-- xrRazom: which settings the host decides for everyone
+	pcall(zgo_settings.declare_coop)
+end
+
+-- (debug) state summary for the log
+function status()
+	local s = zgo_sync.get_stats()
+	local n = 0
+	for _ in pairs(zgo_dismember.get_state()) do n = n + 1 end
+	U.log("paused=%s (%s) session=%s client=%s peers=%s debris=%s dismembered=%s explosions pending=%s sync sent=%s recv=%s up=%s",
+		tostring(paused), tostring(pause_reason), tostring(U.in_session()), tostring(U.is_client()),
+		tostring(rawget(_G, "XrrPeerCount")), zgo_debris.count(), n, zgo_blast.count(), s.sent, s.recv, s.up)
+end

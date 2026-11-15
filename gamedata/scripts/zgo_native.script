@@ -1,0 +1,1203 @@
+--[[
+  Zone Gore Overhaul - native add-on bootstrap (bin/zgo_native.dll)
+
+  Optional and experimental. With "Native extensions" off in MCM (the
+  default) this script never loads the DLL and every native feature reports
+  itself missing, so the rest of the mod runs exactly as without it.
+
+  When it is on:
+    1. the DLL is loaded through LuaJIT FFI (from the game exe's folder, where
+       MO2 maps the mod's bin/ folder), all under pcall;
+    2. its ABI is checked, then zgo_init runs the offset finder: it reads the
+       game exe in memory (RTTI -> vtables -> byte patterns) and verifies every
+       engine function it would touch; anything unknown = "unsupported exe",
+       nothing is ever enabled;
+    3. each hook is installed only while its own MCM switch is on, and taken
+       out again when it is switched off.
+
+  Capabilities (bit mask): CAP.FINDER (the exe is recognised), CAP.BONES
+  (bone post-processing after CalculateBones). has(cap) is true only when
+  every machine in the session has it working: single player = this
+  machine; co-op = the host's and every client's, exchanged as sync kind N:
+    host -> clients   N|H|abi|wire|caps|round     announce (asks for replies)
+                      N|S|round|caps              the session's capabilities
+                      N|B|id|seed|power           a body with broken limbs
+                      N|F|id                      ... forgotten (released)
+    client -> host    N|C|abi|wire|caps|round     reply
+  The host announces when its capabilities or the players change, and every
+  30 s; until every player has replied the session has nothing.
+
+  The first feature on it: bodies near an explosion get broken limbs, a
+  crushed chest or a dislocated shoulder (MCM: Native extensions). The host
+  decides (seeded, from zgo_blast's "blast_body" event), every machine
+  computes the same bends from the seed, and each draws at most its own
+  Performance -> "Bodies with broken limbs at once". Kid mode puts them back.
+
+  Lua never runs inside the engine hooks: it writes op sets into DLL memory
+  (zgo_bones_begin / _group / _commit, published atomically) and the hook
+  applies them on whatever thread the engine poses the body.
+
+  Other modules: has(cap), available(), probe(opts), deform(obj, groups),
+  undeform(handle), l_rotate / l_scale / l_move. See docs/integration/native.md.
+]]
+
+local U = zgo_util
+
+ABI         = 1           -- = ZGO_NATIVE_ABI in native/include/zgo_native.h
+WIRE        = 1           -- format of the N lines above
+CAP         = { FINDER = 1, BONES = 2 }
+MAX_RECORDS = 64          -- bodies remembered (and saved) by the host
+TICK_MS     = 250
+MAINT_MS    = 500
+ANNOUNCE_MS = 30000
+RETRY_MS    = 5000
+
+-- the DLL's C ABI, exactly as in native/include/zgo_native.h (the tests compare them)
+CDEF_TYPES = [[
+typedef struct zgo_stats {
+	uint64_t calc_calls;
+	uint64_t calc_matched;
+	uint64_t bones_written;
+	uint64_t bones_kept;
+	uint64_t rejected;
+	uint64_t captures;
+	uint64_t departs;
+	uint32_t bound;
+	uint32_t hooks;
+} zgo_stats;
+]]
+CDEF_FUNCS = [[
+uint32_t zgo_abi(void);
+const char* zgo_version(void);
+int32_t zgo_init(void);
+int32_t zgo_init_module(uint64_t module_base);
+uint32_t zgo_caps(void);
+uint32_t zgo_hooks(void);
+int32_t zgo_enable(uint32_t caps);
+void zgo_shutdown(void);
+const char* zgo_status(void);
+int32_t zgo_report(char* buf, int32_t size);
+int32_t zgo_log_next(char* buf, int32_t size);
+void zgo_get_stats(zgo_stats* out);
+uint64_t zgo_capture_take(uint32_t token);
+int32_t zgo_bones_bind(uint64_t kin);
+int32_t zgo_bones_state(int32_t handle);
+int32_t zgo_bones_begin(int32_t handle);
+int32_t zgo_bones_group(int32_t handle, uint16_t driver, const float* l12, const uint16_t* members, int32_t n_members);
+int32_t zgo_bones_commit(int32_t handle);
+int32_t zgo_bones_unbind(int32_t handle);
+void zgo_bones_clear_all(void);
+]]
+local CDEF_WIN = {
+	"void* GetModuleHandleA(const char* name);",
+	"uint32_t GetModuleFileNameA(void* module, char* buf, uint32_t size);",
+}
+
+ERRORS = { [-1] = "unsupported exe", [-2] = "not initialised", [-3] = "bad or stale handle", [-4] = "full",
+	[-5] = "bad argument", [-6] = "a hook could not be installed", [-7] = "the hooks for it are off", [-8] = "the engine released the model" }
+local function err_name(r) return ERRORS[tonumber(r) or 0] or ("error " .. tostring(r)) end
+
+-- the DLL's limits (zgo_native.h)
+local MAX_GROUPS, MAX_BONES, MAX_MEMBERS = 12, 32, 96
+local BI_NONE = 65535
+
+------------------------------------------------------------------------
+-- Small helpers (no dependency on the bit library: the masks are tiny)
+------------------------------------------------------------------------
+local function band(a, b)
+	a, b = math.floor(tonumber(a) or 0), math.floor(tonumber(b) or 0)
+	local r, p = 0, 1
+	while a > 0 and b > 0 do
+		if a % 2 == 1 and b % 2 == 1 then r = r + p end
+		a, b, p = math.floor(a / 2), math.floor(b / 2), p * 2
+	end
+	return r
+end
+local function bor(a, b) a, b = tonumber(a) or 0, tonumber(b) or 0 return a + b - band(a, b) end
+
+local function caps_text(c)
+	c = tonumber(c) or 0
+	local t = {}
+	if band(c, CAP.FINDER) ~= 0 then t[#t + 1] = "finder" end
+	if band(c, CAP.BONES) ~= 0 then t[#t + 1] = "bones" end
+	return #t > 0 and table.concat(t, "+") or "none"
+end
+
+local function now_ms() return time_global and time_global() or 0 end
+
+------------------------------------------------------------------------
+-- Loading
+------------------------------------------------------------------------
+local ffi_mod                  -- the ffi library, false if there is none
+local loader                   -- tests: function(path) -> lib
+local platform_override        -- tests: true / false
+local cdef_ok
+
+local S = {
+	tried = false,     -- a load was attempted in this Lua state
+	lib = nil,         -- the loaded library (FFI clib)
+	path = nil,
+	why = "not loaded (Native extensions are off)",
+	version = nil,
+	init = nil,        -- zgo_init result: 0 supported, < 0 not
+	status = "",
+	caps = 0,          -- verified capabilities
+	hooks = 0,         -- installed hooks (capability bits)
+	want = nil,        -- hooks asked for last (nil: ask again)
+}
+
+local function get_ffi()
+	if ffi_mod == nil then
+		local ok, f = pcall(require, "ffi")
+		if not (ok and type(f) == "table") then f = rawget(_G, "ffi") end
+		ffi_mod = type(f) == "table" and f or false
+	end
+	return ffi_mod or nil
+end
+
+local function cstr(v)
+	if type(v) == "string" then return v end
+	if v == nil then return "" end
+	local ffi = get_ffi()
+	local ok, s = pcall(ffi.string, v)
+	return ok and s or ""
+end
+
+local function declare(ffi)
+	if cdef_ok ~= nil then return cdef_ok end
+	local ok, err = true, nil
+	if not pcall(ffi.typeof, "zgo_stats") then ok, err = pcall(ffi.cdef, CDEF_TYPES) end
+	if ok then ok, err = pcall(ffi.cdef, CDEF_FUNCS) end
+	for _, d in ipairs(CDEF_WIN) do pcall(ffi.cdef, d) end   -- (re-declaring a function is fine)
+	cdef_ok = ok and true or false
+	if not ok then S.why = "ffi.cdef failed: " .. tostring(err) end
+	return cdef_ok
+end
+
+local function platform()
+	local ffi = get_ffi()
+	if not ffi then return false, "this game's Lua has no FFI" end
+	if platform_override ~= nil then return platform_override, "test override" end
+	if ffi.os ~= "Windows" or ffi.arch ~= "x64" then
+		return false, string.format("not 64-bit Windows (%s %s)", tostring(ffi.os), tostring(ffi.arch))
+	end
+	return true
+end
+
+local function exe_path(ffi)
+	local ok, p = pcall(function()
+		local buf = ffi.new("char[?]", 1024)
+		local n = tonumber(ffi.C.GetModuleFileNameA(nil, buf, 1024)) or 0
+		if n <= 0 or n >= 1024 then return nil end
+		return ffi.string(buf, n)
+	end)
+	return ok and p or nil
+end
+
+-- where the DLL may be: next to the game exe (MO2 maps the mod's bin/ there),
+-- the normal DLL search, the game root's bin folder
+local function candidates(ffi)
+	local list = {}
+	local exe = platform_override == nil and exe_path(ffi) or nil
+	local dir = exe and exe:match("^(.*)[\\/][^\\/]*$")
+	if dir then list[#list + 1] = dir .. "\\zgo_native.dll" end
+	list[#list + 1] = "zgo_native.dll"
+	local ok, root = pcall(function() return getFS():update_path("$fs_root$", "") end)
+	if ok and type(root) == "string" and root ~= "" then
+		local r = root:gsub("[\\/]+$", "")
+		list[#list + 1] = r .. "\\bin\\zgo_native.dll"
+	end
+	return list
+end
+
+local function index(t, k) return t[k] end
+
+-- a DLL function under pcall: value or nil, error
+local function call(name, ...)
+	local lib = S.lib
+	if not lib then return nil, "not loaded" end
+	local okf, f = pcall(index, lib, name)
+	if not (okf and f) then return nil, "no " .. name end
+	local ok, r = pcall(f, ...)
+	if not ok then return nil, tostring(r) end
+	return r
+end
+local function num(name, ...)
+	local r, err = call(name, ...)
+	return tonumber(r), err
+end
+
+local logbuf
+local function drain_log()
+	if not S.lib then return end
+	local ffi = get_ffi()
+	if not logbuf then logbuf = ffi.new("char[256]") end
+	for _ = 1, 64 do
+		local n = num("zgo_log_next", logbuf, 256)
+		if not n or n <= 0 then break end
+		U.log("native: %s", cstr(logbuf))
+	end
+end
+
+local function load_lib()
+	if S.tried then return S.lib end
+	S.tried = true
+	local okp, why = platform()
+	if not okp then
+		S.why = why
+		U.log("native: not loaded: %s", why)
+		return nil
+	end
+	local ffi = get_ffi()
+	if not declare(ffi) then
+		U.log("native: not loaded: %s", S.why)
+		return nil
+	end
+	local errs = {}
+	for _, path in ipairs(candidates(ffi)) do
+		local ok, lib = pcall(loader or ffi.load, path)
+		if ok and lib then
+			local oka, abi = pcall(function() return tonumber(lib.zgo_abi()) end)
+			if not oka then
+				errs[#errs + 1] = path .. ": not the ZGO DLL (" .. tostring(abi) .. ")"
+			elseif abi ~= ABI then
+				errs[#errs + 1] = string.format("%s: ABI %s, this script needs %s (old or new DLL; reinstall the mod)", path, tostring(abi), ABI)
+			else
+				S.lib, S.path = lib, path
+				break
+			end
+		else
+			errs[#errs + 1] = path .. ": " .. tostring(lib)
+		end
+	end
+	if not S.lib then
+		S.why = "zgo_native.dll not loaded: " .. table.concat(errs, "; ")
+		U.log("native: %s", S.why)
+		return nil
+	end
+	S.version = cstr(call("zgo_version"))
+	S.init = num("zgo_init") or -99
+	S.caps = S.init == 0 and (num("zgo_caps") or 0) or 0
+	S.hooks = num("zgo_hooks") or 0
+	S.status = cstr(call("zgo_status"))
+	-- bindings left by an earlier Lua state of this game process are stale
+	call("zgo_bones_clear_all")
+	drain_log()
+	if S.init == 0 then
+		S.why = "ready"
+		U.log("native: %s loaded from %s; %s; verified: %s", S.version, S.path, S.status, caps_text(S.caps))
+	else
+		S.why = S.status ~= "" and S.status or ("zgo_init " .. err_name(S.init))
+		U.log("native: %s loaded, but %s: every native feature stays off", S.version, S.why)
+	end
+	return S.lib
+end
+
+------------------------------------------------------------------------
+-- Settings -> hooks
+------------------------------------------------------------------------
+-- capabilities this machine's settings ask for; nil: native off (never load)
+local function wanted()
+	if not (U.enabled() and U.setting("native/enable")) then return nil end
+	local w = CAP.FINDER
+	if U.setting("native/bones") then w = bor(w, CAP.BONES) end
+	return w
+end
+
+local release_all     -- (below)
+
+local function set_hooks(mask)
+	S.want = mask
+	if band(S.hooks, CAP.BONES) ~= 0 and band(mask, CAP.BONES) == 0 then release_all("bone hooks off") end
+	local r, err = num("zgo_enable", mask)
+	drain_log()
+	S.hooks = num("zgo_hooks") or 0
+	if not r or r < 0 then
+		U.log("native: hooks for %s could not be set: %s", caps_text(mask), err or err_name(r))
+	else
+		U.log("native: hooks in: %s", caps_text(S.hooks))
+	end
+end
+
+function apply_settings()
+	local w = wanted()
+	if not w then
+		if S.lib and S.hooks ~= 0 then set_hooks(0) end
+		S.want = nil
+		return
+	end
+	if not load_lib() or S.init ~= 0 then return end
+	local hooks = band(band(w, S.caps), CAP.BONES)
+	if hooks ~= S.want then set_hooks(hooks) end
+end
+
+-- what this machine has working now
+function local_caps()
+	if not (S.lib and S.init == 0 and wanted()) then return 0 end
+	return bor(CAP.FINDER, band(S.hooks, CAP.BONES))
+end
+
+function available() return S.lib ~= nil and S.init == 0 end
+
+------------------------------------------------------------------------
+-- Co-op capability exchange (sync kind N)
+------------------------------------------------------------------------
+local X = {
+	round = 0, base = 0,        -- announce round; replies from rounds >= base count
+	next_announce = 0,
+	announced = 0,              -- caps in the last announce
+	sig = nil,                  -- the player set at the last announce
+	peers = {},                 -- host: netid -> { caps, round }
+	session = 0, sent = nil,    -- host: the session's caps, last sent
+	host_round = nil,           -- client: the host's last announce
+	client_session = 0,         -- client: what the host says
+	client_sent = nil,          -- client: caps in the last reply
+	warned = {},
+}
+
+local function peer_ids()
+	local P = rawget(_G, "XrrPlayers")
+	if type(P) ~= "function" then return nil end
+	local ok, ids = pcall(function()
+		local p = P()
+		local n = tonumber(p:GetPeerCount()) or 0
+		local t = {}
+		for i = 1, n do                 -- (1-based, as xrRazom's own scripts use it)
+			local id = p:GetPeerNetidAt(i)
+			if id ~= nil and id ~= "" and id ~= "0" and id ~= 0 then t[#t + 1] = tostring(id) end
+		end
+		return t
+	end)
+	if ok and type(ids) == "table" and #ids > 0 then table.sort(ids) return ids end
+	return nil
+end
+
+local function peer_count() return tonumber(rawget(_G, "XrrPeerCount")) or 0 end
+
+local function host_session(mine)
+	if mine == 0 then return 0 end
+	local n = peer_count()
+	if n <= 0 then return mine end
+	local acc = mine
+	local ids = peer_ids()
+	if ids then
+		for _, id in ipairs(ids) do
+			local p = X.peers[id]
+			if not (p and p.round >= X.base) then return 0 end
+			acc = band(acc, p.caps)
+		end
+		return acc
+	end
+	local k = 0
+	for _, p in pairs(X.peers) do
+		if p.round >= X.base then k = k + 1 acc = band(acc, p.caps) end
+	end
+	return k >= n and acc or 0
+end
+
+function session_caps()
+	if not U.in_session() then return local_caps() end
+	if U.is_client() then return band(X.client_session, local_caps()) end
+	if peer_count() <= 0 then return local_caps() end
+	return X.session
+end
+
+function has(cap)
+	cap = cap or CAP.BONES
+	return cap ~= 0 and band(session_caps(), cap) == cap
+end
+
+local function emit(fields) zgo_sync.emit(fields) end
+
+local recs, resend_records    -- (below)
+
+local function host_recompute(force_send)
+	local s = host_session(local_caps())
+	if s ~= X.session or force_send or X.sent ~= s then
+		if s ~= X.session then U.log("native: co-op session capabilities: %s", caps_text(s)) end
+		X.session = s
+		if U.has_peers() and (s ~= 0 or X.announced ~= 0 or X.sent ~= nil) then
+			emit({ "N", "S", X.round, s })
+			X.sent = s
+		end
+	end
+end
+
+local function announce(now)
+	X.round = X.round + 1
+	X.announced = local_caps()
+	X.next_announce = now + ANNOUNCE_MS
+	emit({ "N", "H", ABI, WIRE, X.announced, X.round })
+end
+
+local function coop_tick(now)
+	if not U.in_session() then
+		if X.sig or X.host_round or next(X.peers) then
+			X.sig, X.host_round, X.client_sent, X.client_session, X.session, X.sent, X.announced, X.peers = nil, nil, nil, 0, 0, nil, 0, {}
+		end
+		return
+	end
+	if U.is_client() then
+		-- tell the host when this machine's capabilities change
+		local mine = local_caps()
+		if X.host_round and X.client_sent ~= nil and mine ~= X.client_sent then
+			X.client_sent = mine
+			zgo_sync.send_up({ "N", "C", ABI, WIRE, mine, X.host_round })
+		end
+		return
+	end
+	if not U.has_peers() then
+		X.sig, X.session, X.sent = nil, 0, nil
+		return
+	end
+	local mine = local_caps()
+	if mine == 0 then
+		-- native off here: the session has nothing; tell the clients once if they heard otherwise
+		if X.sent ~= nil and X.sent ~= 0 then emit({ "N", "S", X.round, 0 }) end
+		if X.session ~= 0 then U.log("native: co-op session capabilities: none (off on this machine)") end
+		X.session, X.sent, X.announced, X.sig = 0, nil, 0, nil
+		return
+	end
+	local ids = peer_ids()
+	local sig = tostring(peer_count()) .. ":" .. (ids and table.concat(ids, ",") or "?")
+	if sig ~= X.sig then
+		-- the players changed: everyone answers again before anything runs
+		X.sig = sig
+		X.base = X.round + 1
+		announce(now)
+	elseif mine ~= X.announced or now >= X.next_announce then
+		announce(now)
+	end
+	host_recompute(false)
+end
+
+local function on_line(t)
+	local k = t[2]
+	if k == "H" then
+		-- host announce: reply with what this machine has
+		local abi, wire, round = tonumber(t[3]), tonumber(t[4]), tonumber(t[6]) or 0
+		if (abi ~= ABI or wire ~= WIRE) and not X.warned.host then
+			X.warned.host = true
+			U.log("native: the host runs another native add-on version (abi %s, wire %s; this is %s, %s): native features stay off", tostring(abi), tostring(wire), ABI, WIRE)
+		end
+		X.host_round = round
+		local mine = (abi == ABI and wire == WIRE) and local_caps() or 0
+		X.client_sent = mine
+		zgo_sync.send_up({ "N", "C", ABI, WIRE, mine, round })
+	elseif k == "S" then
+		local s = tonumber(t[4]) or 0
+		if s ~= X.client_session then U.log("native: co-op session capabilities (from the host): %s", caps_text(s)) end
+		X.client_session = s
+	elseif k == "B" then
+		local id, seed, p = tonumber(t[3]), tonumber(t[4]), tonumber(t[5])
+		if id and seed and p then
+			local r = recs[id]
+			if not (r and r.seed == seed and r.p == p) then
+				recs[id] = { seed = seed, p = p, t = now_ms() }
+			end
+		end
+	elseif k == "F" then
+		local id = tonumber(t[3])
+		if id then recs[id] = nil end
+	end
+end
+
+local function on_up_line(t, sender)
+	if t[2] ~= "C" then return end
+	local abi, wire = tonumber(t[3]), tonumber(t[4])
+	local caps, round = tonumber(t[5]) or 0, tonumber(t[6]) or 0
+	local who = tostring(sender)
+	if abi ~= ABI or wire ~= WIRE then
+		caps = 0
+		if not X.warned[who] then
+			X.warned[who] = true
+			U.log("native: player %s runs another native add-on version (abi %s, wire %s): native features stay off for everyone", who, tostring(abi), tostring(wire))
+		end
+	end
+	local old = X.peers[who]
+	X.peers[who] = { caps = caps, round = round }
+	host_recompute(old == nil or old.caps ~= caps)
+	-- a player who just answered (joined, or the players changed): the bodies it should see
+	if (old == nil or old.round < X.base) and band(X.session, CAP.BONES) ~= 0 then resend_records() end
+end
+
+------------------------------------------------------------------------
+-- Bone maths (row vectors, rows i, j, k, c: the engine's Fmatrix)
+------------------------------------------------------------------------
+-- rotation about a unit axis (local frame) by ang radians
+function l_rotate(ax, ay, az, ang)
+	local n = math.sqrt(ax * ax + ay * ay + az * az)
+	if n < 1e-9 then ax, ay, az, n = 1, 0, 0, 1 end
+	ax, ay, az = ax / n, ay / n, az / n
+	local c, s = math.cos(ang), math.sin(ang)
+	local t = 1 - c
+	return {
+		t * ax * ax + c,      t * ax * ay + s * az, t * ax * az - s * ay,
+		t * ax * ay - s * az, t * ay * ay + c,      t * ay * az + s * ax,
+		t * ax * az + s * ay, t * ay * az - s * ax, t * az * az + c,
+		0, 0, 0 }
+end
+
+-- scale by f along a unit axis (local frame), unchanged across it
+function l_scale(ax, ay, az, f)
+	local n = math.sqrt(ax * ax + ay * ay + az * az)
+	if n < 1e-9 then ax, ay, az, n = 1, 0, 0, 1 end
+	ax, ay, az = ax / n, ay / n, az / n
+	local k = f - 1
+	return {
+		1 + k * ax * ax, k * ax * ay,     k * ax * az,
+		k * ay * ax,     1 + k * ay * ay, k * ay * az,
+		k * az * ax,     k * az * ay,     1 + k * az * az,
+		0, 0, 0 }
+end
+
+-- shift by (x, y, z) metres in the bone's local frame
+function l_move(x, y, z) return { 1, 0, 0, 0, 1, 0, 0, 0, 1, x, y, z } end
+
+local function vnorm(v)
+	local n = math.sqrt(v[1] * v[1] + v[2] * v[2] + v[3] * v[3])
+	if n < 1e-9 then return nil end
+	return { v[1] / n, v[2] / n, v[3] / n }
+end
+local function vcross(a, b) return { a[2] * b[3] - a[3] * b[2], a[3] * b[1] - a[1] * b[3], a[1] * b[2] - a[2] * b[1] } end
+
+-- a unit axis perpendicular to d, turned by phi (0..1 of a full turn) around it
+local function perp(d, phi)
+	d = d and vnorm(d) or { 1, 0, 0 }
+	local ref = math.abs(d[1]) < 0.9 and { 1, 0, 0 } or { 0, 1, 0 }
+	local u = vnorm(vcross(d, ref)) or { 0, 0, 1 }
+	local v = vcross(d, u)
+	local a = phi * 2 * math.pi
+	local c, s = math.cos(a), math.sin(a)
+	return { u[1] * c + v[1] * s, u[2] * c + v[2] * s, u[3] * c + v[3] * s }
+end
+
+------------------------------------------------------------------------
+-- Skeletons (by visual; list_bones / bone_parent)
+------------------------------------------------------------------------
+local skel_cache, skel_n = {}, 0
+
+local function skeleton(obj)
+	local okv, vis = pcall(obj.get_visual_name, obj)
+	local key = okv and type(vis) == "string" and vis or nil
+	if key and skel_cache[key] then return skel_cache[key] end
+	local ok, list = pcall(obj.list_bones, obj)
+	if not (ok and type(list) == "table") then return nil end
+	local sk = { id = {}, name = {}, parent = {}, kids = {}, depth = {}, size = {}, n = 0 }
+	for id, name in pairs(list) do
+		id = tonumber(id)
+		if id and type(name) == "string" then sk.id[name] = id sk.name[id] = name sk.n = sk.n + 1 end
+	end
+	for id in pairs(sk.name) do
+		local okp, par = pcall(obj.bone_parent, obj, id)
+		par = okp and tonumber(par) or BI_NONE
+		if par ~= BI_NONE and par ~= id and sk.name[par] then
+			sk.parent[id] = par
+			sk.kids[par] = sk.kids[par] or {}
+			table.insert(sk.kids[par], id)
+		end
+	end
+	for _, k in pairs(sk.kids) do table.sort(k) end
+	for id in pairs(sk.name) do
+		local d, p = 0, sk.parent[id]
+		while p and d < 256 do d = d + 1 p = sk.parent[p] end
+		sk.depth[id] = d
+	end
+	local function size(id, guard)
+		if sk.size[id] then return sk.size[id] end
+		local s = 1
+		if guard < 256 then for _, c in ipairs(sk.kids[id] or {}) do s = s + size(c, guard + 1) end end
+		sk.size[id] = s
+		return s
+	end
+	for id in pairs(sk.name) do size(id, 0) end
+	if key then
+		if skel_n >= 64 then skel_cache, skel_n = {}, 0 end
+		skel_cache[key], skel_n = sk, skel_n + 1
+	end
+	return sk
+end
+
+-- a bone and everything below it, sorted (at most MAX_BONES)
+local function subtree(sk, id)
+	local out, q, i = {}, { id }, 1
+	while q[i] and #out < MAX_BONES do
+		local b = q[i]
+		i = i + 1
+		out[#out + 1] = b
+		for _, c in ipairs(sk.kids[b] or {}) do q[#q + 1] = c end
+	end
+	table.sort(out)
+	return out
+end
+
+-- the main child's offset in the bone's own frame (the bone's direction)
+local function local_offset(obj, a, b)
+	local ok1, ma = pcall(obj.bone_transform, obj, a)
+	local ok2, mb = pcall(obj.bone_transform, obj, b)
+	if not (ok1 and ok2 and ma and mb) then return nil end
+	local ok, v = pcall(function()
+		local dx, dy, dz = mb.c.x - ma.c.x, mb.c.y - ma.c.y, mb.c.z - ma.c.z
+		local function along(r)
+			local l2 = r.x * r.x + r.y * r.y + r.z * r.z
+			return l2 > 1e-12 and (dx * r.x + dy * r.y + dz * r.z) / l2 or 0
+		end
+		return { along(ma.i), along(ma.j), along(ma.k) }
+	end)
+	return ok and v or nil
+end
+
+local function bone_dir(obj, sk, id)
+	local best, bs
+	for _, c in ipairs(sk.kids[id] or {}) do
+		if not bs or sk.size[c] > bs then best, bs = c, sk.size[c] end
+	end
+	return best and local_offset(obj, id, best) or nil
+end
+
+local function visible(obj, id)
+	local ok, v = pcall(obj.bone_visible, obj, id)
+	return not ok or v ~= false
+end
+
+------------------------------------------------------------------------
+-- Broken bodies: the deterministic spec (the same seed and power give the
+-- same bends on every machine)
+------------------------------------------------------------------------
+-- joints that break: bone, weight, most bend in degrees
+BREAKS = {
+	{ "bip01_l_forearm", 1.0, 85 }, { "bip01_r_forearm", 1.0, 85 },
+	{ "bip01_l_calf", 0.9, 75 },    { "bip01_r_calf", 0.9, 75 },
+	{ "bip01_l_hand", 0.5, 60 },    { "bip01_r_hand", 0.5, 60 },
+	{ "bip01_l_foot", 0.45, 55 },   { "bip01_r_foot", 0.45, 55 },
+	{ "bip01_l_upperarm", 0.3, 55 }, { "bip01_r_upperarm", 0.3, 55 },
+	{ "bip01_l_thigh", 0.2, 35 },   { "bip01_r_thigh", 0.2, 35 },
+}
+CHEST = { "bip01_spine2", "bip01_spine1" }
+SHOULDERS = { "bip01_l_upperarm", "bip01_r_upperarm" }
+
+-- groups { driver, l, members, what } for a body; power p: 0..2 (blast severity x strength)
+function body_spec(obj, seed, p)
+	local sk = skeleton(obj)
+	if not sk then return {} end
+	local g = U.rng(seed)
+	local pp = math.min(p, 1)
+	local out, used, nb, nm = {}, {}, 0, 0
+	local function add(driver, l, members, what)
+		local new = 0
+		for _, b in ipairs(members) do if not used[b] then new = new + 1 end end
+		if #out >= MAX_GROUPS or nb + new > MAX_BONES or nm + #members > MAX_MEMBERS then return false end
+		for _, b in ipairs(members) do if not used[b] then used[b] = true nb = nb + 1 end end
+		nm = nm + #members
+		out[#out + 1] = { driver = driver, l = l, members = members, what = what }
+		return true
+	end
+	-- (every roll is drawn whether or not it is used, so the sequence never depends on the skeleton)
+	-- crushed chest: flattened front to back
+	local r_crush, r_cf, r_cphi = g.next(), g.next(), g.next()
+	if r_crush < (p - 0.45) * 0.9 then
+		for _, name in ipairs(CHEST) do
+			local id = sk.id[name]
+			if id and visible(obj, id) then
+				local up = bone_dir(obj, sk, id)
+				local lc, rc = sk.id["bip01_l_clavicle"], sk.id["bip01_r_clavicle"]
+				local side = lc and rc and local_offset(obj, lc, rc)
+				local ax = (up and side and vnorm(vcross(up, side))) or perp(up, r_cphi)
+				add(id, l_scale(ax[1], ax[2], ax[3], 1 - (0.15 + 0.25 * pp) * (0.5 + 0.5 * r_cf)), { id }, "crush " .. name)
+				break
+			end
+		end
+	end
+	-- dislocated shoulder: the arm pushed out of its socket
+	local r_dis, r_dside, r_dphi, r_dlen = g.next(), g.next(), g.next(), g.next()
+	if r_dis < (p - 0.75) * 0.8 then
+		local name = SHOULDERS[r_dside < 0.5 and 1 or 2]
+		local id = sk.id[name]
+		if id and visible(obj, id) then
+			local ax = perp(bone_dir(obj, sk, id), r_dphi)
+			local d = 0.03 + 0.05 * r_dlen
+			add(id, l_move(ax[1] * d, ax[2] * d, ax[3] * d), subtree(sk, id), "dislocate " .. name)
+		end
+	end
+	-- broken joints
+	local most = 1 + math.floor(p * 3)
+	local n = 0
+	for _, c in ipairs(BREAKS) do
+		local roll, sgn, phi, frac = g.next(), g.next(), g.next(), g.next()
+		local id = sk.id[c[1]]
+		if n < most and id and roll < p * c[2] * 0.8 and visible(obj, id) then
+			local ang = math.rad(20 + (c[3] - 20) * pp * (0.4 + 0.6 * frac)) * (sgn < 0.5 and -1 or 1)
+			local ax = perp(bone_dir(obj, sk, id), phi)
+			if add(id, l_rotate(ax[1], ax[2], ax[3], ang), subtree(sk, id), "break " .. c[1]) then n = n + 1 end
+		end
+	end
+	-- parents first: a child's bend follows its parent's
+	for i, e in ipairs(out) do e.order = i end
+	table.sort(out, function(a, b)
+		local da, db = sk.depth[a.driver] or 0, sk.depth[b.driver] or 0
+		if da ~= db then return da < db end
+		return a.order < b.order
+	end)
+	return out
+end
+
+------------------------------------------------------------------------
+-- Binding bodies (main thread)
+------------------------------------------------------------------------
+local token_seq = 0
+local unbind_q = {}     -- { h, at }: op set already emptied, unbind once the hook has put the bones back
+local custom = {}       -- handles made through deform() by other modules
+local active = {}       -- broken bodies drawn here: id -> { h, seed, p }
+
+-- the IKinematics behind obj, through the LL_BoneID hook
+function capture(obj)
+	if not (S.lib and band(S.hooks, CAP.BONES) ~= 0) then return nil, "the bone hooks are off" end
+	token_seq = token_seq % 999999937 + 1
+	local token = token_seq
+	local ok, r = pcall(obj.get_bone_id, obj, "\1zgo:" .. token)
+	if not ok then return nil, "get_bone_id: " .. tostring(r) end
+	local k = call("zgo_capture_take", token)
+	if k == nil or tonumber(k) == 0 then return nil, "the bone lookup hook did not see the call" end
+	return k
+end
+
+local function bind(obj)
+	local k, why = capture(obj)
+	if not k then return nil, why end
+	local h = num("zgo_bones_bind", k)
+	if not h or h <= 0 then return nil, "bind: " .. err_name(h) end
+	for i = #unbind_q, 1, -1 do if unbind_q[i].h == h then table.remove(unbind_q, i) end end
+	return h
+end
+
+-- publishes groups { driver = id, l = {12}, members = {ids} } as the handle's op set
+local function commit(h, groups)
+	local ffi = get_ffi()
+	local r = num("zgo_bones_begin", h)
+	if r ~= 0 then return nil, "begin: " .. err_name(r) end
+	local n = 0
+	for _, gr in ipairs(groups) do
+		local nm = #gr.members
+		if nm > 0 then
+			local l = ffi.new("float[12]", gr.l)
+			local m = ffi.new("uint16_t[?]", nm, gr.members)
+			local rg = num("zgo_bones_group", h, gr.driver, l, m, nm)
+			if rg and rg > 0 then n = n + 1 else U.dbg("native: group %s refused: %s", tostring(gr.what or gr.driver), err_name(rg)) end
+		end
+	end
+	r = num("zgo_bones_commit", h)
+	if r ~= 0 then return nil, "commit: " .. err_name(r) end
+	return n
+end
+
+-- empty op set now (the hook restores the bones), unbind a moment later
+local function soft_release(h)
+	if num("zgo_bones_state", h) == 1 then
+		num("zgo_bones_begin", h)
+		num("zgo_bones_commit", h)
+		unbind_q[#unbind_q + 1] = { h = h, at = now_ms() + 1000 }
+	else
+		num("zgo_bones_unbind", h)
+	end
+end
+
+-- groups by name for other modules:
+--   { driver = "bip01_l_forearm" | id, members = "subtree" | { names or ids } (default: subtree),
+--     l = { 12 floats } | rotate = { x, y, z, rad } | scale = { x, y, z, factor } | move = { x, y, z } }
+local function resolve_groups(obj, groups)
+	local sk = skeleton(obj)
+	if not sk then return nil, "no skeleton" end
+	local out = {}
+	for _, gr in ipairs(groups or {}) do
+		local d = type(gr.driver) == "number" and gr.driver or sk.id[gr.driver]
+		if not (d and sk.name[d]) then return nil, "unknown bone " .. tostring(gr.driver) end
+		local members
+		if gr.members == nil or gr.members == "subtree" then
+			members = subtree(sk, d)
+		else
+			members = {}
+			for _, m in ipairs(gr.members) do
+				local id = type(m) == "number" and m or sk.id[m]
+				if not (id and sk.name[id]) then return nil, "unknown bone " .. tostring(m) end
+				members[#members + 1] = id
+			end
+		end
+		local l = gr.l
+		if not l and gr.rotate then l = l_rotate(gr.rotate[1], gr.rotate[2], gr.rotate[3], gr.rotate[4]) end
+		if not l and gr.scale then l = l_scale(gr.scale[1], gr.scale[2], gr.scale[3], gr.scale[4]) end
+		if not l and gr.move then l = l_move(gr.move[1], gr.move[2], gr.move[3]) end
+		if not (type(l) == "table" and #l == 12) then return nil, "group without a transform" end
+		out[#out + 1] = { driver = d, l = l, members = members, what = tostring(gr.driver) }
+	end
+	return out
+end
+
+-- other modules: bend / crush / move bones of obj until undeform(handle).
+-- Returns a handle, or nil and why. Only when has(CAP.BONES); visual only, local.
+function deform(obj, groups)
+	if not has(CAP.BONES) then return nil, "native bones not available in this session" end
+	local resolved, why = resolve_groups(obj, groups)
+	if not resolved then return nil, why end
+	local h
+	h, why = bind(obj)
+	if not h then return nil, why end
+	for _, a in pairs(active) do
+		if a.h == h then return nil, "this body already has broken limbs (one op set per body)" end
+	end
+	local n
+	n, why = commit(h, resolved)
+	if not n then soft_release(h) return nil, why end
+	custom[h] = true
+	return h
+end
+
+-- a new op set for a handle from deform(); an empty list restores the bones
+function set_groups(h, obj, groups)
+	if not custom[h] then return nil, "not a deform() handle" end
+	local resolved, why = resolve_groups(obj, groups)
+	if not resolved then return nil, why end
+	return commit(h, resolved)
+end
+
+function undeform(h)
+	if not (h and custom[h]) then return false end
+	custom[h] = nil
+	soft_release(h)
+	return true
+end
+
+------------------------------------------------------------------------
+-- Broken bodies: records (host decides) and what this machine draws
+------------------------------------------------------------------------
+recs = {}               -- id -> { seed, p, t }   (host: decided here and saved; client: from N|B)
+
+local function trim_records()
+	local list = {}
+	for id, r in pairs(recs) do list[#list + 1] = { id = id, t = r.t } end
+	if #list <= MAX_RECORDS then return end
+	table.sort(list, function(a, b) if a.t ~= b.t then return a.t < b.t end return a.id < b.id end)
+	for i = 1, #list - MAX_RECORDS do recs[list[i].id] = nil end
+end
+
+local function send_record(id, r)
+	-- (as strings: zgo_sync writes numbers above 1e9 with decimals)
+	emit({ "N", "B", string.format("%d", id), string.format("%d", r.seed), string.format("%.3f", r.p) })
+end
+
+resend_records = function()
+	if U.is_client() then return end
+	local list = {}
+	for id, r in pairs(recs) do list[#list + 1] = { id = id, r = r } end
+	table.sort(list, function(a, b) if a.r.t ~= b.r.t then return a.r.t < b.r.t end return a.id < b.id end)
+	for _, e in ipairs(list) do send_record(e.id, e.r) end
+end
+
+local function undeform_body(id)
+	local a = active[id]
+	active[id] = nil
+	if a then soft_release(a.h) end
+end
+
+local function ready_body(id)
+	local obj = U.resolve(id)
+	if not obj then return nil end
+	local okc, creature = pcall(U.is_creature, obj)
+	if not (okc and creature) then return nil end
+	local oka, alive = pcall(obj.alive, obj)
+	if not oka or alive then return nil end
+	-- only once the ragdoll exists: the physics builds it from the bones as they are
+	local oks, shell = pcall(obj.get_physics_shell, obj)
+	if not (oks and shell) then return nil end
+	return obj
+end
+
+local function deform_body(id, r, obj, now)
+	local h, why = bind(obj)
+	if h and custom[h] then h, why = nil, "another module bends this body (deform)" end
+	if not h then
+		r.retry = now + RETRY_MS
+		U.dbg("native: body %s not bent: %s", id, tostring(why))
+		return false
+	end
+	local groups = body_spec(obj, r.seed, r.p)
+	local n
+	n, why = commit(h, groups)
+	if not n then
+		r.retry = now + RETRY_MS
+		soft_release(h)
+		U.dbg("native: body %s not bent: %s", id, tostring(why))
+		return false
+	end
+	active[id] = { h = h, seed = r.seed, p = r.p }
+	U.dbg("native: body %s: %s groups (power %s)", id, n, U.r3(r.p))
+	return true
+end
+
+local function bones_usable()
+	return S.lib ~= nil and band(S.hooks, CAP.BONES) ~= 0 and has(CAP.BONES) and U.gore()
+		and U.setting("native/deform_corpses") and true or false
+end
+
+local function flush_unbinds(now)
+	for i = #unbind_q, 1, -1 do
+		if now >= unbind_q[i].at then num("zgo_bones_unbind", unbind_q[i].h) table.remove(unbind_q, i) end
+	end
+end
+
+local function maintain(now)
+	if not next(recs) and not next(active) then return end
+	-- bodies whose model the engine released (gone offline, removed, new visual)
+	for id, a in pairs(active) do
+		if num("zgo_bones_state", a.h) ~= 1 then active[id] = nil end
+	end
+	local limit = bones_usable() and math.floor(tonumber(U.setting("performance/native_bodies")) or 0) or 0
+	local list = {}
+	if limit > 0 then
+		for id, r in pairs(recs) do list[#list + 1] = { id = id, r = r } end
+		table.sort(list, function(a, b) if a.r.t ~= b.r.t then return a.r.t > b.r.t end return a.id > b.id end)
+	end
+	local keep, start, n = {}, {}, 0
+	for _, e in ipairs(list) do
+		if n >= limit then break end
+		local a = active[e.id]
+		if a and a.seed == e.r.seed and a.p == e.r.p then
+			keep[e.id] = true
+			n = n + 1
+		elseif not (e.r.retry and now < e.r.retry) then
+			local obj = ready_body(e.id)
+			if obj then
+				start[#start + 1] = { id = e.id, r = e.r, obj = obj }
+				n = n + 1
+			end
+		end
+	end
+	for id in pairs(active) do if not keep[id] then undeform_body(id) end end
+	for _, s in ipairs(start) do deform_body(s.id, s.r, s.obj, now) end
+end
+
+-- zgo_blast: an explosion reached a body (host / single player only)
+local function on_blast_body(obj, ev)
+	if not (ev and ev.dead and obj) then return end
+	if U.is_client() or not U.setting("native/deform_corpses") or not has(CAP.BONES) then return end
+	local p = U.clamp((tonumber(ev.sev) or 0) * (tonumber(U.setting("native/deform_strength")) or 1), 0, 2)
+	if p < 0.12 then return end
+	p = tonumber(string.format("%.3f", p))
+	local id = obj:id()
+	local r = recs[id]
+	if r and r.p >= p - 0.05 then return end
+	local now = now_ms()
+	r = { seed = U.hash(string.format("%s:%s:%s", id, now, p)) % 999999000 + 1, p = p, t = now }
+	recs[id] = r
+	trim_records()
+	send_record(id, r)
+	U.dbg("native: body %s gets broken limbs (power %s)", id, U.r3(p))
+end
+
+------------------------------------------------------------------------
+-- Releasing everything
+------------------------------------------------------------------------
+release_all = function(why)
+	local n = 0
+	for _, a in pairs(active) do num("zgo_bones_unbind", a.h) n = n + 1 end
+	for h in pairs(custom) do num("zgo_bones_unbind", h) n = n + 1 end
+	for _, q in ipairs(unbind_q) do num("zgo_bones_unbind", q.h) end
+	active, custom, unbind_q = {}, {}, {}
+	if n > 0 then U.log("native: %s bodies back to normal (%s)", n, why) end
+end
+
+-- kid mode (zgo_settings.update): bent bodies go back to normal and come
+-- back when it is off (the records stay; maintenance draws them again)
+function kid_mode(kid)
+	if kid then for id in pairs(active) do undeform_body(id) end end
+end
+
+------------------------------------------------------------------------
+-- Diagnostics
+------------------------------------------------------------------------
+local function stats()
+	if not S.lib then return nil end
+	local ffi = get_ffi()
+	local ok, st = pcall(ffi.new, "zgo_stats")
+	if not ok then return nil end
+	call("zgo_get_stats", st)
+	return {
+		calc_calls = tonumber(st.calc_calls) or 0, calc_matched = tonumber(st.calc_matched) or 0,
+		bones_written = tonumber(st.bones_written) or 0, bones_kept = tonumber(st.bones_kept) or 0,
+		rejected = tonumber(st.rejected) or 0, captures = tonumber(st.captures) or 0,
+		departs = tonumber(st.departs) or 0, bound = tonumber(st.bound) or 0, hooks = tonumber(st.hooks) or 0,
+	}
+end
+
+function report_text()
+	if not S.lib then return nil end
+	local ffi = get_ffi()
+	local buf = ffi.new("char[8192]")
+	local n = num("zgo_report", buf, 8192)
+	return n and n > 0 and cstr(buf) or nil
+end
+
+-- a flat table for zgo_probe (test 4) and the status button. Loads the DLL
+-- (finder only, never a hook) when Native extensions is on or opts.load.
+function probe(opts)
+	opts = opts or {}
+	local r = {}
+	local ffi = get_ffi()
+	r.ffi = ffi ~= nil
+	r.jit = rawget(_G, "jit") and jit.version or "?"
+	r.os = ffi and ffi.os or "?"
+	r.arch = ffi and ffi.arch or "?"
+	if ffi and ffi.os == "Windows" then
+		declare(ffi)
+		local ok, h = pcall(function() return ffi.C.GetModuleHandleA(nil) end)
+		if ok and h ~= nil then r.exe_base = string.format("0x%x", tonumber(ffi.cast("uintptr_t", h))) end
+		r.exe = exe_path(ffi)
+	end
+	r.setting_enable = U.setting("native/enable") and true or false
+	r.setting_bones = U.setting("native/bones") and true or false
+	if (opts.load or (opts.load == nil and wanted())) and not S.tried then load_lib() end
+	r.loaded = S.lib ~= nil
+	r.state = S.why
+	if S.lib then
+		r.dll = S.path
+		r.version = S.version
+		r.abi = num("zgo_abi")
+		r.init = S.init
+		r.status = cstr(call("zgo_status"))
+		r.caps = caps_text(S.caps)
+		r.hooks = caps_text(num("zgo_hooks") or 0)
+		local st = stats()
+		if st then
+			r.calc_calls, r.calc_matched, r.bones_written = st.calc_calls, st.calc_matched, st.bones_written
+			r.captures, r.departs, r.rejected, r.bound = st.captures, st.departs, st.rejected, st.bound
+		end
+		if band(S.hooks, CAP.BONES) ~= 0 and db and db.actor then
+			local k, why = capture(db.actor)
+			r.capture_test = k and "ok (LL_BoneID hook saw the actor)" or ("failed: " .. tostring(why))
+		end
+	end
+	r.local_caps = caps_text(local_caps())
+	r.session_caps = caps_text(session_caps())
+	r.coop = U.in_session() and (U.is_client() and "client" or "host") or "single player"
+	local nr, na = 0, 0
+	for _ in pairs(recs) do nr = nr + 1 end
+	for _ in pairs(active) do na = na + 1 end
+	r.bodies_recorded, r.bodies_bent = nr, na
+	return r
+end
+
+-- MCM button (Native extensions -> Write a status report to the log)
+function log_report()
+	local r = probe({ load = true })
+	U.log("native: ---- status report ----")
+	local keys = {}
+	for k in pairs(r) do keys[#keys + 1] = k end
+	table.sort(keys)
+	for _, k in ipairs(keys) do U.log("native: %s = %s", k, tostring(r[k])) end
+	local rep = report_text()
+	if rep then for line in string.gmatch(rep, "[^\n]+") do U.log("native: %s", line) end end
+	if U.in_session() and not U.is_client() then
+		for who, p in pairs(X.peers) do U.log("native: player %s: %s (round %s)", who, caps_text(p.caps), p.round) end
+	end
+	drain_log()
+	U.hud_msg(string.format("Zone Gore Overhaul native: %s; hooks %s; session %s (details in the log)",
+		r.loaded and (S.init == 0 and "supported exe" or "unsupported exe") or "not loaded", tostring(r.hooks or "none"), r.session_caps))
+end
+
+------------------------------------------------------------------------
+-- Engine callbacks
+------------------------------------------------------------------------
+local next_tick, next_maint = 0, 0
+local errors = 0
+
+local function tick(now)
+	apply_settings()
+	if S.lib then drain_log() end
+	coop_tick(now)
+	if unbind_q[1] then flush_unbinds(now) end
+	if now >= next_maint then
+		next_maint = now + MAINT_MS
+		maintain(now)
+	end
+end
+
+local function on_update()
+	local now = now_ms()
+	if now < next_tick and now >= next_tick - 10 * TICK_MS then return end
+	next_tick = now + TICK_MS
+	local ok, err = pcall(tick, now)
+	if not ok then
+		errors = errors + 1
+		if errors <= 5 then U.log("native: update error: %s", tostring(err)) end
+	end
+end
+
+local function on_level_change()
+	release_all("level change")
+	X.next_announce = 0
+	next_maint = 0
+end
+
+local function on_unregister(se_obj)
+	local id = se_obj and se_obj.id
+	if type(id) == "function" then local ok, v = pcall(id, se_obj) id = ok and v or nil end
+	id = tonumber(id)
+	if not (id and (recs[id] or active[id])) then return end
+	undeform_body(id)
+	recs[id] = nil
+	if not U.is_client() then emit({ "N", "F", id }) end
+end
+
+local function save_state(m_data)
+	if U.is_client() or not next(recs) then return end
+	local list = {}
+	for id, r in pairs(recs) do list[#list + 1] = { id, r.seed, r.p, r.t } end
+	table.sort(list, function(a, b) if a[4] ~= b[4] then return a[4] < b[4] end return a[1] < b[1] end)
+	for _, e in ipairs(list) do e[4] = nil end
+	m_data.zgo_native = { v = WIRE, recs = list }
+end
+
+local function load_state(m_data)
+	local d = type(m_data) == "table" and m_data.zgo_native
+	if type(d) ~= "table" or type(d.recs) ~= "table" then return end
+	recs = {}
+	local n = #d.recs
+	for i, e in ipairs(d.recs) do
+		local id, seed, p = tonumber(e[1]), tonumber(e[2]), tonumber(e[3])
+		if id and seed and p then recs[id] = { seed = seed, p = p, t = i - n - 1 } end
+	end
+end
+
+function on_game_start()
+	RegisterScriptCallback("actor_on_update", on_update)
+	RegisterScriptCallback("on_level_changing", on_level_change)
+	RegisterScriptCallback("server_entity_on_unregister", on_unregister)
+	RegisterScriptCallback("save_state", save_state)
+	RegisterScriptCallback("load_state", load_state)
+	U.on_event("blast_body", on_blast_body)
+	zgo_sync.on("N", on_line)
+	zgo_sync.on_up("N", on_up_line)
+end
+
+-- (tests)
+_test = {
+	S = S, X = X,
+	active = function() return active end,
+	custom = function() return custom end,
+	unbind_q = function() return unbind_q end,
+	set_loader = function(fn) loader = fn end,
+	set_platform = function(v) platform_override = v end,
+	tick = function(now) next_tick = 0 next_maint = 0 tick(now or now_ms()) end,
+	maintain = function(now) maintain(now or now_ms()) end,
+	skeleton = skeleton, subtree = subtree, band = band, bor = bor,
+	reset = function()
+		release_all("test reset")
+		for k in pairs(S) do S[k] = nil end
+		S.tried, S.why, S.status, S.caps, S.hooks = false, "not loaded (Native extensions are off)", "", 0, 0
+		X.round, X.base, X.next_announce, X.announced, X.sig, X.peers = 0, 0, 0, 0, nil, {}
+		X.session, X.sent, X.host_round, X.client_session, X.client_sent, X.warned = 0, nil, nil, 0, nil, {}
+		recs = {}
+		cdef_ok, loader, platform_override, logbuf = nil, nil, nil, nil
+		next_tick, next_maint, errors = 0, 0, 0
+	end,
+	recs = function() return recs end,
+}

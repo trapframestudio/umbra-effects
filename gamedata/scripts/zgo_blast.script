@@ -1,0 +1,547 @@
+--[[
+  Zone Gore Overhaul - explosions
+
+  The engine delivers an explosion to a body in two separate parts:
+    * fragments: ordinary bullets with no ammo section, all fired from the
+      explosion centre in one go (bullet_on_init says where and when it went
+      off); every one that hits someone is reported by bullet_on_impact and
+      then as a fire_wound hit;
+    * the blast wave: one "explosion" hit per object, reported on bone 0 (the
+      skeleton root, at the feet), with power = blast x falloff after armour.
+      It is sent to corpses too.
+  A body the explosion kills is cut up right away, at the killing hit: the
+  engine builds its death ragdoll a frame or two later, and from then on the
+  physics keeps arms, legs and the head in view (see zgo_dismember).
+  Everything else from one explosive is collected for a moment and resolved
+  once per body: how close the blast was, how many fragments hit and where,
+  how much damage it did. That one event drives shrapnel wounds, blood thrown
+  away from the blast, particles, bleeding, artery hits and, on the dead
+  (fresh kills and corpses), dismemberment from the side facing the blast
+  or a full gib at point blank.
+
+  Authority only (single player / co-op host); effects mirror to clients
+  through the usual sync lines.
+]]
+
+local U = zgo_util
+
+local recs = {}          -- explosive object id -> record
+local GRACE = 60         -- ms after a body's blast hit (late fragments)
+local WINDOW = 250       -- ms without news for a body that won't get a blast hit
+local MAX_AGE = 1500     -- ms after the explosion: resolve whatever there is
+-- The engine sends the blast wave to 3 objects per frame, every physics
+-- object in the radius (props, items, corpses), so in clutter a body's blast
+-- hit can come long after its fragments. A record is kept this long, so a
+-- late hit lands on its (already resolved) body instead of starting a new
+-- explosion and resolving the body a second time.
+local KEEP = 6000
+local function npc_range_sqr() local r = U.setting("performance/detail_range") or 55 return r * r end
+local TORSO = { "bip01_spine1", "bip01_spine", "bip01_spine2", "bip01_pelvis" }
+
+-- Overpressure: an opinionated patch over GAMMA's NPC blast damage (README,
+-- "EXPLOSIONS"). GAMMA's armour subtracts its explosion protection from the
+-- blast outright, so a grenade at someone's feet often did nothing. A blast hit
+-- on an NPC or mutant now does at least
+--     A / (1 + (Z / Z0)^N)   health (1 = a full health bar)
+-- where Z is the distance from the explosion to the nearest of chest, pelvis,
+-- head and knees, scaled by the cube root of the charge (Hopkinson scaling),
+-- reduced by armour, by the creature's own explosion immunity and by walls in
+-- between. Hand grenade: ~1.9 at 0.5 m, ~1.0 at 1 m, ~0.27 at 2 m, ~0.1 at 3 m.
+local OP_A, OP_Z0, OP_N = 2.4, 0.9, 2.6
+local OP_PARTS = { "bip01_spine1", "bip01_pelvis", "bip01_head", "bip01_l_calf", "bip01_r_calf" }
+local COVER_PARTS = { "bip01_spine1", "bip01_pelvis", "bip01_head" }
+local OUTFIT_SLOT, HELMET_SLOT = 7, 12
+-- dismemberment, in the same scaled distance:
+local CUT_Z = 0.7                -- a joint this close can be blown through
+local CUT_Z0, CUT_Z1 = 0.3, 1.1  -- chance a part goes: ~90% when its nearest point is at Z0, none at Z1
+local GIB_Z = 0.6                -- chest or pelvis this close to a heavy charge: the body comes apart
+-- Explosives by what they are; GAMMA's blast numbers barely separate them (a
+-- hand grenade is 3, an RPG rocket 4.3, an IED 5.7). charge = TNT relative to
+-- a hand grenade; gib = may tear a whole body apart (a direct RPG hit,
+-- standing on an IED). Anything else: charge from its blast value, no gib.
+KINDS = {
+	wpn_rpg7_missile  = { charge = 3.0, gib = true },   -- PG/OG-7 rocket
+	rpg_new_blow      = { charge = 3.0, gib = true },   -- IED made from an RPG warhead
+	ied_new_blow      = { charge = 6.0, gib = true },   -- IED
+	mine_new_blow     = { charge = 1.5 },               -- anti-personnel mine: takes legs, not bodies
+	wpn_fake_missile  = { charge = 0.8 },               -- VOG-25 / VOG-30
+	wpn_fake_missile2 = { charge = 0.8 },               -- M203 40 mm
+}
+local HEAD_BONES = { bip01_head = true, jaw_1 = true, eye_left = true, eye_right = true, eyelid_1 = true, bip01_neck = true }
+local MAX_FRAGS_KEPT = 8
+
+------------------------------------------------------------------------
+-- Records
+------------------------------------------------------------------------
+local info_cache = {}
+local function explosive_info(sec)
+	if not sec then return nil end
+	local c = info_cache[sec]
+	if c == nil then
+		local ok, r = pcall(function() return ini_sys:r_float_ex(sec, "blast_r") end)
+		local okb, b = pcall(function() return ini_sys:r_float_ex(sec, "blast") end)
+		c = { radius = ok and tonumber(r) or nil, blast = okb and tonumber(b) or nil }
+		info_cache[sec] = c
+	end
+	return c
+end
+
+-- distance scale (cube root of the charge) and whether it can gib, nil if unknown
+-- (r: an explosion record or anything with .sec; public for feature modules)
+function kind_of(r)
+	local sec = r and r.sec
+	if not sec then return nil end
+	local kd = KINDS[sec]
+	if kd then return kd.charge ^ (1 / 3), kd.gib or false end
+	local info = explosive_info(sec)
+	if not (info and info.blast and info.blast > 0) then return nil end
+	return U.clamp(info.blast / 3, 0.3, 3) ^ (1 / 3), false
+end
+
+-- a firearm never makes an explosion record (bullets without a section from guns)
+local function is_firearm(o)
+	local ok, w = pcall(IsWeapon, o)
+	if not (ok and w) then return false end
+	local okg, g = pcall(IsGrenade, o)
+	return not (okg and g)
+end
+
+local function rec_for(eid)
+	local r = recs[eid]
+	local now = time_global()
+	if not r then
+		r = { id = eid, t0 = now, last = now, targets = {}, nfrags = 0 }
+		local o = level.object_by_id(eid)
+		if o then
+			if is_firearm(o) then r.ignore = true end
+			r.sec = o:section()
+			local p = o:position()
+			r.obj_pos = U.v3(p.x, p.y, p.z)
+			local info = explosive_info(r.sec)
+			r.radius = info and info.radius
+		end
+		recs[eid] = r
+	end
+	r.last = now
+	return r
+end
+
+local function target_of(r, tid, alive)
+	local t = r.targets[tid]
+	if not t then
+		t = { frags = {}, nfrag = 0, nfrag_hits = 0, frag_power = 0, power = 0, bones = {} }
+		r.targets[tid] = t
+	end
+	-- alive state before this explosion touched it
+	if t.was_dead == nil and alive ~= nil then t.was_dead = not alive end
+	t.last = time_global()
+	return t
+end
+
+-- fragments only fly for a moment; after that the id may belong to something else
+function is_explosive(eid)
+	local r = eid and recs[eid]
+	return r ~= nil and not r.ignore and time_global() - r.t0 < MAX_AGE + 1000
+end
+
+------------------------------------------------------------------------
+-- One body vs one explosion
+------------------------------------------------------------------------
+local function first_bone(obj, list)
+	for _, b in ipairs(list) do
+		if obj:get_bone_id(b) ~= 65535 then return b end
+	end
+end
+
+local function measure(r, t, obj)
+	local tb = first_bone(obj, TORSO)
+	local op = obj:position()
+	local torso = tb and obj:bone_position(tb) or U.v3(op.x, op.y + 1, op.z)
+	local center = r.center or r.obj_pos
+	local d = center and torso:distance_to(center)
+	local radius = r.radius or 6
+	local power = t.power + t.frag_power
+	local m = { tb = tb, torso = torso, center = center, d = d, power = power }
+	-- 1 = touching, 0 = outside the lethal part of the blast
+	m.prox = d and U.clamp(1 - d / (radius * 0.6), 0, 1) or U.clamp((power - 0.3) / 1.5, 0, 1)
+	m.nf = math.max(t.nfrag, t.nfrag_hits)
+	m.sev = U.clamp(0.6 * m.prox + 0.25 * math.min(power, 2) / 2 + 0.15 * math.min(m.nf, 12) / 12, 0, 1)
+	-- only heavy charges take a whole body apart, and only up close
+	local k, heavy = kind_of(r)
+	m.k = k or 1
+	if d then
+		local core = d
+		if obj:get_bone_id("bip01_pelvis") ~= 65535 then core = math.min(core, obj:bone_position("bip01_pelvis"):distance_to(center)) end
+		m.zcore = core / m.k
+	end
+	m.gib = (heavy and m.zcore ~= nil and m.zcore <= GIB_Z) or false
+	m.away = (center and d > 0.05 and U.unit(U.sub(torso, center)))
+		or (t.dir and U.unit(U.v3(t.dir.x, 0, t.dir.z))) or U.v3(0, 1, 0)
+	return m
+end
+
+-- may this explosive tear bodies apart? (a player's, or an NPC's near the player)
+local function may_cut(r, obj)
+	if r.thrower ~= nil and U.is_player_shooter(r.thrower) then return true end
+	if not U.setting("general/npc_shooters") then return false end
+	local apos = db.actor and db.actor:position()
+	return apos ~= nil and obj:position():distance_to_sqr(apos) <= npc_range_sqr()
+end
+
+local function cut_event(m, id, was_dead)
+	return {
+		id = id, dead = true, was_dead = was_dead, center = m.center, dir = m.away,
+		blast = { center = m.center, prox = m.prox, gib = m.gib, k = m.k },
+		prof = { kind = "blast", cls = 5, pellets = 1, energy = 2.4 + 2 * m.prox },
+	}
+end
+
+-- a living body this explosion has just killed: decide now what comes off
+local function cut_now(r, tid, t)
+	if t.cut or t.was_dead ~= false or r.ignore then return end
+	local obj = level.object_by_id(tid)
+	if not (obj and U.is_creature(obj)) then return end
+	if obj:alive() and (obj.health or 1) > 0.005 then return end
+	t.cut = true
+	if U.is_peer(tid) or (db.actor and tid == db.actor:id()) then return end
+	if not may_cut(r, obj) then t.cut_result = "an NPC's explosive away from you" return end
+	local ok, res = pcall(zgo_dismember.consider, cut_event(measure(r, t, obj), tid, false))
+	t.cut_result = ok and (res or "off in settings") or ("error: " .. tostring(res))
+	if not ok then U.log("blast dismember error: %s", tostring(res)) end
+end
+
+------------------------------------------------------------------------
+-- Inputs (zgo_main routes the engine callbacks here; authority only)
+------------------------------------------------------------------------
+-- a fragment was fired: the first one tells where the explosion is
+function on_frag_init(eid, pos, parent)
+	if not (eid and pos) then return end
+	-- CExplosive::Explode fires every fragment in the same frame: fragments in a
+	-- later frame under a known id mean the id was recycled for a new explosive
+	local now = time_global()
+	local r = recs[eid]
+	if r and r.init_t == now then
+		r.nfrags = r.nfrags + 1
+		return
+	end
+	recs[eid] = nil
+	r = rec_for(eid)
+	r.init_t = now
+	r.center = U.v3(pos.x, pos.y, pos.z)
+	r.thrower = parent
+	r.nfrags = 1
+	U.defer(U.emit_event, "explosion", { eid = eid, center = U.vcopy(r.center), thrower = parent, sec = r.sec })
+end
+
+-- a fragment hit something (bullet_on_impact); returns true when consumed
+function on_frag_impact(eid, tid, pos, dir, element, parent)
+	if not eid then return false end
+	local r = rec_for(eid)
+	if r.ignore then return false end
+	r.thrower = r.thrower or parent
+	if not tid or tid == 65535 then return true end
+	local o = level.object_by_id(tid)
+	if not (o and U.is_creature(o)) then return true end
+	local t = target_of(r, tid, o:alive())
+	if t.done then return true end
+	t.nfrag = t.nfrag + 1
+	if #t.frags < MAX_FRAGS_KEPT and pos and dir then
+		t.frags[#t.frags + 1] = { pos = U.v3(pos.x, pos.y, pos.z), dir = U.unit(U.v3(dir.x, dir.y, dir.z)) or U.v3(0, 0, 1), element = element }
+	end
+	return true
+end
+
+-- the fire_wound hit of a fragment (power = health lost)
+function on_frag_hit(h)
+	local r = rec_for(h.eid)
+	r.thrower = r.thrower or h.sid
+	local t = target_of(r, h.id, h.alive)
+	if t.done then return end
+	t.nfrag_hits = t.nfrag_hits + 1
+	t.frag_power = t.frag_power + (h.power or 0)
+	if h.bone and #t.bones < MAX_FRAGS_KEPT then t.bones[#t.bones + 1] = h.bone end
+	if h.alive then cut_now(r, h.id, t) end
+end
+
+-- the blast wave hit (power = health lost, dir = away from the blast + upthrow)
+function on_blast_hit(h)
+	local r = rec_for(h.eid or ("blast" .. h.id .. "_" .. math.floor(time_global() / 500)))
+	r.thrower = r.thrower or h.sid
+	local t = target_of(r, h.id, h.alive)
+	if t.done then return end
+	t.power = t.power + (h.power or 0)
+	t.dir = h.dir
+	t.blasted = true
+	if h.alive then cut_now(r, h.id, t) end
+end
+
+------------------------------------------------------------------------
+-- Overpressure (blast hits on NPCs and mutants; see the top of the file)
+------------------------------------------------------------------------
+local function item_protection(item)
+	if not item then return 0 end
+	local ok, v = pcall(function() return ini_sys:r_float_ex(item:section(), "explosion_protection") end)
+	local p = ok and tonumber(v) or 0
+	local okc, c = pcall(function() return item:condition() end)
+	return p * (okc and tonumber(c) or 1)
+end
+
+local imm_cache = {}
+local function immunity_of(obj)
+	local sec = obj:section()
+	local v = imm_cache[sec]
+	if v == nil then
+		v = 1
+		local ok, isec = pcall(function() return ini_sys:r_string_ex(sec, "immunities_sect") end)
+		if ok and isec and isec ~= "" then
+			local okf, f = pcall(function() return ini_sys:r_float_ex(isec, "explosion_immunity") end)
+			if okf and tonumber(f) then v = tonumber(f) end
+		end
+		imm_cache[sec] = v
+	end
+	return v
+end
+
+-- characters other mods keep alive on purpose get only the engine's damage
+local function protected(obj)
+	local ok, inv = pcall(function() return obj:invulnerable() end)
+	if ok and inv == true then return true end
+	local story = rawget(_G, "grok_additional_storyline_npc_invincible")
+	local list = type(story) == "table" and rawget(story, "ads_npcs")
+	return type(list) == "table" and list[obj:section()] ~= nil
+end
+
+-- armour takes the edge off (an exoskeleton about a third), it doesn't stop it
+local function armour_factor(obj)
+	local imm = immunity_of(obj)
+	if imm <= 0.01 then return 0 end
+	if IsStalker(obj) then
+		local oko, o = pcall(function() return obj:item_in_slot(OUTFIT_SLOT) end)
+		local okh, h = pcall(function() return obj:item_in_slot(HELMET_SLOT) end)
+		local p = 0.3 * item_protection(oko and o or nil) + 0.15 * item_protection(okh and h or nil)
+		return math.min(imm, 1) / (1 + p)
+	end
+	return U.clamp(imm, 0.35, 1)
+end
+
+-- share of the blast that reaches the body: walls in between block most of
+-- it, but overpressure wraps around corners
+local function exposure(c, obj)
+	local src = U.v3(c.x, c.y + 0.15, c.z)
+	local n, clear = 0, 0
+	for _, b in ipairs(COVER_PARTS) do
+		if obj:get_bone_id(b) ~= 65535 then
+			local v = U.sub(obj:bone_position(b), src)
+			local len = U.len(v)
+			n = n + 1
+			if len < 0.25 then
+				clear = clear + 1
+			else
+				local hit = U.cast(src, U.unit(v), len)
+				if not hit or hit >= len - 0.1 then clear = clear + 1 end
+			end
+		end
+	end
+	if n == 0 then return 1 end
+	return 0.3 + 0.7 * clear / n
+end
+
+-- The least health this explosion's blast hit takes from obj, or nil to leave
+-- the engine's number alone. eid: the explosive (s_hit.weapon_id).
+function overpressure(obj, eid)
+	if not (obj and eid) or eid == 65535 or not U.setting("explosions/overpressure") then return nil end
+	if not obj:alive() or protected(obj) then return nil end
+	local r = rec_for(eid)
+	if r.ignore then return nil end
+	local k = kind_of(r)
+	local c = r.center or r.obj_pos
+	if not (k and c) then return nil end
+	local best
+	for _, b in ipairs(OP_PARTS) do
+		if obj:get_bone_id(b) ~= 65535 then
+			local d = obj:bone_position(b):distance_to(c)
+			if not best or d < best then best = d end
+		end
+	end
+	best = best or obj:position():distance_to(c)
+	local dmg = OP_A / (1 + (best / k / OP_Z0) ^ OP_N)
+	if dmg < 0.01 then return nil end
+	dmg = dmg * armour_factor(obj) * exposure(c, obj) * (U.setting("explosions/overpressure_scale") or 1)
+	if dmg < 0.005 then return nil end
+	local t = target_of(r, obj:id(), true)
+	t.floor = math.max(t.floor or 0, dmg)
+	return dmg
+end
+
+-- an explosion's blast wave or one of its fragments?
+function is_blast_hit(s_hit)
+	local wid = s_hit and s_hit.weapon_id
+	if not wid or wid == 65535 then return false end
+	if s_hit.type == hit.fire_wound then return is_explosive(wid) end
+	if s_hit.type ~= hit.explosion then return false end
+	local o = level.object_by_id(wid)
+	if not o then return is_explosive(wid) end
+	local ok, sec = pcall(o.section, o)
+	if not (ok and sec) then return false end
+	if KINDS[sec] then return true end
+	local info = explosive_info(sec)
+	return info ~= nil and info.blast ~= nil and info.blast > 0
+end
+
+-- the dismemberment distances (zgo_dismember.consider_blast)
+function cut_limits() return CUT_Z, CUT_Z0, CUT_Z1 end
+
+------------------------------------------------------------------------
+-- Resolution
+------------------------------------------------------------------------
+local function bone_name_of(obj, id)
+	if not id or id < 0 or id == 65535 then return nil end
+	local ok, name = pcall(obj.bone_name, obj, id)
+	if ok and name and name ~= "" then return name end
+end
+
+local function apply(r, t, obj, player)
+	local id = obj:id()
+	local m = measure(r, t, obj)
+	local tb, torso, center, d, away = m.tb, m.torso, m.center, m.d, m.away
+	local power, prox, nf, sev, gib = m.power, m.prox, m.nf, m.sev, m.gib
+
+	-- fragment wounds: the impact points, else the bones they hit
+	local frags = {}
+	for _, f in ipairs(t.frags) do
+		local bn = bone_name_of(obj, f.element)
+		frags[#frags + 1] = { pos = f.pos, dir = f.dir, bone = bn, head = bn and HEAD_BONES[bn] or false }
+	end
+	if #frags == 0 then
+		for _, b in ipairs(t.bones) do
+			local bn = bone_name_of(obj, b)
+			if bn then
+				local bp = obj:bone_position(bn)
+				local dir = center and U.unit(U.sub(bp, center)) or away
+				frags[#frags + 1] = { pos = U.along(bp, dir, -0.08), dir = dir, bone = bn, head = HEAD_BONES[bn] or false }
+			end
+		end
+	end
+
+	local dead = not obj:alive() or (obj.health or 1) <= 0.005
+	local armor, helmet = zgo_fx.armor_of(obj)
+	local ev = {
+		id = id, torso = torso, away = away, sev = sev, prox = prox, frags = frags, center = center,
+		vol = U.clamp(0.6 + 0.8 * sev + 0.08 * nf, 0.5, 2), armor = armor, helmet = helmet,
+		dead = dead, was_dead = t.was_dead or false,
+	}
+	U.emit_event("blast_body", obj, ev, r)
+	-- corpses (and a kill that came too late for cut_now) are cut here
+	if dead and not t.cut then
+		t.cut = true
+		if may_cut(r, obj) then
+			local okc, res = pcall(zgo_dismember.consider, cut_event(m, id, ev.was_dead))
+			t.cut_result = okc and (res or "off in settings") or ("error: " .. tostring(res))
+			if not okc then U.log("blast dismember error: %s", tostring(res)) end
+		else
+			t.cut_result = "an NPC's explosive away from you"
+		end
+	end
+	if U.setting("general/log_explosions") and (dead or sev >= 0.08) then
+		U.log("explosion %s on %s: %s m, prox %s, power %s%s, frag hits %s (%s fired), %s%s", tostring(r.sec), obj:section(),
+			d and U.r3(d) or "?", U.r3(prox), U.r3(power), t.floor and string.format(" (overpressure %s)", U.r3(t.floor)) or "", nf, r.nfrags,
+			ev.was_dead and "corpse" or (dead and "killed" or "survived"),
+			t.cut_result and (" -> " .. t.cut_result) or "")
+	end
+	if sev < 0.08 and #frags == 0 then return end   -- a distant shove
+
+	local ok, err = pcall(zgo_fx.blast_body, ev)
+	if not ok then U.log("blast fx error: %s", tostring(err)) end
+	ok, err = pcall(zgo_decals.paint_blast, ev)
+	if not ok then U.log("blast decal error: %s", tostring(err)) end
+
+	if not dead then
+		-- survivors bleed from the shrapnel
+		local f1 = frags[1]
+		local wound
+		if f1 and f1.bone and obj:get_bone_id(f1.bone) ~= 65535 then
+			wound = { bone = f1.bone, off = zgo_fx.world_to_bone_local(obj, f1.bone, f1.pos) }
+			zgo_decals.start_soak(id, obj:section(), f1.bone, wound.off, zgo_fx.world_dir_to_bone_local(obj, f1.bone, f1.dir), ev.vol)
+		elseif tb then
+			wound = { bone = tb, off = zgo_fx.world_to_bone_local(obj, tb, U.along(torso, away, -0.12)) }
+		end
+		zgo_decals.add_bleed(id, ev.vol)
+		zgo_decals.start_bleeding(id, ev.vol, wound)
+		-- a fragment can open an artery (less often than a bullet)
+		for _, f in ipairs(frags) do
+			local base = f.bone and zgo_fx.ARTERY[f.bone]
+			if base and math.random() < base * 0.5 then
+				zgo_fx.open_artery(obj, f.bone, f.pos, U.v3(-f.dir.x, -f.dir.y, -f.dir.z), false)
+				break
+			end
+		end
+	else
+		zgo_decals.add_bleed(id, 1 + 2 * sev + 0.2 * nf)
+	end
+
+end
+
+-- will the blast wave reach this body? Only for bodies inside the blast
+-- radius (the engine's sphere query); one fully behind cover gets no hit at
+-- all, and then MAX_AGE resolves it
+local function expects_blast(r, tid, t)
+	if t.expect == nil then
+		t.expect = false
+		local o = r.center and level.object_by_id(tid)
+		if o then
+			local p = o:position()
+			t.expect = U.v3(p.x, p.y + 0.9, p.z):distance_to(r.center) <= (r.radius or 6) + 0.6
+		end
+	end
+	return t.expect
+end
+
+local function resolve_target(r, tid, t)
+	t.done = true
+	if r.ignore then return end
+	local player = r.thrower ~= nil and U.is_player_shooter(r.thrower)
+	if not player and not U.setting("general/npc_shooters") then return end
+	local obj = level.object_by_id(tid)
+	local apos = db.actor and db.actor:position()
+	if obj and apos and tid ~= db.actor:id() and U.is_creature(obj) and not U.is_peer(tid)
+		and (player or obj:position():distance_to_sqr(apos) <= npc_range_sqr()) then
+		local ok, err = pcall(apply, r, t, obj, player)
+		if not ok then U.log("explosion error: %s", tostring(err)) end
+	end
+end
+
+-- each body is resolved as soon as its part of the explosion is in: right
+-- after its blast hit, or once the fragments stop coming
+function update()
+	local now = time_global()
+	local budget = U.setting("performance/blast_per_frame") or 2   -- bodies per frame (each traces its blood streams)
+	for eid, r in pairs(recs) do
+		local old = now - r.t0 >= MAX_AGE
+		local pending = false
+		for tid, t in pairs(r.targets) do
+			if not t.done then
+				local ready = old
+					or (t.blasted and now - t.last >= GRACE)
+					or (not t.blasted and now - t.last >= WINDOW and not expects_blast(r, tid, t))
+				if budget > 0 and ready then
+					budget = budget - 1
+					resolve_target(r, tid, t)
+				else
+					pending = true
+				end
+			end
+		end
+		r.pending = pending
+		-- resolved bodies are remembered (late hits are ignored, see KEEP)
+		if not pending and now - r.t0 >= KEEP then recs[eid] = nil end
+	end
+end
+
+function reset() recs = {} end
+
+-- explosions still being resolved (status / tests)
+function count()
+	local n = 0
+	for _, r in pairs(recs) do if r.pending ~= false then n = n + 1 end end
+	return n
+end

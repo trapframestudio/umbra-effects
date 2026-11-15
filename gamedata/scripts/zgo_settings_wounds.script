@@ -1,0 +1,64 @@
+--[[
+  Zone Gore Overhaul - options of the progressive wounds (zgo_wounds, PLAN Phase C)
+  Data only; zgo_settings merges it (format in the header of zgo_settings.script).
+
+  "Wounds" page: what the host decides for everyone (how wounds grow, the
+  marks, chunks and severed limbs they cause) is coop = "host"; the
+  experimental crater shader is drawn by each machine and is "local".
+  Performance sliders (perf = potato, low, medium, high, ultra) sit on the
+  Performance page and are each player's own.
+]]
+
+SETTINGS = {
+	{
+		page = "wounds", after = "dismember", coop = "host",
+		name = { "Wounds", "Раны" },
+		note = {
+			{ "Damage builds up where bodies are hit: a bruise, an open wound, a crater, down to the bone, until the part comes off. Needs the baked models from bake.py 1.7 or later (see README, BAKED MODELS). In co-op the host's settings on this page apply to everyone, except the ones marked as your own.",
+			  "Урон накапливается там, куда попадают по телу: синяк, открытая рана, воронка, до кости, пока часть не оторвётся. Нужны запечённые модели из bake.py 1.7 или новее (см. README, BAKED MODELS). В кооперативе действуют настройки хоста, кроме отмеченных как ваши собственные." },
+		},
+		items = {
+			{ id = "enable", type = "check", def = true,
+			  name = { "Progressive wounds", "Нарастающие раны" },
+			  desc = { "Every hit adds damage to the nearest wound spot on the body, scaled by calibre: a pistol round bruises and opens wounds, a rifle round tears, an anti-materiel round or a slug craters at once. Enough hits on one spot go through the stages: bruise, open wound, crater, down to the bone, and finally the part comes off. Works on the living and on bodies, on people and mutants that have baked models with wound sites (bake.py 1.7 or later). Without them nothing changes.",
+			           "Каждое попадание добавляет урон ближайшему месту раны на теле, по калибру: пистолетная пуля оставляет синяк и открывает рану, винтовочная рвёт, крупный калибр или пуля-жакан сразу выбивает воронку. Достаточно попаданий в одно место проводят его по стадиям: синяк, открытая рана, воронка, до кости, и в конце часть отрывается. Работает на живых и на телах, людях и мутантах с запечёнными моделями с местами ран (bake.py 1.7 или новее). Без них ничего не меняется." } },
+			{ id = "growth", type = "track", min = 0.25, max = 3.0, step = 0.05, def = 1.0,
+			  name = { "How fast wounds deepen", "Как быстро углубляются раны" },
+			  desc = { "Multiplies the damage each hit adds to a wound. 2 = half as many hits to reach a crater or the bone, 0.5 = twice as many.",
+			           "Множитель урона, который каждое попадание добавляет к ране. 2 = вдвое меньше попаданий до воронки или кости, 0.5 = вдвое больше." } },
+			{ id = "marks", type = "check", def = true,
+			  name = { "Deep wounds show on the body", "Глубокие раны видны на теле" },
+			  desc = { "When a wound reaches a crater, the bone or worse, a larger torn wound mark is painted on the body there, on top of the usual entry and exit marks. Lighter wounds look as before.",
+			           "Когда рана доходит до воронки, кости или дальше, на этом месте тела рисуется большой рваный след раны, поверх обычных входных и выходных. Лёгкие раны выглядят как прежде." } },
+			{ id = "chunks", type = "check", def = true,
+			  name = { "Chunks fly from deep wounds", "Из глубоких ран летят куски" },
+			  desc = { "A wound that reaches a crater or deeper throws a few meat chunks out of the body; more at the bone and when the part is destroyed. Uses the same meat models and limits as Dismemberment -> Gibs (which must also be on) and Performance -> Severed parts and gibs at once.",
+			           "Рана, дошедшая до воронки или глубже, выбрасывает из тела несколько кусков мяса; больше у кости и когда часть разрушена. Использует те же модели мяса и пределы, что Расчленение -> Ошмётки (оно тоже должно быть включено) и Производительность -> Оторванных частей и ошмётков одновременно." } },
+			{ id = "sever", type = "check", def = true,
+			  name = { "Destroyed parts come off bodies", "Разрушенные части отрываются у тел" },
+			  desc = { "When a wound on a dead body's head, arm or leg is destroyed (the last stage), that part comes off, following the Dismemberment settings (heads, limbs, mutants, shooting bodies). The living never lose parts.",
+			           "Когда рана на голове, руке или ноге мёртвого тела разрушена (последняя стадия), эта часть отрывается, по настройкам Расчленения (головы, конечности, мутанты, стрельба по телам). Живые части не теряют." } },
+			{ id = "dents", type = "check", def = false, coop = "local",
+			  name = { "Wound craters in the body (experimental, your own)", "Воронки ран в теле (эксперимент, ваша настройка)" },
+			  desc = { "Wounds become real holes in the body's surface: a crater with a bloody rim, layers of fat and muscle on the walls and bone at the bottom of the deepest ones, which move with the body and its shadow. Experimental: it needs models baked with bake.py --experimental-damage (much larger), the DirectX 10 or 11 renderer, and shader features not yet confirmed in this game. To check it: first run Diagnostics probes 1, 2 and 3 (they must pass), save, tick this, then shoot one spot on a body several times with a rifle; a crater should open there, and the body should look exactly as before everywhere else, shadow included. If the game closes, parts of bodies vanish or flicker, or bodies turn pink, untick it and report it. Each player's own setting; partners see their own setting.",
+			           "Раны становятся настоящими углублениями в теле: воронка с кровавым краем, слои жира и мышц на стенках и кость на дне самых глубоких, они двигаются вместе с телом и его тенью. Экспериментально: нужны модели, запечённые с bake.py --experimental-damage (намного больше), рендер DirectX 10 или 11 и возможности шейдеров, ещё не проверенные в этой игре. Проверка: сначала запустите пробы 1, 2 и 3 на странице Диагностика (они должны пройти), сохранитесь, включите это и несколько раз выстрелите из винтовки в одно место тела; там должна открыться воронка, а в остальном тело должно выглядеть как раньше, включая тень. Если игра закрывается, части тел пропадают или мерцают, или тела становятся розовыми, выключите и сообщите. У каждого игрока своя настройка; напарники видят по своей." } },
+		},
+	},
+	{
+		page = "performance",
+		items = {
+			{ id = "wound_npcs", type = "track", min = 0, max = 32, step = 1, perf = { 2, 4, 6, 10, 16 },
+			  name = { "Bodies with wound craters", "Тел с воронками ран" },
+			  desc = { "How many wounded bodies near you draw their wounds as craters (Wounds -> Wound craters, experimental); the rest keep their wound marks only. Each one costs a little GPU time while it is on screen.",
+			           "Сколько раненых тел рядом с вами рисуют раны воронками (Раны -> Воронки ран, эксперимент); остальные сохраняют только следы ран. Каждое немного нагружает видеокарту, пока видно." } },
+			{ id = "wound_sites", type = "track", min = 1, max = 24, step = 1, perf = { 4, 6, 8, 12, 16 },
+			  name = { "Wounds kept per body", "Ран на одно тело" },
+			  desc = { "How many separate wounds one body keeps track of; past this the lightest one is forgotten (its marks stay). At most four of them per body part are drawn as craters.",
+			           "Сколько отдельных ран отслеживается на одном теле; сверх этого самая лёгкая забывается (её следы остаются). Воронками рисуются не больше четырёх на одну часть тела." } },
+			{ id = "wound_rate", type = "track", min = 1, max = 10, step = 1, perf = { 1, 2, 3, 4, 6 },
+			  name = { "Wound updates per second", "Обновлений ран в секунду" },
+			  desc = { "How often the bodies drawing wound craters are chosen again as you move, and wounds shared by a co-op host are put on bodies. Higher reacts faster and costs a little more CPU.",
+			           "Как часто заново выбираются тела с воронками ран, пока вы двигаетесь, и применяются раны, присланные хостом кооператива. Больше реагирует быстрее и немного больше нагружает процессор." } },
+		},
+	},
+}

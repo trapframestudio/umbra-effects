@@ -1,0 +1,939 @@
+--[[
+  Zone Gore Overhaul - blood decals
+
+  * Trajectory painting: every hit throws a few blood "streams" out of the
+    wound. Each one flies under gravity and is ray-cast step by step; where
+    and how it lands decides the decal:
+      - how far it flew: thick splashes / heavy spatter only close to the
+        wound, medium spatter further out, fine spray and mist far away;
+      - the angle: glancing hits paint directional spatter along the travel,
+        head-on hits radial splashes, blood dropping steeply onto a floor
+        splashes, shallow floor hits skid into spatter;
+      - calibre class / energy widens the "close" zone and picks heavier
+        textures; buckshot gets pellet clusters, headshots gore.
+    Streams that hit another person paint that person.
+  * Wet wall hits grow drip runs that creep down over several seconds
+    (shader-driven, like the pools: see shaders/r3).
+  * Body marks: entry / exit wounds, and on the living a stain that soaks
+    outward while they bleed.
+  * Smears when a body is killed against a wall, sparse drip trails behind
+    the wounded that follow the engine's own bleeding rate (pools form under
+    someone who bleeds standing still), spreading death pools.
+
+  All placement runs on the main thread on the authority (single player or
+  co-op host) and is mirrored to co-op clients.
+  Painter of the Zone (sunn, Apache 2.0) textures are used colour-graded;
+  see CREDITS.txt.
+]]
+
+local U = zgo_util
+
+------------------------------------------------------------------------
+-- Texture categories (sections live in configs/mod_system_zgo.ltx)
+------------------------------------------------------------------------
+local COUNT = {
+	spatter = 16, mist = 14, splash = 14, run = 12, drops = 14, arterial = 8,
+	fine = 12, heavy = 12, gore = 10, buckshot = 10, castoff = 8, smear = 10, trail = 8,
+	dribble = 10, dripspot = 8,
+	p_splash = 12, p_normal = 9, p_drip = 6, p_wound = 3,
+}
+local GRAVITY  = { splash = true, run = true, arterial = true, smear = true }
+local DIRECTED = { spatter = true, mist = true, fine = true, heavy = true, trail = true, dribble = true, castoff = true }
+-- image position of the "source" relative to the centre, in half-extents
+-- (x along image +x, y along image down)
+local ANCHOR = {
+	spatter = { -0.66, 0 }, mist = { -0.55, 0 }, fine = { -0.62, 0 }, heavy = { -0.68, 0 },
+	run = { 0, -0.7 }, smear = { 0, -0.72 }, dribble = { -0.6, 0 }, castoff = { -0.5, 0 },
+}
+-- half-extent ranges (engine "size")
+local SIZE = {
+	spatter = { 0.6, 1.05 }, mist = { 0.55, 1.0 }, fine = { 0.45, 0.8 }, heavy = { 0.7, 1.2 },
+	gore = { 0.55, 0.95 }, splash = { 0.5, 0.85 }, buckshot = { 0.6, 1.0 }, drops = { 0.35, 0.65 },
+	run = { 0.45, 0.8 }, arterial = { 0.6, 0.95 }, castoff = { 0.6, 1.0 }, smear = { 0.55, 0.9 },
+	trail = { 0.5, 0.8 }, dribble = { 0.32, 0.55 }, dripspot = { 0.16, 0.3 },
+	p_splash = { 0.55, 1.0 }, p_normal = { 0.5, 0.9 }, p_drip = { 0.3, 0.5 }, p_wound = { 0.1, 0.25 },
+}
+local THICK = { heavy = true, splash = true, gore = true, p_splash = true, buckshot = true, arterial = true, smear = true }
+
+function section(cat)
+	local n = COUNT[cat]
+	if not n then return nil end
+	if string.sub(cat, 1, 2) == "p_" then return "zgo_" .. cat .. "_" .. math.random(1, n) end
+	return "zgo_fx_" .. cat .. "_" .. math.random(1, n)
+end
+
+local function lifetime() return U.setting("performance/decal_lifetime") or 900 end
+
+-- when each ZGO decal on this machine expires (ms), for stats().placed (the
+-- Diagnostics co-op probe shows every machine's count; informational only)
+local live, live_max = {}, 4096
+local function placed(ok, ttl)
+	if ok then
+		if #live >= live_max then table.remove(live, 1) end
+		live[#live + 1] = time_global() + (tonumber(ttl) or lifetime()) * 1000
+	end
+	return ok
+end
+local function amount() return U.setting("decals/amount") or 1 end
+
+local function choose(tbl)
+	local total = 0
+	for _, e in ipairs(tbl) do total = total + e[1] end
+	local r, acc = math.random() * total, 0
+	for _, e in ipairs(tbl) do
+		acc = acc + e[1]
+		if r <= acc then return e[2] end
+	end
+	return tbl[#tbl][2]
+end
+
+------------------------------------------------------------------------
+-- Placement primitives (main thread) + co-op mirroring
+------------------------------------------------------------------------
+local mgr = nil
+
+-- The engine's wallmark manager keeps the raw char pointer of a section name
+-- the first time it sees it (script_wallmarks_manager.cpp: m_section =
+-- section) and compares every later name against it. A name built on the fly
+-- would be garbage-collected and the pointer would dangle (wrong decal, list
+-- growing forever), so every name handed to the engine is kept alive here for
+-- the whole session: Lua interns strings, so this pins the very object the
+-- engine points at. A section the engine doesn't know is a fatal R_ASSERT, so
+-- names are checked first (co-op peers may run another mod version).
+local PINNED = {}
+function pin(sec)
+	if type(sec) ~= "string" then return nil end
+	if PINNED[sec] then return sec end
+	if string.sub(sec, 1, 4) ~= "zgo_" then return nil end
+	local ok, exists = pcall(ini_sys.section_exist, ini_sys, sec)
+	if not (ok and exists) then
+		U.dbg("unknown wallmark section %s", sec)
+		return nil
+	end
+	PINNED[sec] = true
+	return sec
+end
+
+local function manager()
+	if not mgr then
+		local ok, m = pcall(wallmarks_manager)
+		mgr = ok and m or nil
+	end
+	return mgr
+end
+
+-- raw static decal: ray from start along dir
+function place_raw(dir, start, range, size, sec, ignore, ttl, rot)
+	local m = manager()
+	sec = pin(sec)
+	if not (m and sec) then return false end
+	if U.gore() then
+		local ok, err = pcall(m.place, m, dir, start, range, size, sec, ignore or db.actor, ttl or lifetime(), rot or 0)
+		placed(ok, ttl)
+		if not ok then U.dbg("place %s failed: %s", sec, tostring(err)) return false end
+	end
+	if U.has_peers() then
+		local d = U.cast(start, dir, range, rq_target.rqtStatic, ignore or db.actor)
+		if d then
+			local hp = U.along(start, dir, d)
+			zgo_sync.emit({ "W", sec, hp.x, hp.y, hp.z, dir.x, dir.y, dir.z, size, ttl or lifetime(), rot or 0 })
+		end
+	end
+	return true
+end
+
+-- decal on a known surface point p0 / normal n. cat drives rotation + anchor;
+-- t (optional) is the travel direction along the surface for directed types.
+function lay(ignore, p0, n, cat, size, t, sec)
+	sec = sec or section(cat)
+	if not sec then return end
+	local wall = math.abs(n.y) < 0.7
+	local rot
+	if DIRECTED[cat] and t then
+		rot = U.rot_toward(n, t)
+	elseif GRAVITY[cat] and wall then
+		rot = U.rand(-8, 8)
+	elseif string.sub(cat, 1, 2) == "p_" and wall then
+		rot = U.rand(-20, 20)
+	else
+		rot = math.random() * 360
+	end
+	local c = p0
+	local an = ANCHOR[cat]
+	if an and ((DIRECTED[cat] and t) or (GRAVITY[cat] and wall)) then
+		local ix, iy = U.image_axes(n, rot)
+		c = U.v3(p0.x - (ix.x * an[1] + iy.x * an[2]) * size,
+			p0.y - (ix.y * an[1] + iy.y * an[2]) * size,
+			p0.z - (ix.z * an[1] + iy.z * an[2]) * size)
+	end
+	local inward = U.v3(-n.x, -n.y, -n.z)
+	local start = U.along(c, n, 0.15)
+	-- the shifted point must still be on the same surface; otherwise use the impact point
+	if not U.cast(start, inward, 0.35, rq_target.rqtStatic, ignore) then start = U.along(p0, n, 0.15) end
+	place_raw(inward, start, 0.4, size, sec, ignore, lifetime(), rot)
+end
+
+-- decal on a creature's body (follows its skeleton)
+function place_body(obj, sec, pos, dir, size, ttl)
+	sec = pin(sec)
+	if not (obj and sec and U.setting("decals/body")) then return end
+	local m = manager()
+	if not m then return end
+	local ok = true
+	if U.gore() then ok = placed(pcall(m.place_skeleton, m, obj, sec, pos, dir, size, ttl or lifetime()), ttl) end
+	if ok and U.has_peers() then
+		local bone = nearest_bone(obj, pos)
+		if bone then
+			local bp = obj:bone_position(bone)
+			zgo_sync.emit({ "S", obj:id(), obj:section(), bone, pos.x - bp.x, pos.y - bp.y, pos.z - bp.z,
+				dir.x, dir.y, dir.z, size, ttl or lifetime(), sec })
+		end
+	end
+end
+
+function nearest_bone(o, pos)
+	local best, best_d
+	for i = 0, 127 do
+		local ok, name = pcall(function() return o:bone_name(i) end)
+		if not ok or not name or name == "" then break end
+		local okp, bp = pcall(function() return o:bone_position(name) end)
+		if okp and bp then
+			local d = bp:distance_to_sqr(pos)
+			if not best_d or d < best_d then best, best_d = name, d end
+		end
+	end
+	return best
+end
+
+------------------------------------------------------------------------
+-- Growing decals (shader "arrival" textures): death pools and wall drips.
+-- A placed decal can't be resized, so the spreading is done in the blood
+-- shader: these textures store when each texel gets wet, and a short-lived
+-- "grow" decal reveals them as it ages. When the front is complete an
+-- identical settled decal takes over for the full lifetime.
+------------------------------------------------------------------------
+local growths = {}
+local POOL_VARIANTS, DRIP_VARIANTS = 12, 10
+
+local function lay_growth(g, sec, ttl)
+	local m = manager()
+	sec = pin(sec)
+	if not (m and sec) then return end
+	local ign = (g.ignore and U.resolve(g.ignore, g.isec)) or db.actor
+	placed(pcall(m.place, m, g.dir, g.start, g.range, g.size, sec, ign, ttl, g.rot), ttl)
+end
+
+local function start_growth(g)
+	if not U.gore() then return end
+	g.t0 = time_global()
+	lay_growth(g, g.grow, g.grow_ttl)
+	growths[#growths + 1] = g
+end
+
+local function update_growths(now)
+	for i = #growths, 1, -1 do
+		local g = growths[i]
+		if now - g.t0 >= g.swap then
+			lay_growth(g, g.final, g.ttl)
+			table.remove(growths, i)
+		end
+	end
+end
+
+-- pools: grow for POOL_GROW_TTL s, swap to the settled decal at POOL_SWAP ms
+local POOL_GROW_TTL, POOL_SWAP = 12, 10000
+
+function start_pool(pos, tex, size, ttl, rot, ign_id, ign_sec, grow_ttl)
+	grow_ttl = grow_ttl or POOL_GROW_TTL
+	start_growth({ grow = "zgo_pool_grow_" .. tex, final = "zgo_pool_" .. tex,
+		start = U.v3(pos.x, pos.y + 0.15, pos.z), dir = U.v3(0, -1, 0), range = 0.5,
+		size = size, rot = rot, ttl = ttl, grow_ttl = grow_ttl, swap = math.floor(grow_ttl * 1000 * 0.84),
+		ignore = ign_id, isec = ign_sec })
+	U.dbg("pool %s size %s", tex, U.r3(size))
+end
+
+-- authority: a pool at a floor point, mirrored to clients
+function pool_at(floor, size, ign_id, ign_sec, grow_ttl)
+	local tex  = math.random(1, POOL_VARIANTS)
+	local ttl  = lifetime()
+	local rot  = math.random() * 360
+	grow_ttl = grow_ttl or POOL_GROW_TTL
+	start_pool(floor, tex, size, ttl, rot, ign_id, ign_sec, grow_ttl)
+	zgo_sync.emit({ "P", tex, floor.x, floor.y, floor.z, size, ttl, rot, ign_id or 65535, ign_sec or "-", grow_ttl })
+end
+
+-- drip runs hanging under a wet point on a wall. The texture's source sits at
+-- 0.82 half-extents above its centre; the runs reach 0.86 below it.
+local DRIP_SRC, DRIP_REACH = 0.82, 0.86
+local recent_drips, RECENT_MAX, DRIP_GAP = {}, 48, 0.3
+
+-- one run per wet spot: skip if another started close by recently
+local function drip_crowded(p, now)
+	for i = #recent_drips, 1, -1 do
+		local r = recent_drips[i]
+		if now - r.t > 60000 then
+			table.remove(recent_drips, i)
+		elseif r.p:distance_to_sqr(p) < DRIP_GAP * DRIP_GAP then
+			return true
+		end
+	end
+	return false
+end
+
+local function start_drip_local(c, n, size, tex, grow_ttl, rot, ttl)
+	start_growth({ grow = "zgo_drip_grow_" .. tex, final = "zgo_drip_" .. tex,
+		start = U.along(c, n, 0.12), dir = U.v3(-n.x, -n.y, -n.z), range = 0.35,
+		size = size, rot = rot, ttl = ttl, grow_ttl = grow_ttl, swap = math.floor(grow_ttl * 1000 * 0.84) })
+end
+
+-- authority: runs starting at p (on a wall with normal n); wet 0..2 = how much blood
+function drip(p, n, wet, ignore)
+	if not U.setting("decals/drips") then return end
+	if math.abs(n.y) > 0.45 then return end   -- walls only
+	local now = time_global()
+	if drip_crowded(p, now) then return end
+	local rot = U.rand(-3, 3)
+	local _, down = U.image_axes(n, rot)
+	-- how much wall is there below the source? (runs must not wrap onto the floor)
+	local room = U.cast(U.along(p, n, 0.04), U.v3(0, -1, 0), 2.0, rq_target.rqtStatic, ignore) or 2.0
+	local want = U.rand(0.35, 0.6) * U.clamp(0.75 + 0.35 * (wet or 1), 0.7, 1.4)
+	local size = math.min(want, (room - 0.03) / (DRIP_SRC + DRIP_REACH))
+	if size < 0.12 then return end
+	local c = U.along(p, down, DRIP_SRC * size)
+	-- the decal centre must still be on this wall
+	if not U.cast(U.along(c, n, 0.12), U.v3(-n.x, -n.y, -n.z), 0.3, rq_target.rqtStatic, ignore) then return end
+	if #recent_drips >= RECENT_MAX then table.remove(recent_drips, 1) end
+	recent_drips[#recent_drips + 1] = { p = U.vcopy(p), t = now }
+	local tex = math.random(1, DRIP_VARIANTS)
+	local grow_ttl = U.rand(7, 15) / U.clamp(0.6 + 0.4 * (wet or 1), 0.6, 1.4)
+	local ttl = lifetime()
+	start_drip_local(c, n, size, tex, grow_ttl, rot, ttl)
+	zgo_sync.emit({ "R", tex, c.x, c.y, c.z, n.x, n.y, n.z, size, grow_ttl, rot, ttl })
+	U.dbg("drip %s size %s grow %s s", tex, U.r3(size), U.r3(grow_ttl))
+end
+
+------------------------------------------------------------------------
+-- Trajectory painting
+------------------------------------------------------------------------
+local G          = 9.81
+local STEP       = 0.035   -- s
+local MAX_T      = 1.2     -- s
+local EXIT_P     = { 0.25, 0.7, 0.9, 1.0, 1.0 }
+
+-- does this hit come out the other side?
+function roll_exit(prof, head)
+	if prof.kind == "melee" then return false end
+	return math.random() < (EXIT_P[prof.cls] or 0.7) + (head and 0.2 or 0) - (prof.kind == "buck" and 0.5 or 0)
+end
+
+-- 1 = right next to the wound (thick), 0 = far away (only fine spray reaches)
+local function closeness(st)
+	local cls = st.prof.cls or 2
+	local near_r = 0.4 + 0.12 * cls + (st.heavy and 0.2 or 0)
+	local far_r  = 1.3 + 0.35 * cls + (st.heavy and 0.4 or 0)
+	return U.clamp(1 - (st.travel - near_r) / (far_r - near_r), 0, 1)
+end
+
+local function directed_cat(cls, k, head)
+	if k > 0.65 then
+		if head and math.random() < 0.35 then return "gore" end
+		if cls <= 1 then return choose({ { 0.6, "spatter" }, { 0.4, "fine" } }) end
+		if cls == 2 then return choose({ { 0.55, "spatter" }, { 0.45, "heavy" } }) end
+		return choose({ { 0.7, "heavy" }, { 0.3, "spatter" } })
+	elseif k > 0.3 then
+		if cls >= 3 then return choose({ { 0.65, "spatter" }, { 0.35, "fine" } }) end
+		return choose({ { 0.45, "spatter" }, { 0.55, "fine" } })
+	end
+	return choose({ { 0.45, "fine" }, { 0.3, "spatter" }, { 0.25, "mist" } })
+end
+
+local function radial_cat(prof, k, head)
+	if k > 0.6 then
+		if prof.kind == "buck" then return choose({ { 0.7, "buckshot" }, { 0.3, "splash" } }) end
+		if head then return choose({ { 0.6, "gore" }, { 0.4, "splash" } }) end
+		if prof.cls >= 4 then return choose({ { 0.5, "gore" }, { 0.5, "splash" } }) end
+		return choose({ { 0.55, "splash" }, { 0.45, "p_splash" } })
+	elseif k > 0.3 then
+		if prof.kind == "buck" then return choose({ { 0.6, "buckshot" }, { 0.4, "fine" } }) end
+		return choose({ { 0.5, "p_normal" }, { 0.5, "fine" } })
+	end
+	return choose({ { 0.35, "mist" }, { 0.4, "fine" }, { 0.25, "spatter" } })
+end
+
+-- a stream landed on a static surface
+local function land(st, p0, n, v)
+	local spd = U.len(v)
+	local vdir = U.unit(v) or st.dir
+	local cosi = -U.dot(vdir, n)
+	local t = U.unit(U.add(vdir, U.mul(n, cosi)))
+	local k = closeness(st)
+	local floor = n.y > 0.7
+	local cat
+	if st.cat then
+		cat = st.cat
+	elseif st.mist then
+		-- the fast fine fraction: speckle close by, a spray pattern further out
+		cat = k > 0.5 and choose({ { 0.55, "fine" }, { 0.45, "spatter" } })
+			or choose({ { 0.45, "mist" }, { 0.3, "fine" }, { 0.25, "spatter" } })
+	elseif spd < 2.2 then
+		-- dribbling out of reach of any force: single drops
+		cat = (k > 0.5 and math.random() < 0.4) and "p_drip" or "dripspot"
+		t = nil
+	elseif floor then
+		if cosi > 0.75 then
+			-- dropping steeply onto the floor: splashes close by, drops further out
+			cat = k > 0.45 and radial_cat(st.prof, k, st.head) or choose({ { 0.6, "dripspot" }, { 0.4, "fine" } })
+			if cat == "fine" then t = t or st.dir end
+		else
+			cat = directed_cat(st.prof.cls, k * 0.85, st.head)
+		end
+	elseif cosi < 0.8 and t then
+		cat = directed_cat(st.prof.cls, k, st.head)
+	else
+		cat = radial_cat(st.prof, k, st.head)
+		t = nil
+	end
+	local r = SIZE[cat] or SIZE.spatter
+	-- thick marks scale with how close they were; sparse ones keep their reach
+	local near_scale = THICK[cat] and (0.75 + 0.35 * k) or (0.85 + 0.15 * k)
+	local size = U.rand(r[1], r[2]) * st.scale * near_scale
+	lay(st.victim, p0, n, cat, size, (DIRECTED[cat] and t) or nil)
+	-- wet hits on walls start to run (at most one or two runs per hit)
+	if not floor and st.drips and st.drips.n > 0 and (THICK[cat] or cat == "spatter") and k > 0.45
+		and math.random() < 0.4 * st.vol * k then
+		st.drips.n = st.drips.n - 1
+		local below = U.along(p0, U.v3(0, -1, 0), size * 0.15)
+		drip(below, n, st.vol * k * (THICK[cat] and 1.2 or 0.8), st.victim)
+	end
+	U.dbg("stream landed: %s size %s speed %s travel %s k %s", cat, U.r3(size), U.r3(spd), U.r3(st.travel), U.r3(k))
+	return cat
+end
+
+-- a stream hit another person
+local function land_on_body(st, obj, p)
+	if not U.setting("decals/bystanders") then return end
+	local cat = choose({ { 0.5, "p_wound" }, { 0.5, "p_splash" } })
+	local r = SIZE[cat]
+	place_body(obj, section(cat), p, st.dir, U.rand(r[1], r[2]) * (cat == "p_splash" and 0.35 or 1), lifetime())
+end
+
+-- Segments are exact chords of the parabola (gravity is constant over a step),
+-- so a step can be long: the time step keeps each chord ~0.6 m (the bend of
+-- the arc inside one step stays under 2 cm). Blood that has flown MAX_TRAVEL
+-- is spent as mist.
+local MAX_TRAVEL, CHORD = 6, 0.6
+local function fly(st)
+	local p, v = st.pos, st.vel
+	local t = 0
+	while t < MAX_T and st.travel < MAX_TRAVEL do
+		local spd = U.len(v)
+		local dt = U.clamp(CHORD / math.max(spd, 0.1), STEP, 0.12)
+		local seg = U.v3(v.x * dt, (v.y - G * dt * 0.5) * dt, v.z * dt)
+		local l = U.len(seg)
+		if l < 1e-4 then return end
+		local d = U.unit(seg)
+		local hit_d, obj = U.cast(p, d, l + 0.02, rq_target.rqtBoth, st.victim)
+		if hit_d then
+			local hp = U.along(p, d, hit_d)
+			if obj then
+				if obj:id() ~= st.victim_id and U.is_creature(obj) then land_on_body(st, obj, hp) end
+				return
+			end
+			local p0, n = U.surface_at(p, d, hit_d + 0.3, st.victim)
+			if p0 then return land(st, p0, n, v), p0 end
+			return
+		end
+		p = U.add(p, seg)
+		v = U.v3(v.x, v.y - G * dt, v.z)
+		st.travel = st.travel + l
+		t = t + dt
+	end
+end
+
+--[[ ev (copied at hit time):
+  id, victim, pos (entry), dir, prof, vol (0.4..2), head, neck, dead
+]]
+function paint_hit(ev)
+	local victim = level.object_by_id(ev.id)
+	if not victim then return end
+	local prof, amt = ev.prof, amount()
+	local energy = prof.energy
+	local scale = U.clamp(0.6 + 0.22 * energy, 0.6, 1.4) * math.sqrt(amt) * U.clamp(0.75 + 0.25 * ev.vol, 0.8, 1.3)
+	local exits = ev.exits
+	if exits == nil then exits = roll_exit(prof, ev.head) end
+	local max_streams = U.setting("performance/max_streams") or 7
+	local streams = {}
+	local drips = { n = energy > 1.8 and 2 or 1 }
+
+	local function add_stream(origin, dir, speed, mist, heavy)
+		streams[#streams + 1] = {
+			pos = origin, dir = dir, vel = U.mul(dir, speed), prof = prof, head = ev.head, mist = mist,
+			heavy = heavy, scale = scale * (mist and 1.0 or (heavy and 1.0 or 0.8)), vol = ev.vol,
+			victim = victim, victim_id = ev.id, travel = 0, drips = drips,
+		}
+	end
+
+	if prof.kind == "blast" then
+		-- explosions throw blood everywhere
+		for i = 1, math.min(max_streams + 2, 9) do
+			local d = U.cone(U.v3(0, 0.6, 0), 1.4)
+			add_stream(U.along(ev.pos, d, 0.25), d, U.rand(4, 9), i % 3 == 0, true)
+		end
+	else
+		local n = math.floor((1.5 + energy * 1.5) * amt * math.sqrt(ev.vol) + 0.5)
+		n = U.clamp(n, 1, max_streams)
+		if exits then
+			local exit = U.along(ev.pos, ev.dir, ev.head and 0.14 or 0.24)
+			for i = 1, n do
+				local half = i == 1 and U.rand(0.08, 0.18) or U.rand(0.2, 0.55)
+				local d = U.cone(ev.dir, half)
+				local speed = (3.5 + 4.5 * energy) * U.rand(0.55, 1.15) * (i == 1 and 1 or 0.85)
+				add_stream(exit, d, speed, false, i <= 2)
+			end
+			-- fine exit mist for anything with real energy
+			if energy > 0.8 and math.random() < 0.75 then
+				local d = U.cone(ev.dir, 0.25)
+				add_stream(exit, d, (5 + 4 * energy) * U.rand(0.7, 1.1), true, false)
+			end
+		end
+		-- back spatter toward the shooter (stronger when nothing came out the back)
+		local back = (exits and 0.35 or 0.9) * U.clamp(energy, 0.4, 1.4)
+		if math.random() < back then
+			local d = U.cone(U.v3(-ev.dir.x, -ev.dir.y, -ev.dir.z), 0.6)
+			add_stream(U.along(ev.pos, d, 0.05), d, U.rand(1.5, 3.5) + energy, math.random() < 0.5, false)
+		end
+		if prof.kind == "buck" then
+			-- several entry wounds: a couple of short sprays
+			for i = 1, math.min(2, max_streams) do
+				local d = U.cone(ev.dir, 0.5)
+				add_stream(U.along(ev.pos, d, 0.1), d, U.rand(2, 5), false, false)
+			end
+		end
+	end
+
+	for _, st in ipairs(streams) do
+		local ok, err = pcall(fly, st)
+		if not ok then U.log("stream error: %s", tostring(err)) end
+	end
+
+	-- blood falling straight down around the victim: sparse drops, a splash only for heavy hits
+	if math.random() < U.clamp(0.5 + 0.25 * ev.vol, 0.5, 0.95) then
+		local fdir = U.unit(U.v3(ev.dir.x * 0.35, -1, ev.dir.z * 0.35))
+		local p0, fn = U.surface_at(ev.pos, fdir, 3, victim)
+		if p0 then
+			local cat = ev.vol > 1.2 and choose({ { 0.4, "p_normal" }, { 0.35, "dripspot" }, { 0.25, "p_drip" } })
+				or choose({ { 0.6, "dripspot" }, { 0.4, "p_drip" } })
+			local r = SIZE[cat]
+			lay(victim, p0, fn, cat, U.rand(r[1], r[2]) * U.clamp(0.8 + 0.2 * ev.vol, 0.8, 1.25))
+		end
+	end
+
+	-- wounds on the body itself
+	if U.setting("decals/body") then
+		local wsz = U.clamp(0.07 + 0.05 * energy, 0.07, 0.24)
+		place_body(victim, section("p_wound"), ev.pos, ev.dir, wsz, lifetime())
+		if exits and prof.cls >= 2 then
+			-- exit wounds are larger and messier than entries
+			local ex = U.along(ev.pos, ev.dir, ev.head and 0.14 or 0.2)
+			place_body(victim, section("p_wound"), ex, U.v3(-ev.dir.x, -ev.dir.y, -ev.dir.z), wsz * U.rand(1.3, 1.8))
+			if energy > 1.4 then
+				place_body(victim, section("p_splash"), ex, U.v3(-ev.dir.x, -ev.dir.y, -ev.dir.z), wsz * 1.6)
+			end
+		end
+	end
+
+	-- killed against a wall: the body slides down it
+	if ev.dead and not ev.was_dead then
+		local p0, n = U.surface_at(ev.pos, U.unit(U.v3(ev.dir.x, 0, ev.dir.z)) or ev.dir, 0.9, victim)
+		if p0 and math.abs(n.y) < 0.7 then
+			lay(victim, p0, n, "smear", U.rand(SIZE.smear[1], SIZE.smear[2]) * U.clamp(0.8 + 0.2 * ev.vol, 0.8, 1.2))
+			drip(U.along(p0, U.v3(0, -1, 0), 0.1), n, 1.4, victim)
+		end
+	end
+end
+
+--[[ an explosion resolved on one body (zgo_blast):
+  id, torso, away (unit, from the blast), sev 0..1, prox 0..1, vol,
+  frags = { { pos, dir, bone, head } ... } (entry points, max 8) ]]
+function paint_blast(ev)
+	local victim = level.object_by_id(ev.id)
+	if not victim then return end
+	local amt, sev = amount(), ev.sev
+	local max_streams = U.setting("performance/max_streams") or 7
+	local bprof = { kind = "blast", cls = sev > 0.5 and 4 or 3, energy = 1 + 2 * sev, pellets = 1 }
+	local fprof = { kind = "bullet", cls = 1, energy = 0.6, pellets = 1 }
+	local drips = { n = sev > 0.6 and 2 or 1 }
+	local streams = {}
+	local function add(origin, dir, speed, prof, mist, heavy, scale)
+		streams[#streams + 1] = { pos = origin, dir = dir, vel = U.mul(dir, speed), prof = prof, head = false, mist = mist,
+			heavy = heavy, scale = scale, vol = ev.vol, victim = victim, victim_id = ev.id, travel = 0, drips = drips }
+	end
+	-- the blast throws blood off the far side of the body, away from it
+	if sev > 0.15 then
+		local out = U.unit(U.add(ev.away, U.v3(0, 0.45, 0))) or U.v3(0, 1, 0)
+		local n = U.clamp(math.floor((2 + 5 * sev) * amt + 0.5), 1, math.min(max_streams, 7))
+		local scale = U.clamp(0.7 + 0.6 * sev, 0.7, 1.3) * math.sqrt(amt)
+		for i = 1, n do
+			local d = U.cone(out, 0.85)
+			add(U.along(ev.torso, d, 0.2), d, U.rand(2.5, 4) + 6 * sev * U.rand(0.6, 1.1), bprof, i % 3 == 0, sev > 0.5, scale)
+		end
+	end
+	-- fragments: a short spray out of each of the first few wounds
+	for i, f in ipairs(ev.frags) do
+		if i > 3 then break end
+		local d = U.cone(f.dir, 0.4)
+		add(U.along(f.pos, d, 0.12), d, U.rand(2, 4.5), fprof, false, false, 0.6 * math.sqrt(amt))
+	end
+	for _, st in ipairs(streams) do
+		local ok, err = pcall(fly, st)
+		if not ok then U.log("blast stream error: %s", tostring(err)) end
+	end
+
+	-- under the body
+	local p0, fn = U.surface_at(ev.torso, U.v3(0, -1, 0), 3, victim)
+	if p0 then
+		local cat = sev > 0.55 and choose({ { 0.6, "p_splash" }, { 0.4, "splash" } })
+			or (sev > 0.25 and choose({ { 0.5, "p_normal" }, { 0.5, "dripspot" } }) or "dripspot")
+		local r = SIZE[cat]
+		lay(victim, p0, fn, cat, U.rand(r[1], r[2]) * U.clamp(0.75 + 0.4 * sev, 0.75, 1.15))
+	end
+
+	-- on the body: every fragment wound, and the side that faced the blast
+	if U.setting("decals/body") then
+		for i, f in ipairs(ev.frags) do
+			if i > 6 then break end
+			place_body(victim, section("p_wound"), f.pos, f.dir, U.rand(0.05, 0.09) * (f.head and 0.8 or 1))
+		end
+		if sev > 0.35 then
+			place_body(victim, section("p_splash"), U.along(ev.torso, ev.away, -0.14), ev.away, 0.16 + 0.16 * sev)
+		end
+	end
+end
+
+-- an arterial pulse: the same ballistic arc as the particle jet, so the blood
+-- lands where the stream is seen to go (authority only)
+function arterial_stream(id, pos, dir, speed, strength)
+	local victim = level.object_by_id(id)
+	if not victim then return end
+	local st = { pos = pos, dir = dir, vel = U.mul(dir, speed), prof = { cls = 3, energy = 1.2, kind = "bullet" },
+		head = false, heavy = true, scale = U.clamp(0.55 + 0.45 * strength, 0.5, 1.0), vol = 1.2 * strength,
+		victim = victim, victim_id = id, travel = 0 }
+	-- walls get the arc pattern + runs, floors a line of drops along the travel
+	local ok, cat, p0 = pcall(function()
+		local p, v, t = st.pos, st.vel, 0
+		while t < MAX_T do
+			local seg = U.v3(v.x * STEP, (v.y - G * STEP * 0.5) * STEP, v.z * STEP)
+			local l = U.len(seg)
+			if l < 1e-4 then return end
+			local d = U.unit(seg)
+			local hit_d, obj = U.cast(p, d, l + 0.02, rq_target.rqtStatic, victim)
+			if hit_d then
+				local q, n = U.surface_at(p, d, hit_d + 0.3, victim)
+				if not q then return end
+				local vdir = U.unit(v) or dir
+				local tdir = U.unit(U.add(vdir, U.mul(n, -U.dot(vdir, n)))) or dir
+				if n.y > 0.7 then
+					local c = U.len(v) > 2.5 and "castoff" or "dribble"
+					local r = SIZE[c]
+					lay(victim, q, n, c, U.rand(r[1], r[2]) * st.scale, tdir)
+					return c, q
+				end
+				local c = choose({ { 0.6, "arterial" }, { 0.4, "castoff" } })
+				local r = SIZE[c]
+				lay(victim, q, n, c, U.rand(r[1], r[2]) * st.scale, tdir)
+				if strength > 0.35 and math.random() < 0.6 then drip(U.along(q, U.v3(0, -1, 0), 0.05), n, 1.3 * strength, victim) end
+				return c, q
+			end
+			p = U.add(p, seg)
+			v = U.v3(v.x, v.y - G * STEP, v.z)
+			t = t + STEP
+		end
+	end)
+	if not ok then U.log("arterial stream error: %s", tostring(cat)) end
+end
+
+-- big gore splash for dismemberment / head explosions
+function gore_burst(id, pos, dir, power)
+	local victim = level.object_by_id(id)
+	if not victim then return end
+	local prof = { kind = "bullet", cls = 4, energy = 2.2 * (power or 1), pellets = 1 }
+	paint_hit({ id = id, pos = pos, dir = dir, prof = prof, vol = 1.6, head = true, dead = false, was_dead = true })
+end
+
+-- something wet (a severed limb, a gib) slapped onto a surface
+function debris_splat(p, n, scale, ignore)
+	local floor = n.y > 0.7
+	local cat = floor and choose({ { 0.5, "p_drip" }, { 0.3, "dripspot" }, { 0.2, "p_normal" } })
+		or choose({ { 0.6, "p_splash" }, { 0.4, "splash" } })
+	local r = SIZE[cat]
+	lay(ignore, p, n, cat, U.rand(r[1], r[2]) * 0.55 * (scale or 1))
+	if not floor and (scale or 1) >= 1 then drip(p, n, 0.8, ignore) end
+end
+
+-- a severed limb came to rest: a small pool under the cut end
+function debris_pool(p, size, ignore)
+	if not U.setting("decals/pools") then return end
+	local d = U.cast(U.v3(p.x, p.y + 0.4, p.z), U.v3(0, -1, 0), 1.5, rq_target.rqtStatic, ignore)
+	if not d then return end
+	local floor = U.v3(p.x, p.y + 0.4 - d, p.z)
+	pool_at(floor, size * (U.setting("decals/pool_size") or 1), nil, nil, 9)
+end
+
+------------------------------------------------------------------------
+-- Wounds that soak outward on the living (stains follow the bone)
+------------------------------------------------------------------------
+local soaks = {}
+function start_soak(id, sec, bone, off, dloc, vol)
+	if not (U.setting("decals/body") and bone and off and dloc) then return end
+	local max = U.setting("performance/body_soaks") or 24
+	if max <= 0 then return end
+	while #soaks >= max do table.remove(soaks, 1) end
+	local now = time_global()
+	soaks[#soaks + 1] = { id = id, sec = sec, bone = bone, off = off, dloc = dloc, stage = 0,
+		next = now + U.rand(1500, 2500), vol = vol or 1 }
+end
+
+local SOAK_SIZE = { 0.1, 0.15, 0.21 }
+
+local function update_soaks(now)
+	for i = #soaks, 1, -1 do
+		local s = soaks[i]
+		local o = level.object_by_id(s.id)
+		if not o or not o:alive() or s.stage >= #SOAK_SIZE then
+			table.remove(soaks, i)
+		elseif now >= s.next then
+			local bleed = zgo_fx.bleed_rate(o)
+			if bleed and bleed <= 0.002 and s.stage > 0 then
+				table.remove(soaks, i)   -- bandaged / stopped
+			else
+				s.stage = s.stage + 1
+				local pos = zgo_fx.bone_local_to_world(o, s.bone, s.off)
+				local dir = zgo_fx.bone_dir_to_world(o, s.bone, s.dloc)
+				if pos and dir then
+					local cat = s.stage == 1 and "p_wound" or "p_splash"
+					place_body(o, section(cat), pos, dir, SOAK_SIZE[s.stage] * U.clamp(0.8 + 0.25 * s.vol, 0.8, 1.3))
+				end
+				s.next = now + U.rand(3500, 6000) * s.stage
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Trails behind wounded, moving people. Follows the engine's bleeding rate
+-- (game_object.bleeding) when the NPC has one, else a timed model.
+------------------------------------------------------------------------
+local bleeders = {}
+-- trails: a little beyond the detail distance (55 m -> 70 m)
+local function trail_range() return (U.setting("performance/detail_range") or 55) * 1.27 end
+
+-- wound: optional { bone = name, off = bone-local point } where the blood comes out
+function start_bleeding(id, vol, wound)
+	if not U.setting("decals/trails") then return end
+	local now = time_global()
+	local b = bleeders[id]
+	local dur = 25000 + 50000 * U.clamp(vol, 0.3, 2)
+	if b then
+		b.until_t = math.max(b.until_t, now + dur)
+		b.vol = math.min(b.vol + vol * 0.5, 2.5)
+		if wound and wound.bone then b.wound = wound end
+	else
+		bleeders[id] = { until_t = now + dur, vol = U.clamp(vol, 0.3, 2), wound = wound, t0 = now, still_t = 0 }
+	end
+end
+
+function stop_bleeding(id) bleeders[id] = nil end
+
+-- 0..~2.5: how hard this bleeder is bleeding right now
+local function intensity(b, o, now)
+	local raw = zgo_fx.bleed_rate(o)
+	if raw and raw > 0 then
+		b.seen = math.max(b.seen or 0, raw)
+		b.ref = b.ref or raw
+		return U.clamp(b.vol * raw / b.ref, 0, 2.5), raw
+	end
+	if b.seen then return 0, raw end   -- engine says it stopped (bandaged / healed)
+	-- no engine value for this NPC: fade out over the timed duration
+	local left = (b.until_t - now) / math.max(b.until_t - b.t0, 1)
+	return U.clamp(b.vol * (0.4 + 0.6 * left), 0, 2.5), raw
+end
+
+local function wound_point(b, o)
+	local w = b.wound
+	if w and w.bone and o:get_bone_id(w.bone) ~= 65535 then
+		return zgo_fx.bone_local_to_world(o, w.bone, w.off or U.v3(0, 0, 0))
+	end
+	local bp = o:get_bone_id("bip01_spine") ~= 65535 and o:bone_position("bip01_spine")
+	return bp or U.v3(o:position().x, o:position().y + 1, o:position().z)
+end
+
+function update_trails()
+	if not db.actor then return end
+	local now = time_global()
+	local apos = db.actor:position()
+	for id, b in pairs(bleeders) do
+		local o = level.object_by_id(id)
+		if not o or not o:alive() or (now > b.until_t and not b.seen) or now > b.until_t + 150000 then
+			bleeders[id] = nil
+		elseif o:position():distance_to(apos) < trail_range() and now >= (b.next or 0) then
+			local I, raw = intensity(b, o, now)
+			if now >= (b.next_dbg or 0) then
+				-- for calibrating against the engine's bleeding value (MCM debug log)
+				b.next_dbg = now + 5000
+				U.dbg("bleeder %s: engine bleeding %s (first %s), intensity %s", o:section(), tostring(raw), tostring(b.ref), U.r3(I))
+			end
+			if I < 0.05 then
+				if now > b.until_t or b.seen then bleeders[id] = nil end
+				b.next = now + 1000
+			else
+				local pos = o:position()
+				local wp = wound_point(b, o) or pos
+				local drop_from = U.v3(wp.x, wp.y, wp.z)
+				local last = b.last
+				local moved = last and pos:distance_to(last) or 0
+				local dt = now - (b.last_t or now)
+				local speed = dt > 0 and moved / (dt / 1000) or 0
+				local p0, n = U.surface_at(drop_from, U.v3(0, -1, 0), 2.5, o)
+				if p0 then
+					if speed > 0.2 and moved > 0.05 then
+						-- walking / running: a line of single drops along the path
+						b.still_t = 0
+						local mv = U.sub(pos, last)
+						local t = U.unit(U.v3(mv.x, 0, mv.z))
+						local r = SIZE.dribble
+						lay(o, p0, n, "dribble", U.rand(r[1], r[2]) * U.clamp(0.75 + 0.2 * I, 0.75, 1.2), t)
+					else
+						-- standing: drops pile up under the wound, then pool
+						b.still_t = b.still_t + dt
+						local cat = (I > 1 and math.random() < 0.35) and "p_drip" or "dripspot"
+						local r = SIZE[cat]
+						lay(o, p0, n, cat, U.rand(r[1], r[2]) * U.clamp(0.8 + 0.2 * I, 0.8, 1.3))
+						if I > 0.7 and b.still_t > 7000 and now >= (b.next_pool or 0) then
+							b.next_pool = now + 25000
+							pool_at(p0, U.clamp(0.25 + 0.12 * I, 0.25, 0.5), id, o:section(), 16)
+						end
+					end
+				end
+				-- the drip itself (visible from the wound)
+				if wp:distance_to(apos) < 30 then
+					zgo_fx.play(I > 1.2 and "zgo\\dribble" or "zgo\\drip_fall", wp, U.v3(0, -1, 0), { minor = true })
+				end
+				b.last, b.last_t = U.vcopy(pos), now
+				b.next = now + math.floor(U.rand(650, 1150) / U.clamp(I, 0.35, 2.2))
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Death pools
+------------------------------------------------------------------------
+-- pools: a little beyond the detail distance (55 m -> 80 m)
+local function pool_radius() return (U.setting("performance/detail_range") or 55) * 1.45 end
+local POOL_SETTLE   = 1500
+local corpses = {}
+local bled = {}   -- id -> { v = blood volume collected from hits, t = last hit }
+local next_bled_prune = 0
+
+function add_bleed(id, vol)
+	local b = bled[id]
+	bled[id] = { v = (b and b.v or 0) + (vol or 1), t = time_global() }
+end
+
+function on_corpse(victim)
+	if not (victim and db.actor and U.is_authority()) then return end
+	if not U.setting("decals/pools") then return end
+	if victim:position():distance_to(db.actor:position()) > pool_radius() then return end
+	corpses[victim:id()] = time_global()
+end
+
+function update_pools()
+	local now = time_global()
+	for id, t0 in pairs(corpses) do
+		if now - t0 >= POOL_SETTLE then
+			corpses[id] = nil
+			local o = level.object_by_id(id)
+			if o then
+				local bp = o:get_bone_id("bip01_pelvis") ~= 65535 and o:bone_position("bip01_pelvis") or o:position()
+				local top = U.v3(bp.x, bp.y + 1, bp.z)
+				local d = U.cast(top, U.v3(0, -1, 0), 3, rq_target.rqtStatic, o)
+				if d then
+					local floor = U.v3(top.x, top.y - d, top.z)
+					local size = 0.77 * (U.setting("decals/pool_size") or 1) * U.clamp(0.8 + 0.12 * (bled[id] and bled[id].v or 1), 0.8, 1.35)
+					pool_at(floor, size, id, o:section())
+				end
+			end
+			bled[id] = nil
+		end
+	end
+	-- corpses shot after death never get a pool: forget their volume after a while
+	if now >= next_bled_prune then
+		next_bled_prune = now + 10000
+		for id, b in pairs(bled) do
+			if not corpses[id] and now - b.t > 60000 then bled[id] = nil end
+		end
+	end
+	update_growths(now)
+	update_soaks(now)
+end
+
+------------------------------------------------------------------------
+-- Co-op replay
+------------------------------------------------------------------------
+function register_sync()
+	-- (each machine draws what the host decided, unless it is in kid mode)
+	zgo_sync.on("W", function(t)
+		if #t < 11 or not U.gore() then return end
+		local m, sec = manager(), pin(t[2])
+		if not (m and sec) then return end
+		local hit = U.v3(tonumber(t[3]), tonumber(t[4]), tonumber(t[5]))
+		local dir = U.v3(tonumber(t[6]), tonumber(t[7]), tonumber(t[8]))
+		local start = U.along(hit, dir, -0.05)
+		placed(pcall(m.place, m, dir, start, 0.2, tonumber(t[9]), sec, db.actor, tonumber(t[10]), tonumber(t[11]) or 0), t[10])
+	end)
+	zgo_sync.on("S", function(t)
+		if #t < 13 or not U.gore() then return end
+		local o = U.resolve(t[2], t[3])
+		if not (o and o:get_bone_id(t[4]) ~= 65535) then return end
+		local m, sec = manager(), pin(t[13])
+		if not (m and sec) then return end
+		local bp = o:bone_position(t[4])
+		local pos = U.v3(bp.x + tonumber(t[5]), bp.y + tonumber(t[6]), bp.z + tonumber(t[7]))
+		local dir = U.v3(tonumber(t[8]), tonumber(t[9]), tonumber(t[10]))
+		placed(pcall(m.place_skeleton, m, o, sec, pos, dir, tonumber(t[11]), tonumber(t[12])), t[12])
+	end)
+	zgo_sync.on("P", function(t)
+		if #t < 10 then return end
+		local ign = tonumber(t[9])
+		start_pool(U.v3(tonumber(t[3]), tonumber(t[4]), tonumber(t[5])), tonumber(t[2]),
+			tonumber(t[6]), tonumber(t[7]), tonumber(t[8]), ign ~= 65535 and ign or nil, t[10] ~= "-" and t[10] or nil,
+			tonumber(t[11]))
+	end)
+	zgo_sync.on("R", function(t)
+		if #t < 12 then return end
+		start_drip_local(U.v3(tonumber(t[3]), tonumber(t[4]), tonumber(t[5])), U.v3(tonumber(t[6]), tonumber(t[7]), tonumber(t[8])),
+			tonumber(t[9]), tonumber(t[2]), tonumber(t[10]), tonumber(t[11]), tonumber(t[12]))
+	end)
+end
+
+-- kid mode switched (zgo_settings): blood already on walls is hidden by the
+-- blood shader; stop pools and runs that are still growing
+function kid_mode(kid)
+	if kid then growths = {} end
+end
+
+function reset()
+	corpses, growths, bleeders, bled, soaks, recent_drips = {}, {}, {}, {}, {}, {}
+	mgr, live = nil, {}
+end
+
+-- for tests / status
+-- placed: ZGO decals this machine put on surfaces and bodies that are still
+-- within their lifetime
+function stats()
+	local now, keep = time_global(), {}
+	for _, t in ipairs(live) do if t > now then keep[#keep + 1] = t end end
+	live = keep
+	return { growths = #growths, bleeders = (function() local n = 0 for _ in pairs(bleeders) do n = n + 1 end return n end)(),
+		soaks = #soaks, placed = #live }
+end

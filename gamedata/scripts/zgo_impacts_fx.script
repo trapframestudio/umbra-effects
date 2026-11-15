@@ -1,0 +1,119 @@
+--[[
+  Zone Gore Overhaul - particle player for world impacts and craters
+
+  The engine destroys a script particle as soon as its Lua object is garbage
+  collected (CScriptParticles::~CScriptParticles -> PSI_destroy), so every
+  effect started here is held until it has finished playing. Effects that
+  must stop after a while (crater smoke, Performance -> Explosion smoke) get
+  stop_deffered(): the emitter stops and what is already in the air fades.
+
+  Budget: a rolling one-second window (Performance -> World impacts: dust and
+  sparks per second) for ordinary impacts; "essential" effects (explosions)
+  always play. A hard cap on live effects keeps the oldest from piling up.
+
+  Main thread only (called from zgo_util events, sync handlers and
+  actor_on_update). Nothing here is gore: kid mode doesn't touch it.
+]]
+
+local U = zgo_util
+
+local LIFE_CAP = 25000      -- ms: nothing of ours plays longer than this (unless held)
+local live = {}
+local window_t, window_n = -1e9, 0
+local next_prune = 0
+local stats = { started = 0, skipped = 0, failed = 0 }
+
+local function per_second() return U.setting("performance/world_fx") or 28 end
+local function max_live() return math.max(24, per_second() * 4) end
+local function enabled_here() return U.setting("world/particles") ~= false end
+
+local function stop(p, deferred)
+	if deferred then
+		local ok = pcall(p.obj.stop_deffered, p.obj)
+		if ok then return end
+	end
+	pcall(p.obj.stop, p.obj)
+end
+
+local function prune(now)
+	local keep = {}
+	for _, p in ipairs(live) do
+		if p.stop_at and now >= p.stop_at and not p.stopped then
+			p.stopped = true
+			stop(p, true)
+		end
+		local ok, playing = pcall(p.obj.playing, p.obj)
+		if ok and playing and now - p.t < (p.cap or LIFE_CAP) then
+			keep[#keep + 1] = p
+		elseif ok and playing then
+			stop(p, false)
+		end
+	end
+	live = keep
+end
+
+-- may a non-essential effect start now?
+local function budget_ok(essential)
+	local now = time_global()
+	if now - window_t >= 1000 or now < window_t then window_t, window_n = now, 0 end
+	if not essential and window_n >= per_second() then return false end
+	window_n = window_n + 1
+	return true
+end
+
+--[[ name: full effect name (zgo\world\...); pos, dir (unit, optional)
+     opts.essential  always plays (explosions)
+     opts.hold_ms    stop emitting after this long (stop_deffered)
+     opts.cap_ms     forget it (stop) after this long (default LIFE_CAP)
+     returns true when started ]]
+function play(name, pos, dir, opts)
+	if not (name and pos) or not enabled_here() then return false end
+	opts = opts or {}
+	if not budget_ok(opts.essential) then stats.skipped = stats.skipped + 1 return false end
+	local now = time_global()
+	if now >= next_prune or #live >= max_live() then
+		next_prune = now + 400
+		prune(now)
+	end
+	if #live >= max_live() then
+		if not opts.essential then stats.skipped = stats.skipped + 1 return false end
+		stop(table.remove(live, 1), true)
+	end
+	local ok, obj = pcall(particles_object, name)
+	if not (ok and obj) then
+		stats.failed = stats.failed + 1
+		U.dbg("world: particle %s could not be created", tostring(name))
+		return false
+	end
+	if dir then
+		local d = U.unit(dir)
+		if d then pcall(obj.set_direction, obj, d) end
+	end
+	local okp = pcall(obj.play_at_pos, obj, pos)
+	if not okp then stats.failed = stats.failed + 1 return false end
+	live[#live + 1] = { obj = obj, t = now, name = name,
+		stop_at = opts.hold_ms and now + opts.hold_ms or nil,
+		cap = opts.cap_ms or (opts.hold_ms and opts.hold_ms + 15000) or nil }
+	stats.started = stats.started + 1
+	return true
+end
+
+-- per frame (zgo_impacts.update): deferred stops and finished effects
+function update()
+	local now = time_global()
+	if #live > 0 and now >= next_prune then
+		next_prune = now + 400
+		prune(now)
+	end
+end
+
+function reset()
+	for _, p in ipairs(live) do stop(p, false) end
+	live = {}
+	window_t, window_n = -1e9, 0
+end
+
+-- the player switched drawing off: let what is playing finish, start nothing new
+function count() return #live end
+function get_stats() return stats end
+function list() return live end

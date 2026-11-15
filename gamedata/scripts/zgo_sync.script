@@ -1,0 +1,171 @@
+--[[
+  Zone Gore Overhaul - co-op sync (xrRazom, optional)
+
+  Host-authoritative. The host decides every effect, runs it, and batches a
+  compact line per effect into one script event per frame; clients replay
+  them and never generate their own. Single player: emit() is a no-op.
+
+  Clients also forward their own observations to the host ("up" lines),
+  since the host never sees a peer's bullet, only the resulting hit.
+
+  Line format: KIND|field|field...   (fields never contain | or newlines;
+  integers are sent as integers, other numbers with 3 decimals, positions
+  and directions quantized with zgo_util.q3 / qv, seeds below 1e9)
+
+  Kinds, host -> clients (zgo_sync.emit / on):
+    W|sec|x|y|z|dx|dy|dz|size|ttl|rot                     zgo_decals: a wall / floor mark
+    S|id|sec|bone|ox|oy|oz|dx|dy|dz|size|ttl|wm_sec       zgo_decals: a mark on a body
+    P|tex|x|y|z|size|ttl|rot|ign_id|ign_sec|grow_ttl      zgo_decals: a death pool
+    R|tex|x|y|z|nx|ny|nz|size|grow_ttl|rot|ttl            zgo_decals: a drip run
+    F|name|x|y|z|dx|dy|dz|has_dir                         zgo_fx: a particle effect
+    A|id|sec|bone|kind|dur_ms|ox|oy|oz|dx|dy|dz|dying     zgo_fx: an effect on a body (spurt, gush)
+    D|id|sec|root|vx|vy|vz|burst|1|seed[|ax|ay|az|tx|ty|tz]   zgo_dismember: a cut (and its flying piece)
+    G|x|y|z|dx|dy|dz|n|ignore_id|seed                     zgo_dismember: a gib burst
+    Q|id|sec|root,root,...                                zgo_dismember: one body's complete list of
+                                                          cuts (resync rounds; "-" = none)
+    I|x|y|z|nx|ny|nz|fam|cls|mk|var|size|rot|fx|tok       zgo_impacts: one decided bullet impact
+    C|x|y|z|nx|ny|nz|fam|charge|ceil|seed|flags           zgo_impacts_crater: one explosion crater
+    B|id|visual|src|px|py|pz|h|p|b|dx|dy|dz|imp|seed|mtl  zgo_props: an object broke (src f / k / b)
+    X|h|mtl|px|py|pz|nx|ny|nz|e|seed|tok                  zgo_props: a hit effect
+    X|l|id|sec|lx|ly|lz|liquid|ms|seed                    zgo_props: a leak
+    X|f|id|seed  /  X|s|px|py|pz|seed                     zgo_props: a lamp flickers / lamp shards
+    X|d|mtl|px|py|pz|size|seed                            zgo_props: a burst (destroyable, glass)
+    Y|w|id|game_sec|sec,bx,by,bz,stage,level,bone;...     zgo_wounds: a body's wounds ("-" = none)
+    Y|g|id|px|py|pz|dx|dy|dz|count|seed|sec|bx|by|bz      zgo_wounds: a chunk burst (sec + bind point in
+                                                          mm: each machine picks its own site's chunk)
+    N|H|abi|wire|caps|round                               zgo_native: the host's capabilities
+    N|S|round|caps                                        zgo_native: the session's capabilities
+    N|B|id|seed|power  /  N|F|id                          zgo_native: broken limbs on a body / forget it
+    Z|q|nonce|id,id,...  /  Z|r|nonce|player|word|detail  zgo_probe: probe 6 question / verdict
+    V|h|version|body|props                                zgo_handshake: the host's ZGO version, body
+                                                          bake fingerprint and props bake id ("-" = none)
+  Kinds, client -> host (zgo_sync.send_up / on_up):
+    H|id|ammo|speed|x|y|z|dx|dy|dz|element|corpse         zgo_main: the client's own bullet on a body
+    J|x|y|z|nx|ny|nz|fam|cls|e|tok|obj                    zgo_impacts: the client's own round hit the world
+    K|id|sec|ammo|speed|px|py|pz|dx|dy|dz|tok             zgo_props: the client's own round hit an object
+    N|C|abi|wire|caps|round                               zgo_native: this machine's capabilities
+    Z|a|nonce|n|total|per|debris|decals|recv  /  Z|run    zgo_probe: probe 6 answer / "run it"
+    V|c|version|body|props                                zgo_handshake: this machine's values
+  A kind nobody registered is ignored, so new kinds never break an older
+  peer on the same protocol. The formats live with their modules; these
+  lines are the summary.
+]]
+
+-- The protocol number is part of the event names, so peers running another
+-- version of the mod (other line formats, maybe effects or decals the other
+-- side doesn't have, which the engine treats as fatal) don't hear each other.
+-- Bump it whenever a line format or a referenced asset changes.
+-- 3 (1.7.0): new kinds I C up J, B X up K, Y, Q, N, Z, V; the D resync rounds became Q.
+-- (1.7.1: G gained an 11th field, the body pieces thrown; older peers read ten. Still 3.)
+PROTO     = 3
+EVT       = "zgo:sync" .. PROTO
+EVT_UP    = "zgo:up" .. PROTO   -- client -> host
+-- older protocols, only heard to say so in the log: 1.0.0 - 1.1.0 (protocol 1),
+-- 1.2.0 - 1.6.x (protocol 2)
+local LEGACY = { { "zgo:sync", 1 }, { "zgo:up", 1 }, { "zgo:sync2", 2 }, { "zgo:up2", 2 } }
+local MAX_BYTES = 900
+
+local outbox    = {}
+local handlers  = {}
+local up_handlers = {}
+local stats     = { sent = 0, recv = 0, up = 0 }
+
+local function split(str, sep)
+	local t = {}
+	for v in string.gmatch(str, "([^" .. sep .. "]+)") do t[#t + 1] = v end
+	return t
+end
+
+-- kind -> fn(fields) run on clients (main thread)
+function on(kind, fn) handlers[kind] = fn end
+-- kind -> fn(fields, sender) run on the host (main thread)
+function on_up(kind, fn) up_handlers[kind] = fn end
+
+-- integers go out as integers ("1", not "1.000"): receivers compare flags as strings
+local function enc(v)
+	if type(v) == "number" then
+		if v == math.floor(v) and math.abs(v) < 1e9 then return string.format("%d", v) end
+		return zgo_util.f3(v)
+	elseif type(v) == "boolean" then
+		return v and "1" or "0"
+	end
+	return tostring(v)
+end
+
+function emit(fields)
+	if not zgo_util.has_peers() then return end
+	for i = 1, #fields do fields[i] = enc(fields[i]) end
+	outbox[#outbox + 1] = table.concat(fields, "|")
+end
+
+-- client -> host
+function send_up(fields)
+	if not (zgo_util.in_session() and zgo_util.is_client()) then return end
+	if not (xrr_script_event and xrr_script_event.send) then return end
+	for i = 1, #fields do fields[i] = enc(fields[i]) end
+	local ok = pcall(xrr_script_event.send, EVT_UP, "host", table.concat(fields, "|"))
+	if ok then stats.up = stats.up + 1 end
+end
+
+local function send_batch(lines)
+	if not (xrr_script_event and xrr_script_event.send) then return end
+	local ok, res = pcall(xrr_script_event.send, EVT, "", table.concat(lines, "\n"))
+	if ok and res then
+		stats.sent = stats.sent + #lines
+	else
+		zgo_util.dbg("sync batch of %s refused: %s", #lines, tostring(res))
+	end
+end
+
+function flush()
+	if #outbox == 0 then return end
+	local chunk, size = {}, 0
+	for _, l in ipairs(outbox) do
+		if size + #l + 1 > MAX_BYTES and #chunk > 0 then
+			send_batch(chunk)
+			chunk, size = {}, 0
+		end
+		chunk[#chunk + 1] = l
+		size = size + #l + 1
+	end
+	if #chunk > 0 then send_batch(chunk) end
+	outbox = {}
+end
+
+local function on_event(msg)
+	if not zgo_util.enabled() then return end   -- switched off on this machine
+	for _, line in ipairs(split(msg or "", "\n")) do
+		stats.recv = stats.recv + 1
+		local t = split(line, "|")
+		local fn = handlers[t[1]]
+		if fn then zgo_util.defer(fn, t) end
+	end
+end
+
+local function on_up_event(msg, sender)
+	if zgo_util.is_client() then return end
+	local t = split(msg or "", "|")
+	local fn = up_handlers[t[1]]
+	if fn then zgo_util.defer(fn, t, sender) end
+end
+
+function register()
+	if not (xrr_script_event and xrr_script_event.register) then return false end
+	xrr_script_event.register(EVT, function(args) pcall(on_event, args) end)
+	xrr_script_event.register(EVT_UP, function(args, sender) pcall(on_up_event, args, sender) end)
+	local warned = false
+	for _, e in ipairs(LEGACY) do
+		local name, proto = e[1], e[2]
+		xrr_script_event.register(name, function()
+			if warned then return end
+			warned = true
+			zgo_util.log("a co-op peer runs an older Zone Gore Overhaul (sync protocol %s, this is %s): its gore is ignored; use the same version on every machine", proto, PROTO)
+		end)
+	end
+	zgo_util.log("co-op sync registered (protocol %s)", PROTO)
+	return true
+end
+
+function reset() outbox = {} end
+
+function get_stats() return stats end

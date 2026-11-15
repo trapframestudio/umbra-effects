@@ -1,0 +1,491 @@
+--[[
+  Zone Gore Overhaul - particle choreography
+
+  Uses the particle library from Painter of the Zone (sunn; parts from HFX by
+  Death Orchird), shipped unpacked under gamedata/particles, plus this mod's
+  own droplet effects (particles/zgo): path-aligned, velocity-stretched
+  droplets with gravity that die on contact, so sprays and arterial jets read
+  as streams instead of puffs.
+
+  * Hits: entry puff by armour (cloth / plates / sparks on exoskeletons and
+    helmets, always, penetrating or not), droplet spray out of the exit and
+    back toward the shooter, scaled by calibre class and energy.
+  * Sequences: an artery that was hit (neck, thigh, upper arm...) pulses a
+    jet of droplets on every heartbeat from the wound, following the moving
+    body, weakening beat by beat (fast once the heart has stopped), with a
+    dribble in between; stumps gush. On the authority each pulse also paints
+    where the jet lands (zgo_decals.arterial_stream).
+]]
+
+local U = zgo_util
+
+------------------------------------------------------------------------
+-- Live particles + rolling budget
+-- The engine destroys a script particle as soon as its Lua object is
+-- garbage-collected (CScriptParticles::~CScriptParticles -> PSI_destroy), so
+-- every effect is held here until it has finished playing. Only when far
+-- too many are alive does the oldest make room for an essential one.
+------------------------------------------------------------------------
+local function max_live() return U.setting("performance/max_live_fx") or 256 end
+local LIFE_CAP = 20000   -- ms; nothing of ours plays longer (a looped effect is stopped)
+local live = {}
+local next_prune = 0
+local window_t, window_n = 0, 0
+
+local function prune(now)
+	local keep = {}
+	for _, p in ipairs(live) do
+		local ok, playing = pcall(p.obj.playing, p.obj)
+		if ok and playing and now - p.t < LIFE_CAP then
+			keep[#keep + 1] = p
+		elseif ok and playing then
+			pcall(p.obj.stop, p.obj)
+		end
+	end
+	live = keep
+end
+
+-- essential: always plays; minor (ambient drips): only while under half the budget
+local function budget_ok(essential, minor)
+	local now = time_global()
+	if now - window_t > 1000 then window_t, window_n = now, 0 end
+	local limit = (U.setting("performance/fx_budget") or 28) * (U.setting("particles/intensity") or 1)
+	if not essential and window_n >= limit * (minor and 0.5 or 1) then return false end
+	window_n = window_n + 1
+	return true
+end
+
+-- what kid mode keeps: armour, glass and cloth feedback, dust, smoke
+local CLEAN = { "spark", "impact_armor", "debris_cloth", "headshot_armor", "headshot_glass", "debris_armor", "debris_glass", "dust", "smoke" }
+local clean_cache = {}
+function is_gore(name)
+	local c = clean_cache[name]
+	if c == nil then
+		c = false
+		for _, w in ipairs(CLEAN) do if string.find(name, w, 1, true) then c = true break end end
+		clean_cache[name] = c
+	end
+	return not c
+end
+
+local function draw(name, pos, dir, opts, now)
+	local max = max_live()
+	if #live >= max then prune(now) end
+	if #live >= max then
+		if not opts.essential then return false end
+		local old = table.remove(live, 1)
+		pcall(old.obj.stop, old.obj)
+	end
+	local ok, obj = pcall(particles_object, name)
+	if not (ok and obj) then U.dbg("particle %s failed", name) return false end
+	if dir then
+		local d = U.unit(dir)
+		if d then pcall(obj.set_direction, obj, d) end
+	end
+	pcall(obj.play_at_pos, obj, pos)
+	live[#live + 1] = { obj = obj, t = now, name = name }
+	return true
+end
+
+-- play a particle once at pos; mirrored to co-op clients unless local_only.
+-- In kid mode gory effects aren't drawn here, but still sent to partners.
+function play(name, pos, dir, opts)
+	if not (name and pos and U.setting("particles/enable")) then return end
+	opts = opts or {}
+	if not budget_ok(opts.essential, opts.minor) then return end
+	local now = time_global()
+	if (U.gore() or not is_gore(name)) and not draw(name, pos, dir, opts, now) then return end
+	if not opts.local_only and U.has_peers() then
+		zgo_sync.emit({ "F", name, pos.x, pos.y, pos.z, dir and dir.x or 0, dir and dir.y or 0, dir and dir.z or 0, dir and 1 or 0 })
+	end
+end
+
+local function pick(list) return list[math.random(1, #list)] end
+
+------------------------------------------------------------------------
+-- Armour lookup (Wepl Hit Effects data, as Painter does)
+------------------------------------------------------------------------
+local ltx_visuals
+local function visual_key(npc)
+	local v = npc and npc.get_visual_name and npc:get_visual_name()
+	if not v then return nil end
+	v = string.lower(v)
+	local e = string.find(v, ".ogf", 1, true)
+	return e and string.sub(v, 1, e - 1) or v
+end
+
+local function trim(s) return s and (string.gsub(s, "^%s*(.-)%s*$", "%1")) or nil end
+
+function armor_of(npc)
+	if not (npc and IsStalker(npc)) then return nil, nil end
+	if ltx_visuals == nil then
+		local ok, ini = pcall(ini_file, "plugins\\wepl_hit_effect_visuals.ltx")
+		ltx_visuals = ok and ini or false
+	end
+	if not ltx_visuals then return nil, nil end
+	local key = visual_key(npc)
+	if not (key and ltx_visuals:section_exist(key)) then return nil, nil end
+	local a = ltx_visuals:line_exist(key, "armorType") and trim(ltx_visuals:r_string_ex(key, "armorType")) or nil
+	local h = ltx_visuals:line_exist(key, "helmetType") and trim(ltx_visuals:r_string_ex(key, "helmetType")) or nil
+	return a, h
+end
+
+------------------------------------------------------------------------
+-- Engine bleeding (CEntityAlive conditions().BleedingSpeed()), nil if n/a
+------------------------------------------------------------------------
+function bleed_rate(o)
+	if not o then return nil end
+	local ok, v = pcall(function() return o.bleeding end)
+	if ok and type(v) == "number" and v == v and v >= 0 then return v end
+	return nil
+end
+
+------------------------------------------------------------------------
+-- Hit effects
+------------------------------------------------------------------------
+local FLESH   = { "srbd\\srbd_hit_flesh_00", "srbd\\srbd_hit_flesh_01", "srbd\\srbd_hit_flesh_02", "srbd\\srbd_hit_flesh_02a" }
+local CLOTH   = { "srbd\\hit\\srbd_hit_debris_cloth" }
+local ARMOR   = { "srbd\\hit\\body_impact_armor_00", "srbd\\hit\\body_impact_armor_01", "srbd\\hit\\body_impact_armor_02" }
+local SPARKS  = { "srbd\\hit\\body_impact_sparks_00", "srbd\\hit\\body_impact_sparks_01", "srbd\\hit\\body_impact_sparks_02" }
+local FINGERS = { "srbd_hit_finger_up", "srbd_hit_finger_out", "srbd_hit_finger_out_up" }
+local EXIT_LIGHT = { "srbd\\wound\\srbd_wound_exit_right", "srbd\\wound\\srbd_exit_random" }
+local EXIT_HEAVY = { "srbd\\wound\\srbd_exit_thick", "srbd\\wound\\srbd_exit_right_thick" }
+local BURST   = { "srbd\\effects\\burst\\srbd_hit_impact_blood_02", "srbd\\effects\\burst\\srbd_hit_impact_blood_03",
+	"srbd\\effects\\burst\\srbd_hit_impact_blood_10", "srbd\\effects\\burst\\srbd_hit_impact_blood_11",
+	"srbd\\effects\\burst\\srbd_hit_impact_blood_30", "srbd\\effects\\burst\\srbd_hit_impact_blood_31",
+	"srbd\\effects\\burst\\srbd_hit_impact_blood_33", "srbd\\effects\\burst\\srbd_hit_impact_blood_34" }
+local CLOUD   = { "srbd\\effects\\cloud\\srbd_hit_impact_blood_04", "srbd\\effects\\cloud\\srbd_hit_impact_blood_05",
+	"srbd\\effects\\cloud\\srbd_hit_impact_blood_20", "srbd\\effects\\cloud\\srbd_hit_impact_blood_23",
+	"srbd\\effects\\cloud\\srbd_hit_impact_blood_25", "srbd\\effects\\cloud\\srbd_hit_impact_blood_26",
+	"srbd\\effects\\cloud\\srbd_hit_impact_blood_29", "srbd\\effects\\cloud\\smoke_point_blood_wisp" }
+local SPLASH  = { "srbd\\effects\\splash\\srbd_hit_impact_blood_19", "srbd\\effects\\splash\\srbd_hit_impact_blood_21",
+	"srbd\\effects\\splash\\srbd_hit_impact_blood_22", "srbd\\effects\\splash\\srbd_hit_impact_blood_24",
+	"srbd\\effects\\splash\\srbd_hit_impact_blood_27", "srbd\\effects\\splash\\srbd_hit_impact_blood_28" }
+local FLESH_DEBRIS = { "srbd\\effects\\debris\\srbd_flesh", "srbd\\effects\\debris\\srbd_flesh_light",
+	"srbd\\effects\\debris\\srbd_flesh_light_skin", "srbd\\effects\\debris\\srbd_flesh_thin_expl_fallout4_debris_05" }
+local GORE_DEBRIS = { "srbd\\effects\\debris\\srbd_expl_fallout4_debris_16_srbd_gore_heavy",
+	"srbd\\effects\\debris\\srbd_expl_fallout4_debris_16_srbd_gore_heavy_00",
+	"srbd\\effects\\debris\\srbd_gore_wide_expl_fallout4_debris_02", "srbd\\effects\\debris\\srbd_gore_thin_expl_fallout4_debris_05",
+	"srbd\\effects\\debris\\srbd_flesh_wide_expl_fallout4_debris_02" }
+
+local function fingers(pos, dir, energy, vol, armored)
+	local p = U.clamp(math.floor(energy * 3.3 + 0.5), 1, 10)
+	local b = U.clamp(math.floor(vol * 5 + 0.5), 1, 10)
+	local opt = pick(FINGERS)
+	play("srbd\\fingers\\fractional\\" .. p .. "\\" .. b .. "\\" .. opt, pos, dir)
+	if armored and b < 10 then
+		play("srbd\\fingers\\fractional\\" .. p .. "\\" .. (10 - b) .. "\\" .. opt .. "_armor", pos, dir)
+	end
+end
+
+local function neg(d) return U.v3(-d.x, -d.y, -d.z) end
+
+--[[ ev: id, pos, dir, prof, vol, head, exits, armor, helmet, penetrated ]]
+function hit(ev)
+	local prof, pos, dir = ev.prof, ev.pos, ev.dir
+	local energy = prof.energy
+	local fb = U.setting("particles/armor_feedback")
+	local back = neg(dir)
+
+	-- what the round hits first: helmet / armour feedback whether or not it gets through
+	if ev.head then
+		if fb and ev.helmet == "helmet" then
+			play(pick(SPARKS), pos, back, { essential = true })
+			play("srbd\\headshot\\srbd_headshot_armor", pos, back)
+		elseif fb and (ev.helmet == "glass" or ev.helmet == "gasmask") then
+			play("srbd\\headshot\\srbd_headshot_glass", pos, back, { essential = true })
+		end
+		if ev.penetrated then play("srbd\\srbd_hit_flesh_headshot", pos, dir, { essential = true }) end
+	else
+		if fb and ev.armor == "exo" then
+			play(pick(SPARKS), pos, back, { essential = true })
+			play(pick(ARMOR), pos, back)
+		elseif fb and ev.armor == "medium" then
+			play(pick(ARMOR), pos, back, { essential = not ev.penetrated })
+		elseif fb and ev.armor == "light" then
+			play(pick(CLOTH), pos, back)
+		end
+		if ev.penetrated then play(pick(FLESH), pos, dir, { essential = true }) end
+	end
+	if not ev.penetrated then return end
+
+	if prof.kind == "buck" then
+		for _ = 1, math.min(3, math.floor(prof.pellets / 3)) do
+			play(pick(FLESH), U.add(pos, U.v3(U.rand(-0.12, 0.12), U.rand(-0.12, 0.12), U.rand(-0.12, 0.12))), dir)
+		end
+	end
+	fingers(pos, dir, energy, ev.vol, fb and (ev.armor == "medium" or ev.armor == "exo"))
+
+	-- droplets thrown back out of the entry wound
+	if math.random() < U.clamp(0.35 + 0.3 * energy, 0.35, 0.9) then
+		play("zgo\\back_spray", pos, U.cone(back, 0.35))
+	end
+
+	-- exit
+	if ev.exits then
+		local exit = U.along(pos, dir, ev.head and 0.14 or 0.24)
+		play(pick(prof.cls >= 3 and EXIT_HEAVY or EXIT_LIGHT), exit, dir)
+		play(energy > 1.3 and "zgo\\exit_spray_heavy" or "zgo\\exit_spray_light", exit, U.cone(dir, 0.08), { essential = energy > 1.3 })
+		if energy > 1.1 then play("srbd\\wound\\srbd_exit_cloud_thin_quick", exit, dir) end
+		if energy > 1.8 then
+			play("srbd\\wound\\srbd_exit_cloud_thick_slow", exit, dir)
+			play(pick(BURST), exit, dir)
+		end
+		if ev.head and prof.cls >= 2 then
+			play(math.random() < 0.5 and "srbd\\headshot\\srbd_head_burst_back" or "srbd\\headshot\\srbd_backsplash", exit, dir)
+		end
+	end
+	if prof.kind == "blast" then
+		play(pick(GORE_DEBRIS), pos, U.v3(0, 1, 0), { essential = true })
+		play(pick(CLOUD), pos, U.v3(0, 1, 0))
+	end
+end
+
+-- head destroyed
+function head_explode(pos, dir, helmet)
+	local fb = U.setting("particles/armor_feedback")
+	if fb and helmet == "helmet" then play("srbd\\headshot\\debris_armor", pos, dir)
+	elseif fb and (helmet == "glass" or helmet == "gasmask") then play("srbd\\headshot\\debris_glass", pos, dir)
+	else play("srbd\\headshot\\debris_skin", pos, dir) end
+	play("srbd\\headshot\\dismember_0" .. math.random(0, 2), pos, dir, { essential = true })
+	play("srbd\\headshot\\srbd_head_burst", pos, dir, { essential = true })
+	play("srbd\\headshot\\srbd_upsplash", pos, U.v3(0, 1, 0))
+	play(pick({ "srbd\\headshot\\debris_skull", "srbd\\headshot\\debris_skull_00", "srbd\\headshot\\debris_skull_01", "srbd\\headshot\\debris_skull_02" }), pos, dir)
+	play(pick({ "srbd\\headshot\\debris_brain", "srbd\\headshot\\debris_brain_00", "srbd\\headshot\\debris_brain_01" }), pos, dir)
+	play("srbd\\headshot\\srbd_brain_spawn_cloud", pos, dir)
+	play("srbd\\headshot\\srbd_head_dust", pos, dir)
+	play("zgo\\exit_spray_heavy", pos, U.cone(dir, 0.3), { essential = true })
+	play("zgo\\gush", pos, U.v3(0, 1, 0))
+	play("srbd\\hit\\pg_00", pos, dir)
+	play("srbd\\wound\\pg_00", pos, dir)
+end
+
+-- limb taken off
+function limb_off(pos, dir)
+	play(pick(FLESH_DEBRIS), pos, dir, { essential = true })
+	play(pick(BURST), pos, dir)
+	play(pick(SPLASH), pos, dir)
+	play("zgo\\exit_spray_heavy", pos, U.cone(dir, 0.4), { essential = true })
+	play("srbd\\wound\\srbd_exit_thick", pos, dir)
+end
+
+-- an explosion resolved on one body (zgo_blast): fragment hits + the blast
+function blast_body(ev)
+	local fb = U.setting("particles/armor_feedback")
+	for i, f in ipairs(ev.frags) do
+		if i > 3 then break end
+		local back = neg(f.dir)
+		local hard = fb and ((f.head and ev.helmet == "helmet") or (not f.head and ev.armor == "exo"))
+		if hard then play(pick(SPARKS), f.pos, back, { essential = i == 1 }) end
+		if fb and not f.head and ev.armor == "medium" and i == 1 then play(pick(ARMOR), f.pos, back) end
+		-- small fragments mostly stop in hard armour
+		if not hard or math.random() < 0.35 then
+			play(pick(FLESH), f.pos, f.dir, { essential = i == 1 and not hard })
+			if i == 1 then play("zgo\\back_spray", f.pos, U.cone(back, 0.4)) end
+		end
+	end
+	-- the blast itself: blood thrown away from it (never sparks); meat only
+	-- leaves a body the blast killed or a corpse, a survivor only bleeds
+	local out = U.unit(U.add(ev.away, U.v3(0, 0.5, 0))) or U.v3(0, 1, 0)
+	if ev.sev >= 0.6 then
+		if ev.dead then play(pick(GORE_DEBRIS), ev.torso, out, { essential = true }) end
+		play(pick(CLOUD), ev.torso, out)
+		play(ev.dead and "zgo\\exit_spray_heavy" or "zgo\\exit_spray_light", ev.torso, U.cone(out, 0.3), { essential = true })
+	elseif ev.sev >= 0.3 then
+		play(pick(CLOUD), ev.torso, out)
+		play("zgo\\exit_spray_light", ev.torso, U.cone(out, 0.3))
+	end
+end
+
+function blast_gibs(pos)
+	play(pick(GORE_DEBRIS), pos, U.v3(0, 1, 0), { essential = true })
+	play(pick(GORE_DEBRIS), pos, U.v3(0, 1, 0))
+	play(pick(CLOUD), pos, U.v3(0, 1, 0))
+	play("zgo\\exit_spray_heavy", pos, U.v3(0, 1, 0), { essential = true })
+end
+
+------------------------------------------------------------------------
+-- Bone frames (game_object:bone_transform is already a WORLD matrix)
+------------------------------------------------------------------------
+local function bone_world(o, bone)
+	local okb, bm = pcall(o.bone_transform, o, bone)
+	if not (okb and bm) then return nil end
+	return bm
+end
+
+-- point given in a bone's local frame -> world
+function bone_local_to_world(o, bone, off)
+	local m = bone_world(o, bone)
+	if not m then return nil end
+	local i, j, k, c = m.i, m.j, m.k, m.c
+	return U.v3(c.x + i.x * off.x + j.x * off.y + k.x * off.z,
+		c.y + i.y * off.x + j.y * off.y + k.y * off.z,
+		c.z + i.z * off.x + j.z * off.y + k.z * off.z)
+end
+
+-- direction given in a bone's local frame -> world
+function bone_dir_to_world(o, bone, d)
+	local m = bone_world(o, bone)
+	if not m then return nil end
+	local i, j, k = m.i, m.j, m.k
+	return U.unit(U.v3(i.x * d.x + j.x * d.y + k.x * d.z, i.y * d.x + j.y * d.y + k.y * d.z, i.z * d.x + j.z * d.y + k.z * d.z))
+end
+
+-- world point -> a bone's local frame (bone matrices are rigid)
+function world_to_bone_local(o, bone, p)
+	local m = bone_world(o, bone)
+	if not m then return nil end
+	local d = U.sub(p, m.c)
+	return U.v3(U.dot(d, m.i), U.dot(d, m.j), U.dot(d, m.k))
+end
+
+function world_dir_to_bone_local(o, bone, d)
+	local m = bone_world(o, bone)
+	if not m then return nil end
+	return U.v3(U.dot(d, m.i), U.dot(d, m.j), U.dot(d, m.k))
+end
+
+------------------------------------------------------------------------
+-- Pulsing sequences (arterial jets / stump gushes)
+-- Each machine runs its own copy (visual only); the authority adds decals.
+------------------------------------------------------------------------
+-- big arteries close to the surface: chance that a penetrating hit opens one
+ARTERY = {
+	bip01_neck = 1.0,
+	bip01_l_thigh = 0.45, bip01_r_thigh = 0.45,           -- femoral
+	bip01_l_clavicle = 0.35, bip01_r_clavicle = 0.35,     -- subclavian
+	bip01_l_upperarm = 0.3, bip01_r_upperarm = 0.3,       -- brachial
+	bip01_l_calf = 0.14, bip01_r_calf = 0.14,             -- popliteal / tibial
+	bip01_l_forearm = 0.1, bip01_r_forearm = 0.1,
+}
+
+local seqs = {}
+local MAX_SEQ = 10
+local JET = {   -- particle, centre speed (m/s) of its droplets
+	{ "zgo\\jet_strong", 3.4 }, { "zgo\\jet_medium", 2.45 }, { "zgo\\jet_weak", 1.5 },
+}
+
+--[[ kind: "artery" | "stump"
+     off:  wound point in the bone's local frame
+     dloc: outward direction in the bone's local frame
+     dying: the heart is stopping (kill shot / corpse): a few fast-fading beats ]]
+function start_sequence(id, sec, bone, kind, dur_ms, off, dloc, dying)
+	if not (bone and off and dloc) then return end
+	if #seqs >= MAX_SEQ then table.remove(seqs, 1) end
+	local now = time_global()
+	seqs[#seqs + 1] = { id = id, sec = sec, bone = bone, kind = kind, t0 = now,
+		until_t = now + dur_ms, next = now + 90, strength = 1, off = off, dloc = dloc, dying = dying or false }
+	if U.is_authority() then
+		zgo_sync.emit({ "A", id, sec, bone, kind, dur_ms, off.x, off.y, off.z, dloc.x, dloc.y, dloc.z, dying and 1 or 0 })
+	end
+end
+
+local function near(p)
+	return db.actor and p:distance_to_sqr(db.actor:position()) < 3600
+end
+
+function update_sequences()
+	local now = time_global()
+	if now >= next_prune then
+		next_prune = now + 500
+		prune(now)
+	end
+	if #seqs == 0 then return end
+	local show = U.setting("particles/enable") and U.setting("particles/spurts")
+	for i = #seqs, 1, -1 do
+		local s = seqs[i]
+		local o = U.resolve(s.id, s.sec)
+		if not o or now > s.until_t or s.strength < 0.12 or o:get_bone_id(s.bone) == 65535 then
+			table.remove(seqs, i)
+		elseif now >= (s.next_drib or math.huge) and now < s.next then
+			-- between beats: a weak dribble from the wound
+			s.next_drib = nil
+			local p = bone_local_to_world(o, s.bone, s.off)
+			if p and show and near(p) then
+				local d = bone_dir_to_world(o, s.bone, s.dloc) or U.v3(0, -1, 0)
+				play("zgo\\dribble", p, U.unit(U.add(d, U.v3(0, -0.6, 0))) or d, { local_only = true, minor = true })
+			end
+		elseif now >= s.next then
+			local p = bone_local_to_world(o, s.bone, s.off)
+			local d = bone_dir_to_world(o, s.bone, s.dloc)
+			if p and d then
+				-- a little upward kick and wobble on every pulse
+				d = U.cone(U.unit(U.add(d, U.v3(0, 0.2, 0))) or d, 0.12)
+				local stump = s.kind == "stump"
+				local j = s.strength > 0.62 and 1 or (s.strength > 0.32 and 2 or 3)
+				if show and near(p) then
+					play(stump and (j == 1 and "zgo\\gush" or JET[j][1]) or JET[j][1], p, d, { local_only = true, essential = true })
+				end
+				if U.is_authority() and math.random() < 0.65 then
+					zgo_decals.arterial_stream(s.id, p, d, JET[j][2] * (stump and 0.8 or 1), s.strength)
+				end
+				-- heartbeat: fades as blood pressure drops; a stopping heart fades fast
+				local alive = o:alive() and not s.dying
+				s.strength = s.strength * (alive and 0.95 or 0.8)
+				local beat = alive and U.rand(380, 560) or U.rand(520, 800)
+				s.next = now + beat / math.max(s.strength, 0.45)
+				s.next_drib = now + beat * 0.45
+			else
+				s.next = now + 400
+			end
+		end
+	end
+end
+
+function sequence_count() return #seqs end
+function sequence_list() return seqs end   -- tests / status
+
+-- jets / gushes on bones of object id that have just been cut off
+function stop_sequences(id, is_gone)
+	for i = #seqs, 1, -1 do
+		if seqs[i].id == id and is_gone(seqs[i].bone) then table.remove(seqs, i) end
+	end
+end
+
+-- open an artery at world point wpos on bone, jetting along outward
+function open_artery(obj, bone, wpos, outward, dying)
+	local woff = world_to_bone_local(obj, bone, wpos)
+	local dloc = world_dir_to_bone_local(obj, bone, outward)
+	if not (woff and dloc) then return false end
+	local dur = dying and math.random(2500, 4000) or math.random(6000, 12000)
+	start_sequence(obj:id(), obj:section(), bone, "artery", dur, woff, dloc, dying)
+	U.dbg("artery opened: %s (%s)", bone, dying and "dying" or "alive")
+	return true
+end
+
+------------------------------------------------------------------------
+-- Co-op replay
+------------------------------------------------------------------------
+function register_sync()
+	zgo_sync.on("F", function(t)
+		if #t < 9 then return end
+		local pos = U.v3(tonumber(t[3]), tonumber(t[4]), tonumber(t[5]))
+		local dir = t[9] == "1" and U.v3(tonumber(t[6]), tonumber(t[7]), tonumber(t[8])) or nil
+		-- within this machine's own particle budget (Performance page)
+		play(t[2], pos, dir, { local_only = true })
+	end)
+	zgo_sync.on("A", function(t)
+		if #t < 13 then return end
+		start_sequence(tonumber(t[2]), t[3], t[4], t[5], tonumber(t[6]),
+			U.v3(tonumber(t[7]), tonumber(t[8]), tonumber(t[9])), U.v3(tonumber(t[10]), tonumber(t[11]), tonumber(t[12])),
+			t[13] == "1")
+	end)
+end
+
+-- kid mode switched on: stop gory effects still playing (sequences keep
+-- running on the host, so co-op partners still get theirs; they draw nothing here)
+function kid_mode(kid)
+	if not kid then return end
+	local keep = {}
+	for _, p in ipairs(live) do
+		if p.name and not is_gore(p.name) then keep[#keep + 1] = p else pcall(p.obj.stop, p.obj) end
+	end
+	live = keep
+end
+
+function reset()
+	for _, p in ipairs(live) do pcall(p.obj.stop, p.obj) end
+	live, seqs = {}, {}
+end
+
+function live_count() return #live end

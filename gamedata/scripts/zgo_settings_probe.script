@@ -1,0 +1,77 @@
+--[[
+  Zone Gore Overhaul - options of the probe workstream (zgo_probe):
+  the "Diagnostics" page, shown only while General -> Debug log is ticked.
+  Data only; zgo_settings merges it into the menu (format: zgo_settings.script).
+
+  The buttons queue a probe; it runs once the menu is closed (zgo_probe).
+  Every probe here is per machine (coop = "local").
+]]
+
+SETTINGS = {
+	{
+		page = "diagnostics", coop = "local", show_if = "general/debug",
+		name = { "Diagnostics", "Диагностика" },
+		note = {
+			{ "Smoke tests for engine features that later versions of ZGO will rely on. Each button starts one probe as soon as you close the menu. It writes PASS, FAIL or MANUAL (judge it by eye) to the log and to appdata\\zgo_probe_report.txt, shows on screen what to look for, and puts back everything it changed. A probe that needs something near you (a body, an NPC, a loose object) says so when there is none. Send the report file along with a bug report.",
+			  "Проверки возможностей движка, на которые будут опираться следующие версии ZGO. Каждая кнопка запускает одну проверку, как только вы закроете меню. Результат PASS, FAIL или MANUAL (оценить на глаз) пишется в лог и в файл appdata\\zgo_probe_report.txt, на экране показано, на что смотреть, а всё изменённое возвращается как было. Если проверке нужно что-то рядом с вами (труп, NPC, незакреплённый предмет), а этого нет, она так и скажет. Приложите файл отчёта к сообщению об ошибке." },
+		},
+		items = {
+			{ id = "hold", type = "track", min = 2, max = 30, step = 1, def = 6,
+			  name = { "Probe hold time (s)", "Время показа проверки (с)" },
+			  desc = { "How long the probes that change something on screen (a shader, a model, kid mode) keep the change before putting it back, so you have time to look.",
+			           "Сколько секунд проверки, меняющие что-то на экране (шейдер, модель, детский режим), держат изменение, прежде чем вернуть всё как было, чтобы вы успели рассмотреть." } },
+			{ id = "experimental", type = "check", def = false,
+			  name = { "Allow the experimental probes (experimental)", "Разрешить экспериментальные проверки (экспериментально)" },
+			  desc = { "Probes 1, 2, 3 and 7 put ZGO's own shaders on bodies or swap a loose object's model: engine paths nobody has checked in the game yet. If one of the shaders does not compile, the game closes, so save first. Tick this, press Accept and open the menu again to see their buttons.",
+			           "Проверки 1, 2, 3 и 7 ставят на тела собственные шейдеры ZGO или подменяют модель незакреплённого предмета: эти пути движка в игре ещё никто не проверял. Если шейдер не скомпилируется, игра закроется, поэтому сначала сохранитесь. Отметьте, нажмите «Принять» и откройте меню заново, чтобы увидеть их кнопки." } },
+			{ id = "run_all", type = "button", action = "zgo_probe.run_all",
+			  name = { "Run all safe probes", "Запустить все безопасные проверки" },
+			  desc = { "Runs probes 9, 4, 8 and 6 one after another (baked models, FFI, kid mode lane, co-op), then writes a summary. None of them leaves anything changed; probe 8 hides blood for a few seconds.",
+			           "Запускает проверки 9, 4, 8 и 6 одну за другой (запечённые модели, FFI, канал детского режима, кооператив) и пишет итог. Ни одна не оставляет изменений; проверка 8 на несколько секунд скрывает кровь." } },
+			{ id = "off_shader", type = "button", action = "zgo_probe.run_off_shader", show_if = "diagnostics/experimental",
+			  name = { "1. Off shader (experimental)", "1. Шейдер «выключено» (экспериментально)" },
+			  desc = { "Stand 3-10 m from a living NPC and a body. Puts the zgo\\off shader on one part (usually the head) of each for a few seconds: the part and its shadow must vanish cleanly, with no stretched skin, and come back. In kid mode the whole body vanishes instead.",
+			           "Встаньте в 3-10 м от живого NPC и трупа. На несколько секунд ставит шейдер zgo\\off на одну часть (обычно голову) каждого: часть и её тень должны чисто исчезнуть, без растянутой кожи, и вернуться. В детском режиме вместо этого исчезает всё тело." } },
+			{ id = "dmg_shader", type = "button", action = "zgo_probe.run_dmg_shader", show_if = "diagnostics/experimental",
+			  name = { "2. Pass-through shader (experimental, save first)", "2. Сквозной шейдер (экспериментально, сначала сохранитесь)" },
+			  desc = { "Stand near several different NPCs or mutants (a base is ideal). For a few seconds their bodies are drawn with ZGO's copy of the game's skinned-model shader, chosen so all four skinning formats are covered: they must look exactly as before, shadows and motion included. The game closes if the shader does not compile.",
+			           "Встаньте рядом с несколькими разными NPC или мутантами (лучше всего на базе). На несколько секунд их тела рисуются копией шейдера моделей игры от ZGO, подобранной так, чтобы покрыть все четыре формата скиннинга: они должны выглядеть точно как раньше, включая тени и движение. Если шейдер не скомпилируется, игра закроется." } },
+			{ id = "digits", type = "button", action = "zgo_probe.run_digits", show_if = "diagnostics/experimental",
+			  name = { "3. Digit textures (experimental, save first)", "3. Текстуры-цифры (экспериментально, сначала сохранитесь)" },
+			  desc = { "Stand near two or three NPCs. For a few seconds each one gets its own number through the shader's textures: their torsos turn red, green and blue. Magenta or a missing torso means the numbers did not arrive. The game closes if the shader does not compile.",
+			           "Встаньте рядом с двумя-тремя NPC. На несколько секунд каждый получает своё число через текстуры шейдера: их торсы становятся красным, зелёным и синим. Пурпурный цвет или пропавший торс значит, что числа не дошли. Если шейдер не скомпилируется, игра закроется." } },
+			{ id = "ffi", type = "button", action = "zgo_probe.run_ffi",
+			  name = { "4. FFI", "4. FFI" },
+			  desc = { "Checks that scripts can load LuaJIT's FFI and that the game's exe sits at the address the native add-on expects; asks the native add-on too when it is installed. Changes nothing.",
+			           "Проверяет, что скрипты могут загрузить FFI из LuaJIT и что exe игры находится по адресу, который ожидает нативное дополнение; если оно установлено, опрашивает и его. Ничего не меняет." } },
+			{ id = "save_reload", type = "button", action = "zgo_probe.run_save_reload",
+			  name = { "5. Save and reload: start", "5. Сохранение и загрузка: начать" },
+			  desc = { "Stand near bodies with parts cut off. Press, close the menu, save the game, load that save and wait 8 seconds: the probe checks that every recorded body came back with the same parts missing, in the same place.",
+			           "Встаньте рядом с телами с отрезанными частями. Нажмите, закройте меню, сохраните игру, загрузите это сохранение и подождите 8 секунд: проверка убедится, что каждое записанное тело вернулось с теми же недостающими частями и на том же месте." } },
+			{ id = "coop", type = "button", action = "zgo_probe.run_coop",
+			  name = { "6. Co-op: compare machines", "6. Кооператив: сравнить компьютеры" },
+			  desc = { "In co-op, stand near some bodies (cut up is best). The host compares what every player's game shows of them (missing parts, ZGO shaders, gib and decal counts) and reports a match or mismatch per player. On a client the button asks the host. In single player it shows this machine's numbers only.",
+			           "В кооперативе встаньте рядом с телами (лучше разрезанными). Хост сравнивает, что показывает игра каждого игрока (недостающие части, шейдеры ZGO, число ошмётков и следов), и сообщает совпадение или расхождение по каждому. На клиенте кнопка просит хоста. В одиночной игре показывает только данные этого компьютера." } },
+			{ id = "props", type = "button", action = "zgo_probe.run_props", show_if = "diagnostics/experimental",
+			  name = { "7. Props: swap a model (experimental)", "7. Предметы: подмена модели (экспериментально)" },
+			  desc = { "Single player. Stand next to a small loose object (bottle, can, small box). Swaps its model for another small one for a few seconds, then back: push it meanwhile, the new model must move with it. A save made meanwhile is put right when it is loaded.",
+			           "Только одиночная игра. Встаньте рядом с небольшим незакреплённым предметом (бутылка, банка, коробка). На несколько секунд подменяет его модель на другую небольшую и возвращает: толкните его в это время, новая модель должна двигаться вместе с ним. Если в это время сохраниться, при загрузке всё исправится." } },
+			{ id = "kid_lane", type = "button", action = "zgo_probe.run_kid_lane",
+			  name = { "8. Kid mode lane", "8. Канал детского режима" },
+			  desc = { "Switches kid mode on for the blood shaders only, for a few seconds, and checks that the shader bus lane zgo_view goes 0, 1, 0: blood on walls and bodies must vanish and come back. Nothing else changes. Skipped while kid mode is on.",
+			           "На несколько секунд включает детский режим только для шейдеров крови и проверяет, что канал zgo_view шины шейдеров меняется 0, 1, 0: кровь на стенах и телах должна исчезнуть и вернуться. Больше ничего не меняется. Пропускается, пока детский режим включён." } },
+			{ id = "baked", type = "button", action = "zgo_probe.run_baked",
+			  name = { "9. Baked models in use", "9. Используются ли запечённые модели" },
+			  desc = { "Stand near a few NPCs. Compares the number of parts their models have in the game with ZGO's bake: finds models another mod overrides (fix: ZGO higher in MO2, or bake again) and models the game loaded before the bake (fix: restart the game). Changes nothing.",
+			           "Встаньте рядом с несколькими NPC. Сравнивает число частей их моделей в игре с запеканием ZGO: находит модели, которые перекрывает другой мод (исправить: ZGO выше в MO2 или запечь заново), и модели, загруженные игрой до запекания (исправить: перезапустить игру). Ничего не меняет." } },
+			{ id = "mark_ok", type = "button", action = "zgo_probe.mark_ok",
+			  name = { "The last probe looked right", "Последняя проверка выглядела правильно" },
+			  desc = { "For the probes you judge by eye: adds a line to the report saying the last one looked as described.",
+			           "Для проверок, которые оцениваются на глаз: добавляет в отчёт строку, что последняя выглядела как описано." } },
+			{ id = "mark_bad", type = "button", action = "zgo_probe.mark_bad",
+			  name = { "The last probe looked wrong", "Последняя проверка выглядела неправильно" },
+			  desc = { "Adds a line to the report saying the last probe did not look as described; say what you saw in your bug report.",
+			           "Добавляет в отчёт строку, что последняя проверка выглядела не так, как описано; опишите увиденное в сообщении об ошибке." } },
+		},
+	},
+}

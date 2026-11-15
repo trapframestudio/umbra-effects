@@ -1,0 +1,94 @@
+--[[
+  Zone Gore Overhaul - options of the world impact layer (zgo_impacts*)
+  Data only; zgo_settings merges it (format in the header of zgo_settings.script).
+
+  "World impacts" page: what the host decides for everyone (which impacts
+  leave marks, craters, debris) is coop = "host"; what each machine draws
+  (dust and sparks, the experimental mark shader) is coop = "local".
+  Performance sliders (perf = potato, low, medium, high, ultra) sit on the
+  Performance page and are each player's own.
+
+  None of this is gore: kid mode leaves impacts and craters alone.
+]]
+
+SETTINGS = {
+	{
+		page = "world", after = "explosions", coop = "host",
+		name = { "World impacts", "Попадания по окружению" },
+		note = {
+			{ "Bullet marks, dust and debris on walls, floors and objects, and craters from explosions. In co-op the host's settings on this page apply to everyone, except the ones marked as your own.",
+			  "Следы пуль, пыль и обломки на стенах, полу и предметах, воронки от взрывов. В кооперативе действуют настройки хоста, кроме отмеченных как ваши собственные." },
+		},
+		items = {
+			{ id = "enable", type = "check", def = true,
+			  name = { "Bullet impacts on the world", "Попадания пуль по окружению" },
+			  desc = { "Rounds that hit walls, floors, trees and objects leave marks sized by calibre (a pistol chips, a rifle gouges, an anti-materiel round blows a crater) and throw dust, chips and sparks that match the surface. The game's own bullet holes stay; this adds to them. Off: only the game's own bullet holes.",
+			           "Пули, попавшие в стены, пол, деревья и предметы, оставляют следы по калибру (пистолет откалывает, винтовка выбивает выбоину, крупный калибр пробивает воронку) и выбивают пыль, осколки и искры по материалу. Обычные следы пуль игры остаются, это дополнение к ним. Выкл.: только следы самой игры." } },
+			{ id = "escalation", type = "check", def = true,
+			  name = { "Damage builds up", "Повреждения накапливаются" },
+			  desc = { "Hits on the same spot add up: chips turn into cracks, then a deep gouge, and sustained fire knocks a dark breach into concrete, brick, plaster, wood and thin metal. Marks only: walls don't open and bullets don't pass through them.",
+			           "Попадания в одно место складываются: сколы превращаются в трещины, потом в глубокую выбоину, а долгий огонь выбивает тёмный пролом в бетоне, кирпиче, штукатурке, дереве и тонком металле. Только следы: стены не открываются и пули сквозь них не проходят." } },
+			{ id = "mark_size", type = "track", min = 0.5, max = 2.0, step = 0.05, def = 1.0,
+			  name = { "Impact mark size", "Размер следов попаданий" },
+			  desc = { "Multiplies the size of every mark this page adds (bullet marks and craters). 1 = sized by calibre as tuned.",
+			           "Множитель размера всех следов с этой страницы (от пуль и воронок). 1 = размер по калибру, как настроено." } },
+			{ id = "objects", type = "check", def = true,
+			  name = { "Hits on objects", "Попадания по предметам" },
+			  desc = { "Dust, splinters and sparks also come off crates, barrels, cars and other objects that are not part of the level. No marks are painted on them (the game paints its own).",
+			           "Пыль, щепки и искры летят и от ящиков, бочек, машин и других предметов, не входящих в уровень. Следов на них не рисуется (игра рисует свои)." } },
+			{ id = "npc_impacts", type = "check", def = true,
+			  name = { "NPC gunfire leaves marks", "Стрельба NPC оставляет следы" },
+			  desc = { "Rounds fired by NPCs near a player get the same marks and dust as yours. Off: only players' shots (yours and co-op partners').",
+			           "Пули NPC рядом с игроками дают те же следы и пыль, что и ваши. Выкл.: только выстрелы игроков (ваши и напарников по кооперативу)." } },
+			{ id = "craters", type = "check", def = true,
+			  name = { "Explosion craters", "Воронки от взрывов" },
+			  desc = { "Grenades, rockets, mines and IEDs leave a scorched crater sized by the charge, pock marks from fragments around it, a ring of dust that rolls out along the ground and smoke that hangs for a while. Indoors, grit and dust fall from the ceiling.",
+			           "Гранаты, ракеты, мины и СВУ оставляют опалённую воронку по силе заряда, следы осколков вокруг, кольцо пыли, расходящееся по земле, и дым, который висит какое-то время. В помещении с потолка сыплются крошка и пыль." } },
+			{ id = "crater_debris", type = "check", def = false,
+			  name = { "Crater rubble and clods (experimental)", "Обломки и комья у воронок (эксперимент)" },
+			  desc = { "Explosions throw clods of earth or chunks of concrete that tumble and come to rest, and leave a low rim of thrown-up dirt or rubble around the crater. Visual only: nothing blocks movement or bullets, and nothing is kept in saves. The number at once is on the Performance page. Experimental: the pieces are new models of this mod. To check it: tick it and throw a grenade onto open ground; a ring of dirt should appear around the crater and a few clods should land around it. If the game shows an error about a model, untick it and report it.",
+			           "Взрывы разбрасывают комья земли или куски бетона, которые катятся и останавливаются, и оставляют вокруг воронки невысокий вал из земли или обломков. Только внешний вид: ничто не мешает движению и пулям и не сохраняется. Число одновременно задаётся на странице Производительность. Экспериментально: это новые модели мода. Проверка: включите и бросьте гранату на открытую землю; вокруг воронки должен появиться вал земли, рядом должны упасть несколько комьев. Если игра выдаёт ошибку о модели, выключите и сообщите." } },
+			{ id = "particles", type = "check", def = true, coop = "local",
+			  name = { "Draw impact dust and sparks (your own)", "Рисовать пыль и искры (ваша настройка)" },
+			  desc = { "Dust puffs, chips, splinters, sparks, crater dust and smoke on this computer. Off saves a little GPU time; marks and craters stay. Each player's own setting.",
+			           "Облачка пыли, осколки, щепки, искры, пыль и дым от взрывов на этом компьютере. Выкл. немного экономит видеокарту; следы и воронки остаются. У каждого игрока своя настройка." } },
+			{ id = "deep_marks", type = "check", def = false, coop = "local",
+			  name = { "Deep impact marks (experimental, your own)", "Глубокие следы попаданий (эксперимент, ваша настройка)" },
+			  desc = { "Draws impact marks with this mod's own decal shader: gouges and breaches look recessed (parallax), scorch is sooty and cracks get darker edges, and marks fade out smoothly with age. Experimental: it needs the shader file from this mod to load (see README, WORLD IMPACTS). To check it: tick it, shoot a concrete wall a few times; marks should look deeper than before. If they turn into flat grey squares or vanish, untick it and report it. Each player's own setting.",
+			           "Рисует следы попаданий собственным шейдером мода: выбоины и проломы выглядят углублёнными (параллакс), копоть выглядит сажей, у трещин темнее края, следы плавно гаснут со временем. Экспериментально: нужен файл шейдера из этого мода (см. README, WORLD IMPACTS). Проверка: включите и несколько раз выстрелите в бетонную стену; следы должны выглядеть глубже, чем раньше. Если они стали серыми квадратами или пропали, выключите и сообщите. У каждого игрока своя настройка." } },
+		},
+	},
+	{
+		page = "performance",
+		items = {
+			{ id = "world_marks", type = "track", min = 2, max = 60, step = 1, perf = { 6, 10, 16, 24, 40 },
+			  name = { "World impacts: marks per second", "Попадания по окружению: следов в секунду" },
+			  desc = { "Most impact marks this mod paints per second; in heavy fire the rest are skipped (the game's own bullet holes still appear). Marks are cheap to keep but each costs a ray cast to place.",
+			           "Сколько следов попаданий мод рисует в секунду; при плотном огне остальные пропускаются (обычные следы пуль игры остаются). Следы почти ничего не стоят, но каждый требует луча для размещения." } },
+			{ id = "world_mark_lifetime", type = "track", min = 30, max = 1800, step = 30, perf = { 60, 120, 240, 480, 900 },
+			  name = { "World impacts: mark lifetime (s)", "Попадания по окружению: время жизни следа (с)" },
+			  desc = { "Seconds before an impact mark or a crater's scorch fades. Many marks on screen at once cost some GPU time. Marks are never kept in saves.",
+			           "Через сколько секунд след попадания или копоть воронки исчезают. Много следов на экране одновременно немного нагружает видеокарту. Следы не сохраняются." } },
+			{ id = "world_fx", type = "track", min = 2, max = 80, step = 1, perf = { 6, 10, 18, 28, 48 },
+			  name = { "World impacts: dust and sparks per second", "Попадания по окружению: пыли и искр в секунду" },
+			  desc = { "Most dust puffs, chips and spark effects started per second; above this the rest are skipped. Explosion dust and smoke always play.",
+			           "Сколько облачков пыли, осколков и искр запускается в секунду; сверх этого остальные пропускаются. Пыль и дым от взрывов играют всегда." } },
+			{ id = "world_range", type = "track", min = 15, max = 200, step = 5, perf = { 30, 45, 60, 80, 120 },
+			  name = { "World impacts: distance (m)", "Попадания по окружению: дальность (м)" },
+			  desc = { "Impacts and explosions farther than this from you (or, on a co-op host, from every player) get no marks or dust from this mod.",
+			           "Попадания и взрывы дальше этого расстояния от вас (а у хоста в кооперативе от каждого игрока) не получают следов и пыли от мода." } },
+			{ id = "world_cells", type = "track", min = 32, max = 2048, step = 32, perf = { 64, 128, 256, 512, 1024 },
+			  name = { "World impacts: damaged spots remembered", "Попадания по окружению: запоминаемых повреждённых мест" },
+			  desc = { "How many spots on walls and floors keep their built-up damage; past this the spot hit longest ago starts from scratch. Costs a little memory and nothing per frame.",
+			           "Сколько мест на стенах и полу помнят накопленные повреждения; сверх этого место, в которое попадали давнее всего, начинается заново. Немного памяти, ничего за кадр." } },
+			{ id = "world_debris", type = "track", min = 0, max = 64, step = 1, perf = { 0, 4, 8, 14, 24 },
+			  name = { "World impacts: rubble and clods at once", "Попадания по окружению: обломков и комьев одновременно" },
+			  desc = { "Clods, chunks and crater rims lying around at once; the oldest goes first. Each flying piece runs a little physics. 0 = none.",
+			           "Комья, куски и валы у воронок одновременно; первым убирается самый старый. Каждый летящий кусок считает немного физики. 0 = нет." } },
+			{ id = "world_smoke", type = "track", min = 0, max = 60, step = 1, perf = { 0, 6, 10, 15, 25 },
+			  name = { "Explosion smoke: hang time (s)", "Дым от взрыва: время (с)" },
+			  desc = { "How long smoke hangs over a crater. Large soft smoke costs GPU time when you stand in it. 0 = no lingering smoke.",
+			           "Сколько дым висит над воронкой. Большой мягкий дым нагружает видеокарту, когда вы в нём стоите. 0 = без висящего дыма." } },
+		},
+	},
+}

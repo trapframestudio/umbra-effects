@@ -1,0 +1,587 @@
+--[[
+  Zone Gore Overhaul - settings
+
+  Every option is described once, in PAGES below:
+    * where it sits in MCM, its type, range and default
+    * its value in each performance preset (perf = { potato, low, medium, high, ultra })
+    * who decides it in xrRazom co-op (page or option coop = "host" | "local")
+    * its name and explanation, English and Russian
+  zgo_mcm builds the menu from it, dev/gen_mcm_text.lua writes the MCM string
+  tables from it, and the tests fail when an option has no explanation.
+
+  Co-op: "host" options change what happens in the world (the host decides
+  every effect and sends it to everyone), so xrRazom shows the host's values
+  on clients and locks them. "local" options (kid mode, performance, logs)
+  belong to each machine; the host's effects are drawn within its limits.
+]]
+
+PRESETS = { "potato", "low", "medium", "high", "ultra" }
+DEFAULT_PRESET = "high"
+
+local CO_HOST = {
+	{ "In co-op the host's settings on this page apply to everyone.",
+	  "В кооперативе настройки этой страницы задаёт хост, для всех игроков." },
+}
+
+PAGES = {
+	{
+		id = "general", coop = "local",
+		name = { "General", "Общие" },
+		items = {
+			{ id = "enable", type = "check", def = true,
+			  name = { "Enable", "Включить" },
+			  desc = { "Master switch for every effect in this mod on this computer.",
+			           "Главный выключатель всех эффектов мода на этом компьютере." } },
+			{ id = "kid_mode", type = "check", def = false,
+			  name = { "Kid mode", "Детский режим" },
+			  desc = { "Turns gore off at once on this computer: blood on walls, floors and bodies, blood sprays, pools, severed parts, gibs and stumps disappear, including what is already there, and no new gore appears. With baked models, bodies missing limbs get them back. Explosions, sparks, dust and debris stay, and nothing about the game itself changes. Untick it and everything comes back. In co-op it only changes your own screen.",
+			           "Сразу отключает кровь и расчленение на этом компьютере: кровь на стенах, полу и телах, брызги, лужи, оторванные части, ошмётки и культи исчезают, в том числе уже появившиеся, и новых не будет. С запечёнными моделями телам возвращаются конечности. Взрывы, искры, пыль и обломки остаются, сама игра не меняется. Снимите галочку, и всё вернётся. В кооперативе меняет только ваш экран." } },
+			{ id = "kid_particles", type = "check", def = false, show_if = "general/kid_mode",
+			  name = { "Kid mode: hide particles already flying (experimental)", "Детский режим: скрывать уже летящие частицы (экспериментально)" },
+			  desc = { "Also hides blood sprays and gore debris that are already on screen when kid mode goes on, and the ones the game plays by itself (knife hits on flesh, anomalies tearing a body), by switching their particle shader off. Needs the xrRazom exe's shader bus and DirectX 10 or 11, and is not tested in game yet. Off: those particles finish playing as usual.",
+			           "Также скрывает брызги крови и ошмётки, которые уже на экране при включении детского режима, и те, что игра запускает сама (удары ножом по телу, аномалии, разрывающие тело), отключая их шейдер частиц. Нужны шина шейдеров exe xrRazom и DirectX 10 или 11; в игре ещё не проверено. Выкл.: эти частицы доигрывают как обычно." } },
+			{ id = "npc_shooters", type = "check", def = true, coop = "host",
+			  name = { "NPC fights bleed too", "Перестрелки NPC тоже с кровью" },
+			  desc = { "Hits between NPCs near you (see Performance -> Detail distance) also paint blood and play effects. Dismemberment stays limited to players' kills and explosions. In co-op the host's setting applies.",
+			           "Попадания NPC друг в друга рядом с вами (см. Производительность -> Дальность детализации) тоже оставляют кровь и эффекты. Расчленение по-прежнему только от убийств игроков и взрывов. В кооперативе действует настройка хоста." } },
+			{ id = "log_explosions", type = "check", def = true,
+			  name = { "Log explosions", "Записывать взрывы в лог" },
+			  desc = { "One line in the game log for every body an explosion reaches: distance, damage, fragments and what came off. Useful for bug reports; costs nothing noticeable.",
+			           "Одна строка в логе игры на каждое тело, задетое взрывом: расстояние, урон, осколки и что оторвало. Полезно для отчётов об ошибках, на производительность не влияет." } },
+			{ id = "debug", type = "check", def = false,
+			  name = { "Debug log", "Отладочный лог" },
+			  desc = { "Writes detailed [ZGO] lines to the game log. Only for tracking down problems: it makes the log large.",
+			           "Пишет подробные строки [ZGO] в лог игры. Только для поиска проблем: лог сильно растёт." } },
+		},
+	},
+	{
+		id = "performance", coop = "local",
+		name = { "Performance", "Производительность" },
+		note = { { "Pick a preset for your machine, then fine-tune any slider. Each player sets this for their own computer.",
+		           "Выберите пресет под свой компьютер и при желании подправьте ползунки. Каждый игрок настраивает это для своего компьютера." } },
+		items = {
+			{ id = "preset", type = "preset",
+			  name = { "Quality preset", "Пресет качества" },
+			  desc = { "Sets every slider on this page for a kind of machine: Potato for very weak PCs and old laptops, Low, Medium, High (the default, tuned on a mid-range gaming PC) and Ultra for strong PCs. You can still move any slider afterwards; nothing changes until you press Accept.",
+			           "Выставляет все ползунки на этой странице под класс компьютера: Картошка для очень слабых ПК и старых ноутбуков, Низкий, Средний, Высокий (по умолчанию, настроен на среднем игровом ПК) и Ультра для мощных ПК. Любой ползунок можно потом подвинуть; ничего не меняется, пока не нажата кнопка Принять." },
+			  labels = {
+				potato = { "Potato", "Картошка" }, low = { "Low", "Низкий" }, medium = { "Medium", "Средний" },
+				high = { "High", "Высокий" }, ultra = { "Ultra", "Ультра" } } },
+			{ id = "decal_lifetime", type = "track", min = 60, max = 3600, step = 30, perf = { 180, 300, 600, 900, 1800 },
+			  name = { "Blood lifetime (seconds)", "Время жизни крови (секунды)" },
+			  desc = { "How long blood stays on walls, floors and bodies before it fades. A lot of blood on screen at once costs some GPU time.",
+			           "Сколько кровь держится на стенах, полу и телах, прежде чем исчезнуть. Много крови на экране одновременно немного нагружает видеокарту." } },
+			{ id = "max_streams", type = "track", min = 1, max = 12, step = 1, perf = { 2, 3, 5, 7, 10 },
+			  name = { "Blood streams per hit", "Струй крови на попадание" },
+			  desc = { "Most blood streams traced through the air for one hit. Each one costs a few ray casts and a decal; lower it if big fights stutter.",
+			           "Наибольшее число струй крови, просчитываемых в полёте от одного попадания. Каждая стоит нескольких лучей и одной декали; уменьшите, если большие бои подтормаживают." } },
+			{ id = "body_soaks", type = "track", min = 0, max = 64, step = 2, perf = { 6, 10, 16, 24, 40 },
+			  name = { "Spreading wound stains", "Расплывающиеся пятна от ран" },
+			  desc = { "How many wounds on the living can spread their stain at the same time; past this the oldest stops spreading. 0 = wounds don't spread.",
+			           "Сколько ран у живых могут одновременно расплываться пятном; сверх этого старейшие перестают. 0 = раны не расплываются." } },
+			{ id = "fx_budget", type = "track", min = 4, max = 120, step = 1, perf = { 8, 14, 20, 28, 48 },
+			  name = { "Particle effects per second", "Эффектов частиц в секунду" },
+			  desc = { "Above this rate, effects that aren't essential are skipped (also for effects a co-op host sends you). Scaled by Particles -> Intensity.",
+			           "Сверх этой частоты второстепенные эффекты пропускаются (и присланные хостом в кооперативе). Умножается на Частицы -> Интенсивность." } },
+			{ id = "max_live_fx", type = "track", min = 32, max = 512, step = 16, perf = { 64, 112, 176, 256, 384 },
+			  name = { "Particle effects at once", "Эффектов частиц одновременно" },
+			  desc = { "Hard limit for this mod's particle effects playing at the same moment; the oldest make room for new ones.",
+			           "Жёсткий предел одновременно играющих эффектов частиц мода; старые уступают место новым." } },
+			{ id = "max_debris", type = "track", min = 0, max = 48, step = 1, perf = { 3, 6, 10, 14, 24 },
+			  name = { "Severed parts and gibs at once", "Оторванных частей и ошмётков одновременно" },
+			  desc = { "Pieces flying or lying around; past this the oldest resting piece is removed. Each flying piece runs a little physics. 0 = none stay.",
+			           "Куски в полёте и на земле; сверх этого убирается самый старый лежащий. Каждый летящий кусок считает немного физики. 0 = не остаются." } },
+			{ id = "debris_lifetime", type = "track", min = 15, max = 900, step = 15, perf = { 45, 90, 150, 240, 480 },
+			  name = { "Severed parts: time on the ground (s)", "Оторванные части: время на земле (с)" },
+			  desc = { "Seconds before a severed part or gib is removed.",
+			           "Через сколько секунд оторванная часть или ошмёток исчезает." } },
+			{ id = "debris_range", type = "track", min = 30, max = 300, step = 10, perf = { 50, 80, 110, 150, 220 },
+			  name = { "Severed parts: removal distance (m)", "Оторванные части: дальность удаления (м)" },
+			  desc = { "Pieces farther than this from you are removed.",
+			           "Куски дальше этого расстояния от вас удаляются." } },
+			{ id = "detail_range", type = "track", min = 15, max = 150, step = 5, perf = { 25, 35, 45, 55, 80 },
+			  name = { "Detail distance (m)", "Дальность детализации (м)" },
+			  desc = { "How far from you NPC-vs-NPC fights and NPC explosions get full blood and gore, and (a little further) how far blood trails and death pools are drawn. Your own and your co-op partners' kills always get everything.",
+			           "На каком расстоянии от вас перестрелки и взрывы NPC получают полную кровь и расчленение, и (чуть дальше) рисуются кровавые следы и лужи. Ваши убийства и убийства напарников по кооперативу всегда получают всё." } },
+			{ id = "blast_per_frame", type = "track", min = 1, max = 8, step = 1, perf = { 1, 1, 2, 2, 4 },
+			  name = { "Explosion victims per frame", "Жертв взрыва за кадр" },
+			  desc = { "How many bodies an explosion's gore is worked out for in one frame; the rest follow in the next frames. Higher puts everything in the same frame (a bigger hitch).",
+			           "Для скольких тел за один кадр просчитываются последствия взрыва; остальные в следующих кадрах. Больше значит всё в одном кадре (сильнее рывок)." } },
+			{ id = "queue_budget", type = "track", min = 4, max = 120, step = 1, perf = { 8, 12, 18, 24, 40 },
+			  name = { "Jobs per frame", "Задач за кадр" },
+			  desc = { "How many queued hits and co-op effects are handled each frame. Lower spreads the work out: smoother, effects a little later.",
+			           "Сколько отложенных попаданий и эффектов кооператива обрабатывается за кадр. Меньше значит работа растягивается: плавнее, эффекты чуть позже." } },
+		},
+	},
+	{
+		id = "decals", coop = "host",
+		name = { "Blood", "Кровь" },
+		note = CO_HOST,
+		items = {
+			{ id = "amount", type = "track", min = 0.25, max = 2.5, step = 0.05, def = 1.0,
+			  name = { "Amount", "Количество" },
+			  desc = { "Scales how many blood streams each hit throws and how big they land.",
+			           "Сколько струй крови даёт каждое попадание и какого размера пятна они оставляют." } },
+			{ id = "body", type = "check", def = true,
+			  name = { "Wounds on bodies", "Раны на телах" },
+			  desc = { "Entry and exit wounds and blood stains on the victim.",
+			           "Входные и выходные раны и пятна крови на жертве." } },
+			{ id = "bystanders", type = "check", def = true,
+			  name = { "Blood on bystanders", "Кровь на окружающих" },
+			  desc = { "Streams that fly into another person stain them.",
+			           "Струи, попавшие в другого человека, пачкают его." } },
+			{ id = "trails", type = "check", def = true,
+			  name = { "Blood trails", "Кровавые следы" },
+			  desc = { "The wounded leave drops and trails as they move, following the game's own bleeding.",
+			           "Раненые оставляют капли и следы на ходу, по кровотечению самой игры." } },
+			{ id = "drips", type = "check", def = true,
+			  name = { "Drip runs", "Потёки" },
+			  desc = { "Wet blood on walls runs down over a few seconds.",
+			           "Свежая кровь на стенах за несколько секунд стекает вниз." } },
+			{ id = "pools", type = "check", def = true,
+			  name = { "Death pools", "Лужи крови" },
+			  desc = { "Blood slowly spreads under bodies.",
+			           "Под телами медленно растекается кровь." } },
+			{ id = "pool_size", type = "track", min = 0.4, max = 2.0, step = 0.05, def = 1.0,
+			  name = { "Pool size", "Размер луж" },
+			  desc = { "Size multiplier for death pools.",
+			           "Множитель размера луж крови." } },
+		},
+	},
+	{
+		id = "particles", coop = "host",
+		name = { "Particles", "Частицы" },
+		note = CO_HOST,
+		items = {
+			{ id = "enable", type = "check", def = true,
+			  name = { "Enable particles", "Включить частицы" },
+			  desc = { "Hit sprays, exit wounds, head bursts, sparks and gore debris from this mod.",
+			           "Брызги от попаданий, выходные раны, разрывы головы, искры и ошмётки от этого мода." } },
+			{ id = "intensity", type = "track", min = 0.25, max = 2.0, step = 0.05, def = 1.0,
+			  name = { "Intensity", "Интенсивность" },
+			  desc = { "Scales how many particle effects may play per second (see Performance).",
+			           "Множитель числа эффектов частиц в секунду (см. Производительность)." } },
+			{ id = "spurts", type = "check", def = true,
+			  name = { "Arterial spurts and gushes", "Артериальные фонтаны" },
+			  desc = { "Pulsing spurts from neck and artery hits; stumps gush after dismemberment.",
+			           "Пульсирующие фонтаны при попадании в шею и артерии; культи фонтанируют после расчленения." } },
+			{ id = "armor_feedback", type = "check", def = true,
+			  name = { "Armour feedback", "Отклик брони" },
+			  desc = { "Sparks and armour fragments when rounds are stopped by armour or helmets.",
+			           "Искры и осколки брони, когда пулю остановили бронежилет или шлем." } },
+		},
+	},
+	{
+		id = "dismember", coop = "host",
+		name = { "Dismemberment", "Расчленение" },
+		note = CO_HOST,
+		items = {
+			{ id = "enable", type = "check", def = true,
+			  name = { "Enable dismemberment", "Включить расчленение" },
+			  desc = { "Heads and limbs can come off on kills and when shooting bodies. The chance depends on calibre and on damage built up on the body part.",
+			           "Головы и конечности могут отрываться при убийстве и при стрельбе по телам. Шанс зависит от калибра и накопленного урона части тела." } },
+			{ id = "head", type = "check", def = true,
+			  name = { "Heads", "Головы" },
+			  desc = { "Decapitation and head bursts.", "Обезглавливание и разрыв головы." } },
+			{ id = "limbs", type = "check", def = true,
+			  name = { "Arms and legs", "Руки и ноги" },
+			  desc = { "Limbs come off from the hit bone downward.", "Конечности отрываются от места попадания и ниже." } },
+			{ id = "mutants", type = "check", def = true,
+			  name = { "Mutants", "Мутанты" },
+			  desc = { "Mutants can be dismembered too.", "Мутантов тоже можно расчленить." } },
+			{ id = "corpses", type = "check", def = true,
+			  name = { "Shooting bodies", "Стрельба по телам" },
+			  desc = { "Bodies keep taking damage; enough rifle rounds into a limb takes it off.",
+			           "Тела продолжают получать урон; достаточно винтовочных пуль в конечность её отрывают." } },
+			{ id = "chance", type = "track", min = 0.0, max = 3.0, step = 0.05, def = 1.0,
+			  name = { "Chance multiplier", "Множитель шанса" },
+			  desc = { "Multiplies every dismemberment chance (2 = twice as likely).",
+			           "Умножает все шансы расчленения (2 = вдвое чаще)." } },
+			{ id = "severed_limbs", type = "check", def = true,
+			  name = { "Severed limbs", "Оторванные конечности" },
+			  desc = { "The severed part flies off and tumbles to the ground. They are not kept in saves.",
+			           "Оторванная часть отлетает и падает на землю. В сохранениях не остаётся." } },
+			{ id = "gibs", type = "check", def = true,
+			  name = { "Gibs", "Ошмётки" },
+			  desc = { "Chunks thrown by head bursts and explosions: torn-out pieces of the body itself, or meat models (see Gib look).",
+			           "Куски, которые разлетаются при разрыве головы и взрывах: вырванные куски самого тела или модели мяса (см. «Вид ошмётков»)." } },
+			{ id = "gib_style", type = "list", values = { "body", "meat" }, def = "body", coop = "local",
+			  show_if = "dismember/gibs",
+			  labels = {
+				body = { "Pieces of the body", "Куски самого тела" },
+				meat = { "Meat models (as before 1.7.1)", "Модели мяса (как до 1.7.1)" },
+			  },
+			  name = { "Gib look", "Вид ошмётков" },
+			  desc = { "What an explosion or a head burst throws. Pieces of the body: chunks torn out of that body's own model, with its clothes, skin or fur on the outside and raw flesh underneath; each one flies off from the spot it came from, the ones nearest the blast first. ZGO Setup makes them with the baked models (README, BAKED MODELS; a bake from 1.7.1 or newer, about 0.2 MB per body model). A body without them, or wearing a model another mod replaced after the bake, throws meat models. Meat models: G.A.M.M.A.'s mutant meat items, as before. To check: throw a grenade at a body with Pieces of the body: the pieces must wear the body's own clothes and fly out from where they were. If the game shows an error about a model, pick Meat models and report it. Each player's own setting.",
+			           "Что разлетается при взрыве или разрыве головы. Куски самого тела: куски, вырванные из модели этого тела, снаружи его одежда, кожа или шерсть, снизу сырое мясо; каждый вылетает с того места, где был, сначала ближайшие к взрыву. Их делает ZGO Setup вместе с запечёнными моделями (README, BAKED MODELS; запекание версии 1.7.1 или новее, около 0,2 МБ на модель тела). Тело без них или с моделью, которую другой мод заменил после запекания, бросает модели мяса. Модели мяса: куски мяса мутантов из G.A.M.M.A., как раньше. Проверка: бросьте гранату в труп при «Куски самого тела»: куски должны быть в одежде этого тела и вылетать с того места, где были. Если игра выдаёт ошибку о модели, выберите «Модели мяса» и сообщите. У каждого игрока своя настройка." } },
+			{ id = "stump_caps", type = "check", def = true,
+			  name = { "Stump caps", "Культи" },
+			  desc = { "Raw meat covers each stump.", "Срез каждой культи закрыт сырым мясом." } },
+			{ id = "full_gib", type = "check", def = true,
+			  name = { "Full gibbing", "Полное разрывание" },
+			  desc = { "Direct RPG hits and IEDs going off underfoot take the whole body apart. Grenades, launcher rounds and mines take limbs, never whole bodies.",
+			           "Прямое попадание РПГ и СВУ под ногами разрывают тело целиком. Гранаты, подствольные заряды и мины отрывают конечности, но не разрывают тело." } },
+			{ id = "baked_models", type = "check", def = true, coop = "local",
+			  name = { "Use baked models", "Запечённые модели" },
+			  desc = { "Uses the cut-ready character models made by the model baker (see README, BAKED MODELS): limbs come off corpses too, and late blasts still take parts. Off: behaves as if they were not installed (they stay loaded). Each player's own setting.",
+			           "Использует подготовленные к расчленению модели персонажей из запекателя моделей (см. README, BAKED MODELS): конечности отрываются и у трупов, поздние взрывы тоже отрывают части. Выкл.: как будто их нет (остаются загруженными). У каждого игрока своя настройка." } },
+		},
+	},
+	{
+		id = "explosions", coop = "host",
+		name = { "Explosions", "Взрывы" },
+		note = CO_HOST,
+		items = {
+			{ id = "overpressure", type = "check", def = true,
+			  name = { "Realistic blast damage (overrides G.A.M.M.A.)", "Реалистичный урон от взрыва (поверх G.A.M.M.A.)" },
+			  desc = { "G.A.M.M.A. armour subtracts its whole explosion protection from a blast, so NPCs could shrug off a grenade at their feet. With this on, the blast does at least what its overpressure would: a hand grenade within about a metre kills most people, at 2 m it hurts, at 3 m it barely does. Armour cuts it (an exoskeleton by about a third), walls in between cut it more. Story characters other mods protect are left alone.",
+			           "В G.A.M.M.A. броня вычитает всю защиту от взрыва, и NPC могли не заметить гранату под ногами. Если включено, взрыв наносит не меньше, чем его ударная волна: ручная граната ближе метра убивает почти любого, в 2 м ранит, в 3 м почти безвредна. Броня ослабляет (экзоскелет примерно на треть), стены ослабляют сильнее. Сюжетных персонажей, защищённых другими модами, это не касается." } },
+			{ id = "overpressure_scale", type = "track", min = 0.25, max = 2.0, step = 0.05, def = 1.0,
+			  name = { "Blast damage strength", "Сила урона от взрыва" },
+			  desc = { "Scales the realistic blast damage above. 1 = the tuned values.",
+			           "Множитель реалистичного урона выше. 1 = настроенные значения." } },
+			{ id = "friendly_blasts", type = "check", def = true,
+			  name = { "Grenades hurt allies", "Гранаты ранят своих" },
+			  desc = { "G.A.M.M.A. No NPC Friendly Fire also cancels the blast and shrapnel of an NPC grenade on its own side, so it only ever hurt its target. With this on, explosions hurt everyone near them; bullets are still filtered and relations still patched, so allies caught in a blast stay allies.",
+			           "G.A.M.M.A. No NPC Friendly Fire отменяет и взрыв с осколками гранаты NPC по своим, так что граната ранила только цель. Если включено, взрывы ранят всех рядом; пули по-прежнему фильтруются, а отношения исправляются, так что задетые союзники остаются союзниками." } },
+		},
+	},
+}
+
+------------------------------------------------------------------------
+-- Feature modules add options without editing this file. Each one below,
+-- when the file exists, is a script zgo_settings_<name>.script that only
+-- defines data:
+--   SETTINGS = {
+--     { page = "<page id>", items = { ... } },            -- add to an existing page
+--     { page = "<new id>", name = { en, ru }, coop = "host" | "local",
+--       note = { { en, ru } }, after = "<page id>", items = { ... } },   -- a new page
+--   }
+-- Items are written exactly like the ones above. Types:
+--   check   def = true | false
+--   track   min, max, step, def (or perf = { 5 values } on the Performance page)
+--   list    values = { v1, v2, ... }, def = v, labels = { [v] = { en, ru } }
+--   button  action = "module.function" (called on click; no stored value)
+-- Any item or page may have show_if = "<page/id>": shown only while that
+-- option is on (e.g. diagnostics only with the debug log on). Options that change what
+-- happens in the world are coop = "host"; per-machine ones (drawing,
+-- performance) "local". Performance sliders go on the "performance" page
+-- with perf = { potato, low, medium, high, ultra }.
+------------------------------------------------------------------------
+FEATURES = { "world", "props", "cuts", "wounds", "native", "probe", "setup", "kidfx" }
+
+local merged
+
+local function feature_settings(name)
+	local mod_name = "zgo_settings_" .. name
+	local ok, m = pcall(function() return _G[mod_name] end)
+	if ok and type(m) == "table" and type(m.SETTINGS) == "table" then return m.SETTINGS end
+	return nil
+end
+
+function pages()
+	if merged then return merged end
+	local list, by_id = {}, {}
+	for _, p in ipairs(PAGES) do
+		local copy = {}
+		for k, v in pairs(p) do copy[k] = v end
+		copy.items = {}
+		for _, it in ipairs(p.items) do copy.items[#copy.items + 1] = it end
+		list[#list + 1] = copy
+		by_id[p.id] = copy
+	end
+	for _, name in ipairs(FEATURES) do
+		for _, ext in ipairs(feature_settings(name) or {}) do
+			local page = by_id[ext.page]
+			if not page then
+				page = { id = ext.page, name = ext.name, coop = ext.coop or "local", note = ext.note, show_if = ext.show_if, items = {} }
+				by_id[ext.page] = page
+				local at = #list + 1
+				for i, p in ipairs(list) do if p.id == ext.after then at = i + 1 end end
+				table.insert(list, at, page)
+			end
+			for _, it in ipairs(ext.items or {}) do page.items[#page.items + 1] = it end
+		end
+	end
+	merged = list
+	return merged
+end
+
+------------------------------------------------------------------------
+-- Lookup
+------------------------------------------------------------------------
+local by_key        -- "page/id" -> item, page
+local DEFAULTS = {}
+
+local function index()
+	if by_key then return end
+	by_key = {}
+	local hi
+	for i, p in ipairs(PRESETS) do if p == DEFAULT_PRESET then hi = i end end
+	for _, page in ipairs(pages()) do
+		for _, it in ipairs(page.items) do
+			local key = page.id .. "/" .. it.id
+			by_key[key] = { item = it, page = page }
+			if it.type == "preset" then
+				DEFAULTS[key] = DEFAULT_PRESET
+			elseif it.perf then
+				DEFAULTS[key] = it.perf[hi]
+			else
+				DEFAULTS[key] = it.def
+			end
+		end
+	end
+end
+
+function default(key)
+	index()
+	return DEFAULTS[key]
+end
+
+function keys()
+	index()
+	local t = {}
+	for k in pairs(by_key) do t[#t + 1] = k end
+	table.sort(t)
+	return t
+end
+
+function coop_of(key)
+	index()
+	local e = by_key[key]
+	if not e then return nil end
+	return e.item.coop or e.page.coop or "local"
+end
+
+-- preset name -> { "page/id" = value } for every option it sets
+function preset_values(name)
+	index()
+	local idx
+	for i, p in ipairs(PRESETS) do if p == name then idx = i end end
+	if not idx then return nil end
+	local t = {}
+	for key, e in pairs(by_key) do
+		if e.item.perf then t[key] = e.item.perf[idx] end
+	end
+	return t
+end
+
+------------------------------------------------------------------------
+-- Reading (cached for a moment: many reads per hit; MCM and xrRazom's host
+-- settings push both just write axr_options)
+------------------------------------------------------------------------
+local cache, cache_t = {}, -1e9
+local CACHE_MS = 500
+
+function invalidate() cache, cache_t = {}, -1e9 end
+
+function get(key)
+	local now = time_global and time_global() or 0
+	if now - cache_t > CACHE_MS or now < cache_t then cache, cache_t = {}, now end
+	local v = cache[key]
+	if v ~= nil then return v end
+	if ui_mcm and ui_mcm.get then
+		local ok, mv = pcall(ui_mcm.get, "zgo/" .. key)
+		if ok then v = mv end
+	end
+	if v == nil then v = default(key) end
+	if v ~= nil then cache[key] = v end
+	return v
+end
+
+------------------------------------------------------------------------
+-- MCM
+------------------------------------------------------------------------
+local function title(page_id)
+	return { id = "title", type = "slide", link = "ui_options_slider_player", text = "ui_mcm_zgo_" .. page_id .. "_title", size = { 512, 50 }, spacing = 20 }
+end
+
+function mcm()
+	index()
+	local gr = {}
+	for _, page in ipairs(pages()) do
+		local g = { title(page.id) }
+		for i in ipairs(page.note or {}) do
+			g[#g + 1] = { id = "note" .. i, type = "desc", text = "ui_mcm_zgo_" .. page.id .. "_note" .. i, clr = { 255, 200, 200, 200 } }
+		end
+		for _, it in ipairs(page.items) do
+			local n0 = #g
+			if it.type == "check" then
+				g[#g + 1] = { id = it.id, type = "check", val = 1, def = it.def }
+			elseif it.type == "list" then
+				local content = {}
+				for _, v in ipairs(it.values) do content[#content + 1] = { v } end
+				g[#g + 1] = { id = it.id, type = "list", val = type(it.def) == "number" and 2 or 0, def = it.def, content = content }
+			elseif it.type == "button" then
+				local action = it.action
+				g[#g + 1] = { id = it.id, type = "button", functor = { function()
+					local mod, fn = string.match(action, "^([%w_]+)%.([%w_]+)$")
+					local ok, m = pcall(function() return _G[mod] end)
+					local f = ok and m and m[fn]
+					if f then
+						local ok2, err = pcall(f)
+						if not ok2 then zgo_util.log("%s failed: %s", action, tostring(err)) end
+					else
+						zgo_util.log("button action %s not found", tostring(action))
+					end
+				end } }
+			elseif it.type == "track" then
+				g[#g + 1] = { id = it.id, type = "track", val = 2, min = it.min, max = it.max, step = it.step,
+					def = default(page.id .. "/" .. it.id) }
+			elseif it.type == "preset" then
+				local content, presets = {}, {}
+				for _, p in ipairs(PRESETS) do
+					content[#content + 1] = { p }
+					local vals = {}
+					for key, v in pairs(preset_values(p)) do
+						local pg, id = string.match(key, "^([^/]+)/(.+)$")
+						if pg == page.id then vals[id] = v end
+					end
+					presets[p] = vals
+				end
+				g[#g + 1] = { id = it.id, type = "preset", val = 0, def = DEFAULT_PRESET, content = content, presets = presets }
+			end
+			if it.show_if and #g > n0 then
+				local key = it.show_if
+				g[#g].precondition = { function() return get(key) and true or false end }
+			end
+		end
+		local tree = { id = page.id, sh = true, text = "ui_mcm_zgo_" .. page.id, gr = g }
+		if page.show_if then
+			local key = page.show_if
+			tree.precondition = { function() return get(key) and true or false end }
+		end
+		gr[#gr + 1] = tree
+	end
+	return { id = "zgo", sh = false, gr = gr }
+end
+
+-- every string the menu needs, for dev/gen_mcm_text.lua: { { id, text }, ... }
+-- lang: 1 = English, 2 = Russian
+function strings(lang)
+	index()
+	local out = { { "ui_mcm_menu_zgo", "Zone Gore Overhaul" } }
+	for _, page in ipairs(pages()) do
+		local base = "ui_mcm_zgo_" .. page.id
+		out[#out + 1] = { base, page.name[lang] }
+		out[#out + 1] = { base .. "_title", page.id == "general" and "Zone Gore Overhaul" or page.name[lang] }
+		for i, n in ipairs(page.note or {}) do out[#out + 1] = { base .. "_note" .. i, n[lang] } end
+		for _, it in ipairs(page.items) do
+			out[#out + 1] = { base .. "_" .. it.id, it.name[lang] }
+			out[#out + 1] = { base .. "_" .. it.id .. "_desc", it.desc[lang] }
+			local values = it.type == "preset" and PRESETS or it.values
+			for _, v in ipairs(it.labels and values or {}) do
+				-- MCM looks list entries up as "<path with _>_lst_<value>"
+				out[#out + 1] = { "zgo_" .. page.id .. "_" .. it.id .. "_lst_" .. tostring(v), it.labels[v][lang] }
+			end
+		end
+	end
+	return out
+end
+
+------------------------------------------------------------------------
+-- xrRazom co-op: tell it which settings the host owns (undeclared = local)
+------------------------------------------------------------------------
+function declare_coop()
+	local auth = rawget(_G, "xrr_mcm_authority")
+	if auth == nil then
+		local ok, m = pcall(function() return xrr_mcm_authority end)
+		auth = ok and m or nil
+	end
+	if not (auth and auth.declare) then return false end
+	index()
+	for _, page in ipairs(pages()) do
+		pcall(auth.declare, "zgo/" .. page.id, page.coop or "local")
+		for _, it in ipairs(page.items) do
+			if it.coop and it.coop ~= page.coop then
+				pcall(auth.declare, "zgo/" .. page.id .. "/" .. it.id, it.coop)
+			end
+		end
+	end
+	return true
+end
+
+------------------------------------------------------------------------
+-- Kid mode
+------------------------------------------------------------------------
+function gore()
+	return zgo_util.gore()
+end
+
+local kid_state      -- last applied (nil until the first update)
+local armed_state    -- last applied general/kid_particles (lane w)
+
+-- the shader bus lane the blood shaders read: x = 1 hides gore
+-- x = 1 hides gore; w = 1 also arms the kid-mode particle shaders (zgo_particle_kid*.ps)
+local LANE = "zgo_view"
+local lane_ok, lane_token
+
+local function bus()
+	local b = rawget(_G, "shader_bus")
+	if b == nil then
+		local ok, m = pcall(function() return shader_bus end)
+		b = ok and m or nil
+	end
+	return b
+end
+
+local function lane_ready(b)
+	if lane_ok ~= nil then return lane_ok end
+	local function present()
+		if not b.has then return nil end
+		local ok, r = pcall(b.has, LANE)
+		return ok and r and true or false
+	end
+	local reg = b.try_register or b.register
+	local ok, err = false, "no register function"
+	if reg then ok, err = pcall(reg, LANE, "Zone Gore Overhaul", "x = 1: kid mode, the blood shaders draw nothing; w = 1: the kid-mode particle shaders too") end
+	-- register / try_register return the write token that set() takes
+	-- (lua_help_ex.script, shader_bus version 2); nil: another owner holds the id
+	if ok then
+		if err ~= nil and err ~= false and err ~= true then
+			lane_token = err
+		elseif err == true then
+			ok, err = false, "register gave no write token"
+		else
+			local owner = b.owner_of and select(2, pcall(b.owner_of, LANE))
+			ok, err = false, "the id belongs to " .. tostring(owner)
+		end
+	end
+	local p = present()
+	lane_ok = ok and p ~= false
+	zgo_util.log("shader bus lane %s: %s", LANE, lane_ok and "registered" or ("not registered (" .. tostring(err) .. "); kid mode can't hide blood already on screen"))
+	return lane_ok
+end
+
+local function lane_set(kid, armed)
+	local b = bus()
+	if not (b and b.set and lane_ready(b)) then return false end
+	local ok, err = pcall(b.set, lane_token, kid and 1 or 0, 0, 0, (kid and armed) and 1 or 0)
+	if not ok or err == false then zgo_util.log("shader bus %s: set failed: %s", LANE, tostring(err)) return false end
+	return true
+end
+
+-- polled from zgo_main's update; applies a change of kid mode
+function update()
+	local kid = not gore()
+	local armed = kid and zgo_util.setting("general/kid_particles") and true or false
+	if kid == kid_state and armed == armed_state then return end
+	local kid_changed = kid ~= kid_state
+	local first = kid_state == nil
+	kid_state, armed_state = kid, armed
+	lane_set(kid, armed)
+	if not kid_changed then return end
+	if first and not kid then return end
+	zgo_util.log("kid mode %s", kid and "on: gore hidden" or "off")
+	pcall(zgo_fx.kid_mode, kid)
+	pcall(zgo_debris.kid_mode, kid)
+	pcall(zgo_dismember.kid_mode, kid)
+	pcall(zgo_decals.kid_mode, kid)
+	pcall(zgo_wounds.kid_mode, kid)
+	pcall(zgo_native.kid_mode, kid)
+end
+
+function reset()
+	kid_state, armed_state, lane_ok, lane_token = nil, nil, nil, nil
+	invalidate()
+end

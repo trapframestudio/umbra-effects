@@ -1,0 +1,488 @@
+--[[
+  Zone Gore Overhaul - baked models (runtime side)
+
+  The ZGO mesh baker (tools/zgo_baker) rewrites NPC / mutant models so that
+  every severable section (head, upper arm, forearm, thigh, calf) is its own
+  sub-mesh. The renderer drops a sub-mesh once all of its bones are hidden,
+  even on a ragdoll whose physics keeps writing those bones, so cuts on
+  corpses and after explosions show up properly.
+
+  It also writes (formats in docs/formats/):
+    zgo_bake_index.script   models[visual] = { [section root] = true }
+    zgo_bake_parts.script   per section: sub-mesh ids, a fitted stump cap and
+                            a limb piece (attachment models), experimental
+                            K_s / D_s sub-mesh ids and gib chunks; per model
+                            its body gibs
+    zgo_bake_wounds.script  wound sites per section and bind poses
+  All three carry the same bake_id; parts / wounds from another bake (or an
+  index from before 1.7, which has none) are ignored.
+
+  Every accessor takes a game object or a visual name, and returns nil when
+  there is no baked data for it or the MCM switch "Use baked models" is off
+  (raw = true ignores the switch). Without the baked models everything still
+  works, with the engine limit described in zgo_dismember.
+
+  loaded_matches(obj) tells whether the model the game actually loaded for an
+  object is the baked one (sub-mesh count); anything that names sub-mesh ids
+  (set_shader) or fits a cap / piece to the body checks it first.
+]]
+
+local U = zgo_util
+
+local index        -- false = no baked models installed
+local parts_src    -- zgo_bake_parts namespace (false = none / another bake)
+local wounds_src   -- zgo_bake_wounds namespace (false = none / another bake)
+-- decoded per model on first use; weak values, so models nobody holds on to
+-- any more are decoded again when next asked (all 4790 G.A.M.M.A models
+-- decoded at once would take about 290 MB)
+local function weak() return setmetatable({}, { __mode = "v" }) end
+local parts_cache, wounds_cache, skel_cache = weak(), weak(), weak()
+
+local CAP_DIR, PIECE_DIR, CHUNK_DIR = "zgo\\baked\\caps\\", "zgo\\baked\\pieces\\", "zgo\\baked\\chunks\\"
+local GIB_DIR = "zgo\\baked\\gibs\\"
+
+local function load_index()
+	if index ~= nil then return index end
+	index = false
+	if U.file_exists("$game_scripts$", "zgo_bake_index.script") then
+		local ok, t = pcall(function() return zgo_bake_index.models end)
+		if ok and type(t) == "table" then index = t end
+	end
+	return index
+end
+
+local function index_ns()
+	if not load_index() then return nil end
+	local ok, ns = pcall(function() return zgo_bake_index end)
+	return ok and ns or nil
+end
+
+-- a generated companion script of this bake (same bake_id), or false
+local function companion(name)
+	local ns = index_ns()
+	local id = ns and rawget(ns, "bake_id")
+	if not id then return false end
+	if not U.file_exists("$game_scripts$", name .. ".script") then return false end
+	local ok, t = pcall(function() return _G[name] end)
+	if not (ok and type(t) == "table" and type(t.models) == "table") then return false end
+	if t.bake_id ~= id then
+		U.log("%s.script is from another bake (%s, index %s): ignored; run the baker again", name, tostring(t.bake_id), tostring(id))
+		return false
+	end
+	return t
+end
+
+local function parts_ns()
+	if parts_src == nil then parts_src = companion("zgo_bake_parts") end
+	return parts_src
+end
+
+local function wounds_ns()
+	if wounds_src == nil then wounds_src = companion("zgo_bake_wounds") end
+	return wounds_src
+end
+
+-- "actors\Stalker_Bandit/bandit_1.ogf" -> "actors\stalker_bandit\bandit_1"
+function key(visual)
+	local v = string.gsub(string.lower(visual or ""), "/", "\\")
+	local e = string.find(v, ".ogf", 1, true)
+	if e then v = string.sub(v, 1, e - 1) end
+	return v
+end
+
+-- a game object or a visual name -> index key
+local function key_of(v)
+	if type(v) == "string" then return key(v) end
+	if v == nil then return nil end
+	local ok, name = pcall(v.get_visual_name, v)
+	return ok and name and key(name) or nil
+end
+
+-- MCM: Dismemberment -> Use baked models. Off = behave as if they weren't
+-- installed (the files stay loaded; tools/zgo_baker/bake.py --remove deletes them)
+function enabled() return U.setting("dismember/baked_models") ~= false end
+
+-- raw: ignore the MCM switch (saving must restore what is on screen either way)
+function info(obj, raw)
+	if not raw and not enabled() then return nil end
+	local idx = load_index()
+	if not (idx and obj) then return nil end
+	local k = key_of(obj)
+	return k and idx[k] or nil
+end
+
+function is_baked(obj, raw)
+	return info(obj, raw) ~= nil
+end
+
+-- does this model have root (and everything below it) as its own sub-meshes?
+function has_section(obj, root, raw)
+	local i = info(obj, raw)
+	return i ~= nil and root ~= nil and i[root] == true
+end
+
+function count()
+	local idx = load_index()
+	if not idx then return 0 end
+	local n = 0
+	for _ in pairs(idx) do n = n + 1 end
+	return n
+end
+
+-- what the installed bake made: { caps, pieces, wounds, kcaps, damage } (all
+-- false for an index from before 1.7)
+function features()
+	local ns = index_ns()
+	local f = ns and rawget(ns, "features")
+	local out = { caps = false, pieces = false, wounds = false, kcaps = false, damage = false }
+	if type(f) == "table" then for k, v in pairs(f) do out[k] = v == true end end
+	return out
+end
+
+function bake_id()
+	local ns = index_ns()
+	return ns and rawget(ns, "bake_id") or nil
+end
+
+------------------------------------------------------------------------
+-- Parts (zgo_bake_parts.script, docs/formats/parts.md)
+------------------------------------------------------------------------
+local function ids_of(s)
+	local t = {}
+	for n in string.gmatch(s or "", "%d+") do t[#t + 1] = tonumber(n) end
+	return t
+end
+
+local function model_name(dir, h)
+	if not h or h == "-" or h == "" then return nil end
+	return dir .. string.sub(h, 1, 2) .. "\\" .. h
+end
+
+-- one zgo_bake_parts.models entry (docs/formats/parts.md):
+-- "1:1,15/-/- 2:8,16/<cap hash>.<boneset>/<piece hash>/k:17,18/d:8=19/g:<chunk hash>x6 ..."
+-- names / bonesets: the file's lists
+function decode_parts(line, names, bonesets)
+	local out = {}
+	for tok in string.gmatch(line or "", "%S+") do
+		local sec, rest = string.match(tok, "^(%d+):(.*)$")
+		local name = sec and names and names[tonumber(sec)]
+		if name then
+			local f = {}
+			for x in string.gmatch(rest .. "/", "([^/]*)/") do f[#f + 1] = x end
+			local e = { kids = ids_of(f[1]) }
+			local ch, cb = string.match(f[2] or "", "^(%x+)%.(%d+)$")
+			e.cap_hash = ch
+			e.piece_hash = f[3] ~= "-" and f[3] ~= "" and f[3] or nil
+			for i = 4, #f do
+				local tag, v = string.match(f[i], "^(%a):(.*)$")
+				if tag == "k" then
+					e.kcap = ids_of(v)
+				elseif tag == "d" then
+					e.dmg = {}
+					for x, y in string.gmatch(v, "(%d+)=(%d+)") do e.dmg[tonumber(x)] = tonumber(y) end
+				elseif tag == "g" then
+					local h, n = string.match(v, "^(%x+)x(%d+)$")
+					e.chunk_hash, e.chunk_count = h, tonumber(n)
+				elseif tag == "b" then
+					local h, gi = string.match(v, "^(%x+)%.(%d+)$")
+					e.gib_hash, e.gib_set = h, tonumber(gi)
+				end
+			end
+			if ch then
+				local bones = {}
+				for bn in string.gmatch((bonesets and bonesets[tonumber(cb)]) or "", "%S+") do bones[#bones + 1] = bn end
+				e.cap = { model = model_name(CAP_DIR, ch), parent = bones[1], bones = bones }
+			end
+			if e.piece_hash then e.piece = { model = model_name(PIECE_DIR, e.piece_hash), root = name } end
+			if e.chunk_hash then
+				e.chunks = { model = model_name(CHUNK_DIR, e.chunk_hash), count = e.chunk_count or 0 }
+			end
+			if e.gib_hash and e.gib_set then e.gibs = { model = model_name(GIB_DIR, e.gib_hash), set = e.gib_set } end
+			out[name] = e
+		end
+	end
+	return out
+end
+
+-- every section of the model: { [section] = { kids = { child ids }, cap, piece, kcap, dmg, chunks } }
+-- (child ids are set_shader ids: OGF child index + 1; "body" is the rest)
+function parts(visual, raw)
+	if not info(visual, raw) then return nil end
+	local ns = parts_ns()
+	if not ns then return nil end
+	local k = key_of(visual)
+	local c = parts_cache[k]
+	if c == nil then
+		local line = ns.models[k]
+		c = line and decode_parts(line, ns.names, ns.bonesets) or false
+		parts_cache[k] = c
+	end
+	return c or nil
+end
+
+local function part(visual, section, raw)
+	local p = parts(visual, raw)
+	return p and section and p[section] or nil
+end
+
+-- how many sub-meshes the baked model has: every child is listed in parts
+-- (each base child in exactly one section, K_s / D_s after them), so this is
+-- exact; nil without parts (zgo_probe falls back to a lower bound)
+function expected_children(visual, raw)
+	local p = parts(visual, raw)
+	if not p then return nil end
+	local n = 0
+	for _, e in pairs(p) do
+		for _, id in ipairs(e.kids) do if id > n then n = id end end
+		for _, id in ipairs(e.kcap or {}) do if id > n then n = id end end
+		for _, d in pairs(e.dmg or {}) do if d > n then n = d end end
+	end
+	return n > 0 and n or nil
+end
+
+-- Is the model the game loaded for this object the baked one? Another mod's
+-- model winning in MO2, or a model the game loaded before the bake, has
+-- other sub-meshes, and the parts table's ids would then name the wrong
+-- parts (and caps / pieces would not fit it). Compares the object's
+-- sub-mesh count (get_shaders) with the bake's. true / false, or nil when
+-- it can't be told (no parts, no get_shaders). Cached per model for the
+-- session; a mismatch is logged once.
+local loaded_cache = {}
+
+function loaded_matches(obj, raw)
+	if type(obj) ~= "userdata" and type(obj) ~= "table" then return nil end
+	local want = expected_children(obj, raw)
+	if not want then return nil end
+	local k = key_of(obj)
+	local c = k and loaded_cache[k]
+	if c ~= nil then return c end
+	local ok, t = pcall(function() return obj:get_shaders(false) end)
+	if not (ok and type(t) == "table") or t.error then return nil end
+	local n = 0
+	for id, e in pairs(t) do if type(id) == "number" and type(e) == "table" then n = n + 1 end end
+	c = n == want
+	loaded_cache[k] = c
+	if not c then
+		U.log("%s: the game loaded %d sub-meshes, the bake has %d (another mod's model wins, or it was loaded before the bake): this model is cut by hiding bones, without fitted caps or pieces",
+			k, n, want)
+	end
+	return c
+end
+
+-- set_shader ids of the section's own sub-meshes (not its children's)
+function submeshes(visual, section, raw)
+	local e = part(visual, section, raw)
+	return e and e.kids or nil
+end
+
+-- the fitted stump cap left when section is cut off:
+-- { model = engine model name, parent = bone it hangs on, bones = cap skeleton }
+-- Attach with obj:add_attachment(name, cap.model), then either
+--   exact:  att:bone_callback(b, b, true) for every b in cap.bones (bone 0 first);
+--           follows the victim's seam even after its bones are hidden, or
+--   rigid:  att:set_parent_bone(cap.parent) (no offset, rotation or scale);
+--           exact only while the seam's bones are visible
+-- (docs/formats/caps.md)
+function cap(visual, section, raw)
+	local e = part(visual, section, raw)
+	return e and e.cap or nil
+end
+
+-- the limb piece for section: { model = engine model name, root = section }
+-- (its skeleton is section and every bone below it, same names; docs/formats/pieces.md)
+function piece(visual, section, raw)
+	local e = part(visual, section, raw)
+	return e and e.piece or nil
+end
+
+-- (experimental bake) set_shader ids of the cap sub-meshes inside the model
+-- (shader zgo\off until the cut)
+function kcap_ids(visual, section, raw)
+	local e = part(visual, section, raw)
+	return e and e.kcap or nil
+end
+
+-- (experimental bake) { [C_s id] = D_s id } for the section's damage meshes
+function damage_ids(visual, section, raw)
+	local e = part(visual, section, raw)
+	return e and e.dmg or nil
+end
+
+function has_damage_mesh(visual, section, raw)
+	local d = damage_ids(visual, section, raw)
+	return d ~= nil and next(d) ~= nil
+end
+
+-- (experimental bake) gib chunks carved from the section's wound sites:
+-- { model = engine model name, count = n }; bone i ("site_i") holds the
+-- chunk of site i (docs/formats/damage.md)
+function chunks(visual, section, raw)
+	local e = part(visual, section, raw)
+	return e and e.chunks or nil
+end
+
+-- body gibs (docs/formats/gibs.md): the pieces a blast tears out of this
+-- body, cut from its own model. { model, count, pieces = { [i] = { bone, m } } }:
+-- piece i is bone i of the model (root 0 holds nothing); bone is the body's
+-- bone it came from and m = { i, j, k, c } its frame in that bone's frame,
+-- so bone_transform(bone) * m puts it exactly where it was on the body.
+function gibs(visual, raw)
+	local all = parts(visual, raw)
+	local g = all and all.body and all.body.gibs
+	if not g then return nil end
+	if g.pieces == nil then
+		local ns = parts_ns()
+		local text = ns and type(ns.gibsets) == "table" and ns.gibsets[g.set]
+		local sk = text and decode_skel(text)
+		g.pieces = {}
+		if sk then
+			for id = 0, sk.count - 1 do
+				local b = sk.bones[id]
+				g.pieces[#g.pieces + 1] = { bone = b.name, m = { i = b.i, j = b.j, k = b.k, c = b.c } }
+			end
+		end
+		g.count = #g.pieces
+	end
+	return g.count > 0 and g or nil
+end
+
+------------------------------------------------------------------------
+-- Wound sites (zgo_bake_wounds.script, docs/formats/wounds.md)
+------------------------------------------------------------------------
+-- "name,parent,qw,qx,qy,qz,cx,cy,cz;..." (quaternion x10000, origin 0.1 mm)
+-- -> { bones = { [id] = m }, by_name = { [name] = m }, count }
+-- m = { name, id, parent, i, j, k (axes: rows of the X-Ray Fmatrix), c (origin) }
+function decode_skel(text)
+	local bones, by_name = {}, {}
+	local id = 0
+	for item in string.gmatch(text or "", "[^;]+") do
+		local f = {}
+		for x in string.gmatch(item, "[^,]+") do f[#f + 1] = x end
+		local w, x, y, z = tonumber(f[3]), tonumber(f[4]), tonumber(f[5]), tonumber(f[6])
+		local l = math.sqrt(w * w + x * x + y * y + z * z)
+		if l > 0 then w, x, y, z = w / l, x / l, y / l, z / l else w = 1 end
+		local m = {
+			name = f[1], id = id, parent = tonumber(f[2]),
+			i = { x = 1 - 2 * (y * y + z * z), y = 2 * (x * y + w * z), z = 2 * (x * z - w * y) },
+			j = { x = 2 * (x * y - w * z), y = 1 - 2 * (x * x + z * z), z = 2 * (y * z + w * x) },
+			k = { x = 2 * (x * z + w * y), y = 2 * (y * z - w * x), z = 1 - 2 * (x * x + y * y) },
+			c = { x = tonumber(f[7]) / 10000, y = tonumber(f[8]) / 10000, z = tonumber(f[9]) / 10000 },
+		}
+		bones[id] = m
+		by_name[f[1]] = m
+		id = id + 1
+	end
+	return { bones = bones, by_name = by_name, count = id }
+end
+
+local function unit(x, y, z)
+	local l = math.sqrt(x * x + y * y + z * z)
+	if l < 1e-9 then return { x = 0, y = 0, z = 0 } end
+	return { x = x / l, y = y / l, z = z / l }
+end
+
+-- "bone,x,y,z,nx,ny,nz,thick,radius,depth,hint;..." (mm, normal x100)
+function decode_sites(text, skel)
+	local out = {}
+	for item in string.gmatch(text or "", "[^;]+") do
+		local f = {}
+		for x in string.gmatch(item, "[^,]+") do f[#f + 1] = x end
+		local b = tonumber(f[1])
+		local bm = skel and skel.bones[b]
+		out[#out + 1] = {
+			index = #out + 1, bone_id = b, bone = bm and bm.name or nil,
+			pos = { x = tonumber(f[2]) / 1000, y = tonumber(f[3]) / 1000, z = tonumber(f[4]) / 1000 },
+			normal = unit(tonumber(f[5]), tonumber(f[6]), tonumber(f[7])),
+			thick = tonumber(f[8]) / 1000, radius = tonumber(f[9]) / 1000, depth = tonumber(f[10]) / 1000,
+			hint = f[11] or "",
+		}
+	end
+	return out
+end
+
+-- { skel = { bones = { [id] = bind }, by_name = { [name] = bind } },
+--   sections = { [section] = { site, ... } } }
+-- site = { index, bone, bone_id, pos, normal (bind space, metres), thick,
+--          radius, depth (of the bone under it), hint (tissue letters) }
+function wound_sites(visual, raw)
+	if not info(visual, raw) then return nil end
+	local ns = wounds_ns()
+	if not ns then return nil end
+	local k = key_of(visual)
+	local c = wounds_cache[k]
+	if c == nil then
+		c = false
+		local line = ns.models[k]
+		if line then
+			local sk
+			local secs = {}
+			for tok in string.gmatch(line, "%S+") do
+				local sec, g = string.match(tok, "^(%d+)=(%d+)$")
+				if sec then
+					local name = ns.names and ns.names[tonumber(sec)]
+					if name then secs[name] = tonumber(g) end
+				elseif not sk then
+					sk = tonumber(tok)
+				end
+			end
+			local skel = sk and skel_cache[sk]
+			if skel == nil and sk then
+				skel = ns.skels and ns.skels[sk] and decode_skel(ns.skels[sk]) or false
+				skel_cache[sk] = skel
+			end
+			c = { skel = skel or nil, sections = {} }
+			for name, g in pairs(secs) do
+				c.sections[name] = decode_sites(ns.sites and ns.sites[g], skel or nil)
+			end
+		end
+		wounds_cache[k] = c
+	end
+	return c or nil
+end
+
+function sites(visual, section, raw)
+	local w = wound_sites(visual, raw)
+	return w and section and w.sections[section] or nil
+end
+
+-- bind pose of a bone (by name or id): { i, j, k (axes), c (origin) }
+function bind(visual, bone, raw)
+	local w = wound_sites(visual, raw)
+	if not (w and w.skel) then return nil end
+	if type(bone) == "number" then return w.skel.bones[bone] end
+	return w.skel.by_name[bone]
+end
+
+-- P_bind = Bind_b * inverse(World_b) * P_world. world: the bone's world
+-- matrix now (obj:bone_transform(bone), rows i j k and origin c, rigid);
+-- bind: from bind(). Plain { x, y, z } in and out (engine vectors work too).
+function to_bind(bind_m, world, p)
+	local d = { x = p.x - world.c.x, y = p.y - world.c.y, z = p.z - world.c.z }
+	local function dot(a, b) return a.x * b.x + a.y * b.y + a.z * b.z end
+	local qx, qy, qz = dot(d, world.i), dot(d, world.j), dot(d, world.k)
+	local b = bind_m
+	return {
+		x = b.c.x + qx * b.i.x + qy * b.j.x + qz * b.k.x,
+		y = b.c.y + qx * b.i.y + qy * b.j.y + qz * b.k.y,
+		z = b.c.z + qx * b.i.z + qy * b.j.z + qz * b.k.z,
+	}
+end
+
+-- the site of section nearest to a bind-space point: site, distance (m)
+function nearest_site(visual, section, p_bind, raw)
+	local list = sites(visual, section, raw)
+	if not list then return nil end
+	local best, bd
+	for _, s in ipairs(list) do
+		local dx, dy, dz = s.pos.x - p_bind.x, s.pos.y - p_bind.y, s.pos.z - p_bind.z
+		local d = dx * dx + dy * dy + dz * dz
+		if not bd or d < bd then best, bd = s, d end
+	end
+	return best, bd and math.sqrt(bd) or nil
+end
+
+function reset()
+	index, parts_src, wounds_src = nil, nil, nil
+	parts_cache, wounds_cache, skel_cache = weak(), weak(), weak()
+	loaded_cache = {}
+end

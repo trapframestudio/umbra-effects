@@ -1,0 +1,52 @@
+; Zone Gore Overhaul - model data template for small wooden crates (box_1a/b/c,
+; box_wood_02). Inert: no model includes this file. The fracture baker's
+; experimental native mode (tools/zgo_fracture, --experimental-native) copies
+; it into the model data of the crate models it writes and appends the
+; [destroyed] list of the pieces it cut. Values follow the game's own
+; breakable crate (models\objects\box_wood_01.ltx).
+
+[disable]
+linear_factor            = 0.5
+angular_factor           = 0.5
+
+[collide]
+not_collide_parts
+
+[collide_parts]
+small_object
+
+[autoremove_parts]
+time                     = 35
+
+[collision_damage]
+link                     = 0.004
+
+[particles]
+destroy_particles        = destroy_fx\destroy_wood_00
+
+[particle_bones]
+link                     = 0.0, 0.12, 0.0
+
+[sound]
+break_sound              = material\wood\wood_big_hard_1
+
+[damage_bones]
+default                  = 1.0, -1, 0.0
+
+[immunities]
+burn_immunity            = 0.05
+strike_immunity          = 0.5
+shock_immunity           = 0.0
+wound_immunity           = 1.0
+radiation_immunity       = 0.0
+telepatic_immunity       = 0.0
+chemical_burn_immunity   = 0.0
+explosion_immunity       = 1.0
+fire_wound_immunity      = 0.5
+
+[impulse_transition_to_parts]
+random_min               = 3.0
+random_hit_imp           = 1.5
+imp_transition_factor    = 1.0
+lv_transition_factor     = 0.5
+av_transition_factor     = 0.5

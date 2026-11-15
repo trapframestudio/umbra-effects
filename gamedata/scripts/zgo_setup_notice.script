@@ -1,0 +1,571 @@
+--[[
+  Zone Gore Overhaul - the in-game check of the baked models (stale-bake
+  notice). ZGO Setup (tools\zgo_setup) bakes the body models for each
+  player's own mod list; this script tells the player when that bake no
+  longer fits, and what to do.
+
+  A few seconds after a game loads it checks, cheapest first:
+    1. nothing baked                     -> a reminder, once per ZGO version
+    2. a bake from an older (or newer) ZGO: index version 1, or
+       zgo_bake_inputs.baker ~= BAKER
+    3. ZGO's body-part tables changed since the bake (zgo_tables.limb_map
+       against zgo_bake_inputs.tables)
+    4. an incomplete bake (the inputs come from another bake than the index)
+    5. baked models the game does not load: for every baked model, the size
+       of the file the game's file system has for it (getFS():exist(...)
+       .size_real; MO2 priority included) against the size the bake wrote.
+       Another size = a mod that loads after ZGO replaces it; no file = it is
+       missing. Calibrated first on zgo_bake_index.script, whose size the
+       bake records too: if that does not match, the sizes are not trusted
+       and this step is skipped.
+    6. (experimental, off: setup/check_mods) the mods themselves: MO2's
+       modlist.txt and the source files the bake recorded, read straight from
+       the MO2 folder with io / lfs (Z:\ under Proton), so the message can
+       name the mod that was added, removed, reordered or updated.
+  It shows each problem once (a news message and a log line) and remembers
+  that in appdata\zgo_setup_notice.txt; "Check the bake now" in MCM shows it
+  again. Everything is read only, local (each player has their own bake, so
+  nothing goes over co-op) and spread over frames.
+
+  What the bake records is in zgo_bake_inputs.script (written by
+  tools/zgo_baker/bake.py; format in docs/integration/setup.md).
+]]
+
+local U = zgo_util
+
+-- the baker version this ZGO expects (tools/zgo_baker/bake.py BAKER_VERSION;
+-- dev/build_setup/test_setup.py checks that they match)
+BAKER = 3
+
+local DELAY_MS = 4000          -- after the first update, so loading is not slowed
+local FS_PER_FRAME = 400       -- step 5: file system look-ups per frame (in memory, cheap)
+local DISK_PER_FRAME = 25      -- step 6: real files per frame (disk, maybe through Wine)
+local NOTE_FILE = "zgo_setup_notice.txt"
+local SETUP = "tools\\zgo_setup"
+
+------------------------------------------------------------------------
+-- Texts (English, Russian)
+------------------------------------------------------------------------
+local T = {
+	caption = { "Zone Gore Overhaul", "Zone Gore Overhaul" },
+	run_setup = { "Run ZGO Setup (in the ZGO folder: %s) and press Bake.",
+	              "Запустите ZGO Setup (в папке ZGO: %s) и нажмите Bake." },
+	unbaked = { "The body models are not baked for your mod list yet. Run ZGO Setup (in the ZGO folder: %s) and press Bake for cleaner cuts on bodies; ZGO also works without it.",
+	            "Модели тел ещё не запечены под ваш список модов. Запустите ZGO Setup (в папке ZGO: %s) и нажмите Bake, чтобы разрезы тел были чище; ZGO работает и без этого." },
+	older = { "Your baked models were made by an older Zone Gore Overhaul.",
+	          "Ваши запечённые модели сделаны более старой версией Zone Gore Overhaul." },
+	newer = { "Your baked models were made by a newer Zone Gore Overhaul than the one installed.",
+	          "Ваши запечённые модели сделаны более новой версией Zone Gore Overhaul, чем установленная." },
+	tables = { "Zone Gore Overhaul's body-part tables changed since your models were baked.",
+	           "Таблицы частей тела Zone Gore Overhaul изменились после запекания моделей." },
+	broken = { "Your bake looks incomplete (its files come from different bakes).",
+	           "Запекание выглядит незавершённым (его файлы от разных запеканий)." },
+	missing = { "%d baked models are missing from the ZGO folder (for example %s).",
+	            "В папке ZGO не хватает запечённых моделей: %d (например, %s)." },
+	replaced = { "%d baked body models are hidden by a mod that loads after ZGO (for example %s). In MO2, drag Zone Gore Overhaul below that mod in the left pane (lower wins); if you added or updated a mod with character models, run ZGO Setup (%s) and press Bake instead.",
+	             "Запечённых моделей тел, перекрытых модом, который грузится после ZGO: %d (например, %s). В MO2 перетащите Zone Gore Overhaul ниже этого мода в левой панели (ниже = важнее); если вы добавили или обновили мод с моделями персонажей, вместо этого запустите ZGO Setup (%s) и нажмите Bake." },
+	replaced_by = { "%d baked body models are hidden by %s, which loads after ZGO (for example %s). In MO2, drag Zone Gore Overhaul below it in the left pane (lower wins); if you just added or updated it, run ZGO Setup (%s) and press Bake instead.",
+	                "Запечённых моделей тел, перекрытых модом %s, который грузится после ZGO: %d (например, %s). В MO2 перетащите Zone Gore Overhaul ниже него в левой панели (ниже = важнее); если вы только что его добавили или обновили, вместо этого запустите ZGO Setup (%s) и нажмите Bake." },
+	mods = { "Mods with character models changed since your bake: %s.",
+	         "Моды с моделями персонажей изменились после запекания: %s." },
+	m_new = { "%s (new)", "%s (новый)" },
+	m_gone = { "%s (disabled or removed)", "%s (отключён или удалён)" },
+	m_updated = { "%s (updated)", "%s (обновлён)" },
+	m_order = { "the load order of model mods", "порядок загрузки модов с моделями" },
+	fine = { "Your baked models are up to date (%d models checked).",
+	         "Ваши запечённые модели в порядке (проверено моделей: %d)." },
+	fine_unchecked = { "Your baked models look up to date (the game could not compare file sizes here; ZGO Setup can check fully).",
+	                   "Ваши запечённые модели, похоже, в порядке (игра не смогла сравнить размеры файлов; ZGO Setup проверит полностью)." },
+}
+
+-- 2 when the game runs in Russian, else 1 (read each time: only used when a
+-- message is made)
+local function lang()
+	local ok, l = pcall(function() return ini_sys and ini_sys:r_string_ex("string_table", "language") end)
+	return (ok and l == "rus") and 2 or 1
+end
+
+-- text(key, ...) in the game's language; en(key, ...) for the log
+local function fmt(s, ...)
+	if select("#", ...) == 0 then return s end
+	local ok, out = pcall(string.format, s, ...)
+	return ok and out or s
+end
+function text(key, ...) return fmt(T[key][lang()], ...) end
+local function en(key, ...) return fmt(T[key][1], ...) end
+
+------------------------------------------------------------------------
+-- What the bake recorded
+------------------------------------------------------------------------
+-- a generated script's namespace, only when its file exists (otherwise the
+-- loader would look for it on every access)
+local function ns(name)
+	if not U.file_exists("$game_scripts$", name .. ".script") then return nil end
+	local ok, m = pcall(function() return _G[name] end)
+	return ok and type(m) == "table" and m or nil
+end
+
+-- the cut roots of every creature kind as one line, exactly as the baker
+-- writes it (tools/zgo_baker/limbs.py canonical): "kind=a,b;kind2=..."
+function canonical_tables(limb_map)
+	if type(limb_map) ~= "table" then return nil end
+	local kinds = {}
+	for kind, m in pairs(limb_map) do
+		if type(m) == "table" then
+			local set, list = {}, {}
+			for _, v in pairs(m) do
+				if type(v) == "table" and type(v[1]) == "string" then set[string.lower(v[1])] = true end
+			end
+			for r in pairs(set) do list[#list + 1] = r end
+			if #list > 0 then
+				table.sort(list)
+				kinds[#kinds + 1] = tostring(kind) .. "=" .. table.concat(list, ",")
+			end
+		end
+	end
+	table.sort(kinds)
+	return table.concat(kinds, ";")
+end
+
+-- "bytes_out source bytes_in" -> numbers
+local function model_entry(s)
+	local a, b, c = string.match(s or "", "^(%d+) (%d+) (%d+)$")
+	return tonumber(a), tonumber(b), tonumber(c)
+end
+
+------------------------------------------------------------------------
+-- Problems already shown (appdata\zgo_setup_notice.txt, one per line)
+------------------------------------------------------------------------
+local note_path
+local function note_file()
+	if note_path ~= nil then return note_path or nil end
+	note_path = false
+	local ok, p = pcall(function() return getFS():update_path("$app_data_root$", NOTE_FILE) end)
+	if ok and type(p) == "string" and p ~= "" then note_path = p end
+	return note_path or nil
+end
+
+local function shown_before()
+	local set = {}
+	local p = note_file()
+	if not p then return set end
+	local ok = pcall(function()
+		local f = io.open(p, "r")
+		if not f then return end
+		for line in f:lines() do if line ~= "" then set[line] = true end end
+		f:close()
+	end)
+	return ok and set or {}
+end
+
+local function remember(sigs)
+	local p = note_file()
+	if not p then return end
+	pcall(function()
+		local f = io.open(p, "w")
+		if not f then return end
+		for _, s in ipairs(sigs) do f:write(s, "\n") end
+		f:close()
+	end)
+end
+
+------------------------------------------------------------------------
+-- Showing a message
+------------------------------------------------------------------------
+-- The texts here (and MO2 mod names) are UTF-8; the game's fonts and string
+-- tables are Windows-1251. Cyrillic and a few marks are converted, other
+-- non-ASCII characters become "?".
+local CP1251 = { [0x401] = 0xA8, [0x451] = 0xB8, [0xAB] = 0xAB, [0xBB] = 0xBB, [0x2013] = 0x96, [0x2014] = 0x97,
+	[0x2116] = 0xB9, [0xA0] = 0x20, [0x2026] = 0x85, [0x201C] = 0x93, [0x201D] = 0x94 }
+function to_cp1251(s)
+	if not string.find(s, "[\128-\255]") then return s end
+	local out, i, n = {}, 1, #s
+	while i <= n do
+		local c = string.byte(s, i)
+		local cp, len = c, 1
+		if c >= 0xF0 then cp, len = nil, 4
+		elseif c >= 0xE0 and i + 2 <= n then
+			cp, len = (c - 0xE0) * 4096 + (string.byte(s, i + 1) - 0x80) * 64 + (string.byte(s, i + 2) - 0x80), 3
+		elseif c >= 0xC0 and i + 1 <= n then
+			cp, len = (c - 0xC0) * 64 + (string.byte(s, i + 1) - 0x80), 2
+		elseif c >= 0x80 then cp = nil
+		end
+		local b
+		if cp and cp < 0x80 then b = cp
+		elseif cp and cp >= 0x410 and cp <= 0x44F then b = cp - 0x410 + 0xC0
+		elseif cp then b = CP1251[cp] end
+		out[#out + 1] = string.char(b or 63)
+		i = i + len
+	end
+	return table.concat(out)
+end
+
+local function show(msg)
+	msg = to_cp1251(msg)
+	local ok = pcall(function()
+		db.actor:give_game_news(to_cp1251(text("caption")), msg, "ui_iconsTotal_grouping", 0, 25000)
+	end)
+	if not ok then
+		pcall(function() actor_menu.set_msg(1, msg, 12) end)
+	end
+end
+
+------------------------------------------------------------------------
+-- The check (a coroutine, resumed every frame until it is done)
+------------------------------------------------------------------------
+local run = nil            -- { co, forced, frames }
+local pending_start = nil  -- time_global() to start at
+local last = nil           -- the last result, for tests and the log
+
+local function real_file_size(path)
+	if lfs and lfs.attributes then
+		local ok, n = pcall(lfs.attributes, path, "size")
+		if ok then return tonumber(n) end
+	end
+	local f = io.open(path, "rb")
+	if not f then return nil end
+	local n = f:seek("end")
+	f:close()
+	return tonumber(n)
+end
+
+local function real_is_dir(path)
+	if not (lfs and lfs.attributes) then return nil end
+	local ok, mode = pcall(lfs.attributes, path, "mode")
+	return ok and mode == "directory"
+end
+
+local function read_modlist(path)
+	local ok, list = pcall(function()
+		local f = io.open(path, "r")
+		if not f then return nil end
+		local out = {}
+		for line in f:lines() do
+			line = string.gsub(line, "\r$", "")
+			if string.sub(line, 1, 1) == "+" then out[#out + 1] = string.sub(line, 2) end
+		end
+		f:close()
+		return out
+	end)
+	return ok and list or nil
+end
+
+-- step 6: the mods themselves (experimental)
+local function check_mods(found, inputs, models, yield)
+	if not io or not io.open then
+		found.log[#found.log + 1] = "mods check: no io library"
+		return
+	end
+	local mo2 = rawget(inputs, "mo2")
+	local profile = rawget(inputs, "profile")
+	local mods = rawget(inputs, "mods")
+	if type(mo2) ~= "string" or mo2 == "" or type(profile) ~= "string" or type(mods) ~= "table" then
+		found.log[#found.log + 1] = "mods check: the bake has no MO2 folder recorded"
+		return
+	end
+	local list_path = mo2 .. "\\profiles\\" .. profile .. "\\modlist.txt"
+	local enabled = read_modlist(list_path)
+	if not enabled then
+		found.log[#found.log + 1] = "mods check: cannot read " .. list_path .. " from the game (skipped)"
+		return
+	end
+	local zgo = rawget(inputs, "zgo_mod") or ""
+	local on, rank = {}, {}
+	for i, m in ipairs(enabled) do on[m] = true rank[m] = i end
+	local had = {}
+	for _, m in ipairs(mods) do had[m] = true end
+	local changes, n = {}, 0
+	local function add(kind, m)
+		n = n + 1
+		changes[#changes + 1] = { kind = kind, mod = m }
+	end
+	-- recorded model mods that are gone
+	for _, m in ipairs(mods) do
+		if not on[m] then add("gone", m) end
+	end
+	-- their order (only among those still enabled)
+	local prev = 0
+	for _, m in ipairs(mods) do
+		local r = rank[m]
+		if r then
+			if r < prev then add("order", nil) break end
+			prev = r
+		end
+	end
+	-- the game opens files with the Windows "ANSI" calls: a mod name with other
+	-- than plain ASCII characters cannot be looked at (never guess "updated")
+	local function plain(m) return not string.find(m, "[\128-\255]") end
+	-- new mods with character models
+	local budget = DISK_PER_FRAME
+	if lfs and lfs.attributes then
+		for _, m in ipairs(enabled) do
+			if not had[m] and m ~= zgo and plain(m) then
+				local root = mo2 .. "\\mods\\" .. m
+				budget = budget - 3
+				if budget <= 0 then yield() budget = DISK_PER_FRAME end
+				local is_zgo = real_file_size(root .. "\\gamedata\\scripts\\zgo_main.script") ~= nil
+				if not is_zgo and (real_is_dir(root .. "\\gamedata\\meshes\\actors") or real_is_dir(root .. "\\gamedata\\meshes\\monsters")) then
+					add("new", m)
+				end
+			end
+		end
+	else
+		found.log[#found.log + 1] = "mods check: no lfs; new mods are not looked for"
+	end
+	-- updated source files
+	local updated = {}
+	local keys = {}
+	for k in pairs(models) do keys[#keys + 1] = k end
+	table.sort(keys)
+	for _, k in ipairs(keys) do
+		local _, src, size_in = model_entry(models[k])
+		local m = src and src > 0 and mods[src]
+		if m and on[m] and not updated[m] and plain(m) then
+			budget = budget - 1
+			if budget <= 0 then yield() budget = DISK_PER_FRAME end
+			local now = real_file_size(mo2 .. "\\mods\\" .. m .. "\\gamedata\\meshes\\" .. k .. ".ogf")
+			if now ~= size_in then
+				updated[m] = k
+				add("updated", m)
+			end
+		end
+	end
+	found.mods_checked = true
+	if n > 0 then found.mods = changes end
+	found.enabled = enabled
+	found.rank = rank
+end
+
+-- who hides the replaced models: an enabled mod above ZGO that has the file
+local function who_replaces(inputs, enabled, keys)
+	local zgo = rawget(inputs, "zgo_mod")
+	local mo2 = rawget(inputs, "mo2")
+	if not (enabled and zgo and mo2) then return nil end
+	for _, m in ipairs(enabled) do
+		if m == zgo then return nil end
+		for i = 1, math.min(#keys, 3) do
+			if real_file_size(mo2 .. "\\mods\\" .. m .. "\\gamedata\\meshes\\" .. keys[i] .. ".ogf") then return m end
+		end
+	end
+	return nil
+end
+
+local function check_body(found, forced)
+	local yield = coroutine.yield
+	local idx = ns("zgo_bake_index")
+	local models_idx = idx and rawget(idx, "models")
+	if type(models_idx) ~= "table" then
+		found.unbaked = true
+		return
+	end
+	local version = tonumber(rawget(idx, "version"))
+	if version and version < 2 then
+		found.older = true
+		return
+	end
+	local inputs = ns("zgo_bake_inputs")
+	if not inputs then
+		found.log[#found.log + 1] = "the bake records no inputs (made before ZGO Setup); only ZGO Setup can check it"
+		return
+	end
+	if rawget(inputs, "bake_id") ~= rawget(idx, "bake_id") then
+		found.broken = true
+		return
+	end
+	local baker = tonumber(rawget(inputs, "baker"))
+	if baker and baker < BAKER then found.older = true end
+	if baker and baker > BAKER then found.newer = true end
+	local want = rawget(inputs, "tables")
+	if type(want) == "string" and want ~= "" then
+		local ok, now = pcall(function() return canonical_tables(zgo_tables.limb_map) end)
+		if ok and now and now ~= want then found.tables = true end
+	end
+	local models = rawget(inputs, "models")
+	if type(models) ~= "table" then return end
+	-- 5. the game's own file system: is each baked model the one it loads?
+	local okfs, fs = pcall(getFS)
+	local calibrated = false
+	if okfs and fs then
+		local ok, f = pcall(function() return fs:exist("$game_scripts$", "zgo_bake_index.script") end)
+		local size = ok and f and (type(f) == "userdata" or type(f) == "table") and tonumber(f.size_real) or nil
+		local want_size = tonumber(rawget(inputs, "index_bytes"))
+		calibrated = size ~= nil and want_size ~= nil and size == want_size
+		if not calibrated then
+			found.log[#found.log + 1] = string.format("file sizes not compared (the index reads as %s bytes, the bake wrote %s)",
+				tostring(size), tostring(want_size))
+		end
+	end
+	if calibrated then
+		local keys = {}
+		for k in pairs(models) do keys[#keys + 1] = k end
+		table.sort(keys)
+		local replaced, missing = {}, {}
+		local budget = FS_PER_FRAME
+		for _, k in ipairs(keys) do
+			budget = budget - 1
+			if budget <= 0 then yield() budget = FS_PER_FRAME end
+			local out = model_entry(models[k])
+			local ok, f = pcall(function() return fs:exist("$game_meshes$", k .. ".ogf") end)
+			if ok then
+				local size = f and tonumber(f.size_real)
+				if not f then
+					missing[#missing + 1] = k
+				elseif size and out and size ~= out then
+					replaced[#replaced + 1] = k
+				end
+			end
+		end
+		found.checked = #keys
+		if #replaced > 0 then found.replaced = replaced end
+		if #missing > 0 then found.missing = missing end
+	end
+	found.sizes = calibrated
+	-- 6. (experimental) the mods themselves
+	if U.setting("setup/check_mods") then
+		check_mods(found, inputs, models, yield)
+		if found.replaced and found.enabled then
+			found.replaced_by = who_replaces(inputs, found.enabled, found.replaced)
+		end
+	end
+end
+
+local function short_list(items, n)
+	local out = {}
+	for i = 1, math.min(#items, n) do out[i] = items[i] end
+	local s = table.concat(out, ", ")
+	if #items > n then s = s .. string.format(" (+%d)", #items - n) end
+	return s
+end
+
+-- the found problems -> { { sig, msg (game language), log (English) }, ... }
+function messages(found, inputs_id)
+	local out = {}
+	local id = inputs_id or "?"
+	local run_setup = text("run_setup", SETUP)
+	local run_setup_en = en("run_setup", SETUP)
+	local function add(sig, msg, log) out[#out + 1] = { sig = sig, msg = msg, log = log } end
+	if found.unbaked then
+		local ver = rawget(zgo_main or {}, "VERSION") or "?"
+		if U.setting("setup/remind") then
+			add("unbaked|" .. tostring(ver), text("unbaked", SETUP), en("unbaked", SETUP))
+		end
+		return out
+	end
+	if found.broken then add("broken|" .. id, text("broken") .. " " .. run_setup, en("broken") .. " " .. run_setup_en) end
+	if found.older then add("older|" .. id, text("older") .. " " .. run_setup, en("older") .. " " .. run_setup_en) end
+	if found.newer then add("newer|" .. id, text("newer") .. " " .. run_setup, en("newer") .. " " .. run_setup_en) end
+	if found.tables then add("tables|" .. id, text("tables") .. " " .. run_setup, en("tables") .. " " .. run_setup_en) end
+	if found.missing then
+		local m = found.missing
+		add(string.format("missing|%s|%d", id, #m), text("missing", #m, m[1]) .. " " .. run_setup, en("missing", #m, m[1]) .. " " .. run_setup_en)
+	end
+	if found.mods then
+		local parts, parts_en, names = {}, {}, {}
+		for _, c in ipairs(found.mods) do
+			local key = ({ new = "m_new", gone = "m_gone", updated = "m_updated", order = "m_order" })[c.kind]
+			local name = c.mod and ('"' .. c.mod .. '"') or nil
+			parts[#parts + 1] = name and text(key, name) or text(key)
+			parts_en[#parts_en + 1] = name and en(key, name) or en(key)
+			names[#names + 1] = c.kind .. ":" .. tostring(c.mod)
+		end
+		table.sort(names)
+		add("mods|" .. id .. "|" .. table.concat(names, ","), text("mods", short_list(parts, 4)) .. " " .. run_setup,
+			en("mods", short_list(parts_en, 8)) .. " " .. run_setup_en)
+	end
+	if found.replaced then
+		local r = found.replaced
+		local sig = string.format("replaced|%s|%d|%s", id, #r, r[1])
+		if found.replaced_by then
+			local who = '"' .. found.replaced_by .. '"'
+			local msg = lang() == 2 and text("replaced_by", who, #r, r[1], SETUP) or text("replaced_by", #r, who, r[1], SETUP)
+			add(sig, msg, en("replaced_by", #r, who, r[1], SETUP))
+		else
+			add(sig, text("replaced", #r, r[1], SETUP), en("replaced", #r, r[1], SETUP))
+		end
+	end
+	return out
+end
+
+local function finish(found, forced)
+	local idx = ns("zgo_bake_index")
+	local id = idx and rawget(idx, "bake_id") or nil
+	local list = messages(found, id)
+	last = { found = found, messages = list }
+	for _, l in ipairs(found.log) do U.dbg("bake check: %s", l) end
+	local seen = forced and {} or shown_before()
+	local sigs, fresh = {}, {}
+	for _, m in ipairs(list) do
+		sigs[#sigs + 1] = m.sig
+		U.log("bake check: %s", m.log)
+		if not seen[m.sig] then fresh[#fresh + 1] = m.msg end
+	end
+	if #list == 0 then
+		if found.checked or found.mods_checked then
+			U.log("bake check: %s", en("fine", found.checked or 0))
+		elseif not found.unbaked then
+			U.dbg("bake check: nothing to compare in the game; ZGO Setup checks the bake fully")
+		end
+		if forced and not found.unbaked then
+			show(found.sizes and text("fine", found.checked or 0) or text("fine_unchecked"))
+		end
+	end
+	if #fresh > 0 then show(table.concat(fresh, "\n\n")) end
+	if #list > 0 or not found.unbaked then remember(sigs) end
+end
+
+local function start(forced)
+	local found = { log = {} }
+	run = { forced = forced, frames = 0, found = found }
+	run.co = coroutine.create(function() check_body(found, forced) end)
+end
+
+local function step()
+	if not run then return end
+	run.frames = run.frames + 1
+	local ok, err = coroutine.resume(run.co)
+	if not ok then
+		U.log("bake check stopped: %s", tostring(err))
+		run = nil
+		return
+	end
+	if coroutine.status(run.co) == "dead" then
+		local r = run
+		run = nil
+		local okf, errf = pcall(finish, r.found, r.forced)
+		if not okf then U.log("bake check stopped: %s", tostring(errf)) end
+	end
+end
+
+------------------------------------------------------------------------
+-- Public
+------------------------------------------------------------------------
+-- MCM button: run the check once the menu is closed, and show the result
+function check_now()
+	pending_start = { at = 0, forced = true }
+end
+
+-- for tests and the probe report: the last result
+function result() return last end
+function busy() return run ~= nil or pending_start ~= nil end
+
+local function on_first_update()
+	if not U.setting("setup/notice") then return end
+	pending_start = { at = time_global() + DELAY_MS, forced = false }
+end
+
+local function on_update()
+	if pending_start then
+		if not U.enabled() then pending_start = nil return end
+		if time_global() >= pending_start.at then
+			local forced = pending_start.forced
+			pending_start = nil
+			if forced or U.setting("setup/notice") then start(forced) end
+		end
+	end
+	if run then step() end
+end
+
+function on_game_start()
+	RegisterScriptCallback("actor_on_first_update", on_first_update)
+	RegisterScriptCallback("actor_on_update", on_update)
+end

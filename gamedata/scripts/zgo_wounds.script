@@ -1,0 +1,964 @@
+--[[
+  Zone Gore Overhaul - progressive wounds (PLAN Phase C; design in
+  docs/discovery/npc.md section 4, formats in docs/formats/wounds.md and
+  damage.md, integration in docs/integration/wounds.md)
+
+  The baker marks wound sites on every body (zgo_bake_wounds.script: 1-20
+  points per section, each with a bind-pose position, normal, thickness,
+  reach and the depth of the bone under it). Here:
+
+  * Host / single player (the "hit" and "blast_body" events, authority only):
+    each hit is taken into the hit bone's bind pose and matched to the
+    nearest site (any section; the hit bone's own section and the side the
+    round came from win ties). The hit adds tissue damage there, by calibre
+    class and kind: a pistol can open and crater a wound but never reach the
+    bone by itself, rifles reach the bone, slugs, magnums, anti-materiel
+    rounds and explosions go all the way. The total sets the stage
+        1 bruise   2 open wound   3 crater   4 down to the bone   5 destroyed
+    with a progress within the stage, so a wound keeps deepening.
+      - stage 3+ : a few meat chunks fly out of the wound (zgo_debris gibs)
+        and a larger wound mark goes on the body (zgo_decals.place_body).
+      - stage 5 on a dead body's head or limb: the part comes off
+        (zgo_dismember, under its own settings). The living never lose parts.
+    Lighter wounds look exactly as before (the usual entry / exit marks).
+  * Co-op: the host sends each wounded body's wounds as one compact line
+    "Y|w|..." (bind-space points, never site indices: a partner's model may
+    come from another bake) and chunk bursts as "Y|g|..." with a seed; each
+    machine maps the points to its own sites and draws for itself.
+  * Every machine (experimental, off by default: Wounds -> Wound craters):
+    with a bake made with --experimental-damage, the damage mesh D_s of a
+    wounded section is switched on in place of its intact sub-mesh C_s
+    (set_shader(C, "zgo\\off"), set_shader(D, "zgo\\dmg", "<base>,zgo_dmg_<hex>[_<bump>]")).
+    The wound shader (shaders/r3/zgo_dmg*) pushes the wound's vertices
+    inward in the bind pose, so the crater follows animation, ragdolls and
+    the shadow. Up to four wounds per sub-mesh, on the nearest N bodies
+    (Performance page). Shader state is not saved by the engine: it is put
+    back on load, when a body comes back online and after kid mode.
+    A section that zgo_dismember cut off is left to it.
+  * Kid mode: nothing gory is drawn here (no marks, chunks or craters); the
+    wounds are still tracked and the co-op lines still go out.
+
+  Everything engine-facing is behind pcall and capability checks; when one
+  fails the old behaviour (decal wounds only) stays, with one log line.
+]]
+
+local U = zgo_util
+
+------------------------------------------------------------------------
+-- Tuning
+------------------------------------------------------------------------
+-- damage at one site at which each stage begins (stage 1: any damage)
+STAGE_AT = { 0, 0.4, 1.8, 3.6, 6.5 }
+-- tissue damage per unit of hit energy (zgo_ballistics), by calibre class 1..5 and kind
+W_CLS = { 0.8, 1.0, 1.15, 1.3, 1.5 }
+W_KIND = { bullet = 1, buck = 0.9, slug = 1.15, melee = 0.7, other = 0.8, frag = 0.9, blast = 1, bruise = 1 }
+-- the deepest stage hits of one class / kind take a wound to by themselves
+-- (pistol 3, rifles 4, magnum / slug / anti-materiel 5); the largest seen counts
+CAP_CLS = { 3, 4, 4, 5, 5 }
+CAP_KIND = { melee = 2, frag = 3, other = 3, bruise = 1, slug = 5, blast = 5 }
+local EXIT_K = 1.25                    -- exit wounds tear more than entries
+local MATCH_R, MATCH_PAD = 1.3, 0.03   -- a hit belongs to a site within 1.3 x its reach + 3 cm
+local STEP_M = 0.002                   -- the shader's depth unit (2 mm)
+local TORSO = { "bip01_spine1", "bip01_spine", "bip01_spine2", "bip01_pelvis" }
+local FRAG_E = 0.6                     -- one explosion fragment, as hit energy
+
+local MAX_NPCS = 64            -- bodies tracked at once (the longest-untouched living go first)
+local HEAL_MS = 900000         -- a living body not hit for 15 min forgets its wounds
+local REAPPLY_MS = 2500        -- craters are checked and put back this often
+local REBROADCAST_MS = 20000
+local REBROADCAST_N = 8        -- bodies per rebroadcast round
+local MAX_SYNC = 16            -- wounds per co-op line
+local MAX_TEX_ITEM = 120       -- the engine copies each texture name into 128 chars (rm.cpp _ParseList)
+local SHADER_ALLOW = { ["models\\model"] = true, ["models\\model_pn"] = true, ["models\\model_hm"] = true }
+
+------------------------------------------------------------------------
+-- State
+------------------------------------------------------------------------
+-- id -> { s = game section, alive, t = last change, dirty,
+--         w = { [key] = wound }, raw = { entries } (from a save or the host, not yet on this body) }
+-- wound = { sec, idx, site, bp = bind point, dmg, cap, stage, level, bone, t }
+local npcs = {}
+local applied = {}            -- id -> { [D id] = { C, sec, base, str } }
+local child_cache = {}        -- visual key -> { [child id] = { tex, ok, bump } }
+local bump_cache = {}
+local caps                    -- nil = not checked yet; true, or why not
+local next_tick, next_reapply, next_rebroadcast, rebroadcast_at = 0, 0, 0, 0
+local kid_was
+local stats_t = { hits = 0, matched = 0, stage_ups = 0, gibs = 0, severs = 0, lines = 0, applied = 0, set_fail = 0 }
+
+------------------------------------------------------------------------
+-- Settings
+------------------------------------------------------------------------
+local function on() return U.setting("wounds/enable") ~= false end
+local function growth() return U.setting("wounds/growth") or 1 end
+local function want_dents() return U.setting("wounds/dents") == true end
+local function max_sites() return U.setting("performance/wound_sites") or 12 end
+local function max_dented() return U.setting("performance/wound_npcs") or 10 end
+local function tick_ms() return math.floor(1000 / math.max(1, U.setting("performance/wound_rate") or 4)) end
+
+------------------------------------------------------------------------
+-- Pure helpers (also used by the tests)
+------------------------------------------------------------------------
+-- section class, as the baker names them (docs/formats/wounds.md)
+function section_class(sec)
+	sec = string.lower(sec or "")
+	if sec == "body" then return "body" end
+	if sec == "bone01" then return "head" end
+	for _, w in ipairs({ "head", "neck", "ponytail", "jaw", "skull" }) do
+		if string.find(sec, w, 1, true) then return "head" end
+	end
+	for _, w in ipairs({ "hand", "foot", "toe", "paw", "finger", "horselink", "hoof" }) do
+		if string.find(sec, w, 1, true) then return "end" end
+	end
+	for _, w in ipairs({ "forearm", "calf", "shin", "leg_1", "lower" }) do
+		if string.find(sec, w, 1, true) then return "lower" end
+	end
+	return "upper"
+end
+
+function cap_of(cls, kind)
+	return CAP_KIND[kind] or CAP_CLS[cls or 2] or 4
+end
+
+-- (stage 1..5, progress 0..1 within it) for damage dmg, never past cap
+function stage_of(dmg, cap)
+	if not dmg or dmg <= 0 then return 0, 0 end
+	local s = 1
+	for i = 2, #STAGE_AT do if dmg >= STAGE_AT[i] then s = i end end
+	if cap and s > cap then return cap, 1 end
+	if s >= #STAGE_AT then return s, 1 end
+	return s, U.clamp((dmg - STAGE_AT[s]) / (STAGE_AT[s + 1] - STAGE_AT[s]), 0, 1)
+end
+
+local function lerp(a, b, t) return a + (b - a) * t end
+
+-- how deep the crater is (m) and whether bone shows, for a wound at stage
+-- st with progress p on site (thick, depth), in a section of class cls
+function depth_of(st, p, site, cls)
+	local th = math.max(site and site.thick or 0.05, 0.005)
+	if st <= 1 then return 0, false end
+	if st == 2 then return math.min(lerp(0.004, 0.012, p), 0.15 * th), false end
+	if cls == "head" then
+		if st == 3 then return math.min(lerp(0.006, 0.014, p), 0.3 * th), false end
+		return math.min(math.max(site.depth or 0, 0.015), 0.5 * th, 0.03), true
+	end
+	if st == 3 then return math.min(lerp(0.02, 0.04, p), 0.5 * th), false end
+	local bone_d = (site.depth and site.depth > 0) and site.depth or 0.6 * th
+	return math.min(math.max(bone_d, 0.03), (st >= 5 and 0.85 or 0.7) * th, 63 * STEP_M), true
+end
+
+function level_of(depth) return U.clamp(math.floor(depth / STEP_M + 0.5), 0, 63) end
+
+-- one wound as the shader's 12-bit number: site (bits 0-4), depth in 2 mm
+-- steps (bits 5-10), bone (bit 11); 0 = none
+function pack(site, level, bone)
+	if not site or site < 1 or site > 31 or not level or level < 1 then return 0 end
+	return site + 32 * math.min(level, 63) + (bone and 2048 or 0)
+end
+
+-- texture string for set_shader(D, "zgo\\dmg", ...): the base texture, then
+-- "zgo_dmg_" + four 3-digit hex numbers (+ "_" + the bump map, when the
+-- name fits the engine's 128-char item)
+function texture_string(base, nums, bump)
+	local hex = {}
+	for i = 1, 4 do hex[i] = string.format("%03x", nums[i] or 0) end
+	local s = "zgo_dmg_" .. table.concat(hex)
+	if bump and bump ~= "" and #s + 1 + #bump <= MAX_TEX_ITEM then s = s .. "_" .. bump end
+	return (base or "") .. "," .. s
+end
+
+------------------------------------------------------------------------
+-- Bind space <-> world (bone_transform is a WORLD matrix; it may carry the
+-- object's scale, so axes are divided by their length squared)
+------------------------------------------------------------------------
+local function d3(a, b) return a.x * b.x + a.y * b.y + a.z * b.z end
+
+function world_to_bind(bind, world, p)
+	local d = { x = p.x - world.c.x, y = p.y - world.c.y, z = p.z - world.c.z }
+	local function q(a)
+		local l2 = d3(a, a)
+		return l2 > 1e-12 and d3(d, a) / l2 or 0
+	end
+	local qx, qy, qz = q(world.i), q(world.j), q(world.k)
+	return {
+		x = bind.c.x + qx * bind.i.x + qy * bind.j.x + qz * bind.k.x,
+		y = bind.c.y + qx * bind.i.y + qy * bind.j.y + qz * bind.k.y,
+		z = bind.c.z + qx * bind.i.z + qy * bind.j.z + qz * bind.k.z,
+	}
+end
+
+local function world_dir_to_bind(bind, world, v)
+	local function q(a)
+		local l2 = d3(a, a)
+		return l2 > 1e-12 and d3(v, a) / math.sqrt(l2) or 0
+	end
+	local qx, qy, qz = q(world.i), q(world.j), q(world.k)
+	local x = qx * bind.i.x + qy * bind.j.x + qz * bind.k.x
+	local y = qx * bind.i.y + qy * bind.j.y + qz * bind.k.y
+	local z = qx * bind.i.z + qy * bind.j.z + qz * bind.k.z
+	local l = math.sqrt(x * x + y * y + z * z)
+	if l < 1e-6 then return nil end
+	return { x = x / l, y = y / l, z = z / l }
+end
+
+function bind_to_world(bind, world, p)
+	local d = { x = p.x - bind.c.x, y = p.y - bind.c.y, z = p.z - bind.c.z }
+	local qx, qy, qz = d3(d, bind.i), d3(d, bind.j), d3(d, bind.k)
+	return U.v3(world.c.x + qx * world.i.x + qy * world.j.x + qz * world.k.x,
+		world.c.y + qx * world.i.y + qy * world.j.y + qz * world.k.y,
+		world.c.z + qx * world.i.z + qy * world.j.z + qz * world.k.z)
+end
+
+local function bind_dir_to_world(bind, world, n)
+	local qx, qy, qz = d3(n, bind.i), d3(n, bind.j), d3(n, bind.k)
+	return U.unit(U.v3(qx * world.i.x + qy * world.j.x + qz * world.k.x,
+		qx * world.i.y + qy * world.j.y + qz * world.k.y,
+		qx * world.i.z + qy * world.j.z + qz * world.k.z))
+end
+
+local function bone_world(obj, bone)
+	local ok, m = pcall(obj.bone_transform, obj, bone)
+	if ok and m and m.c and m.i then return m end
+end
+
+------------------------------------------------------------------------
+-- Sites
+------------------------------------------------------------------------
+-- the section a bone belongs to: its nearest ancestor that is a section root
+local function section_of(W, bone_id)
+	local bones = W.skel.bones
+	local id, guard = bone_id, 0
+	while id and id >= 0 and bones[id] and guard < 128 do
+		local name = bones[id].name
+		if name ~= "body" and W.sections[name] then return name end
+		id, guard = bones[id].parent, guard + 1
+	end
+	return "body"
+end
+
+-- a world point near bone -> section, site, bind point, distance (nil when
+-- no site is close). wdir: the round's direction; side -1 = the entry (the
+-- site faces the shooter), 1 = the exit (it faces away)
+function locate(obj, bone, wpos, wdir, side)
+	local W = zgo_bake.wound_sites(obj)
+	if not (W and W.skel and bone and wpos) then return nil end
+	local b = W.skel.by_name[bone]
+	local wm = b and bone_world(obj, bone)
+	if not wm then return nil end
+	local pb = world_to_bind(b, wm, wpos)
+	local db = wdir and side and world_dir_to_bind(b, wm, wdir)
+	local own = section_of(W, b.id)
+	local best, bsec, bscore, bdist
+	for sec, list in pairs(W.sections) do
+		for _, s in ipairs(list) do
+			local dx, dy, dz = s.pos.x - pb.x, s.pos.y - pb.y, s.pos.z - pb.z
+			local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+			if dist <= MATCH_R * s.radius + MATCH_PAD then
+				local score = dist / math.max(s.radius, 0.04) * (sec == own and 1 or 1.15)
+				if db then score = score * (1 - 0.35 * side * d3(s.normal, db)) end
+				if not bscore or score < bscore then best, bsec, bscore, bdist = s, sec, score, dist end
+			end
+		end
+	end
+	if not best then return nil end
+	return bsec, best, pb, bdist
+end
+
+-- where a site is now: world position and outward normal
+local function site_world(obj, site)
+	local W = zgo_bake.wound_sites(obj)
+	local b = W and W.skel and site.bone and W.skel.by_name[site.bone]
+	local wm = b and bone_world(obj, site.bone)
+	if not wm then return nil end
+	return bind_to_world(b, wm, site.pos), bind_dir_to_world(b, wm, site.normal)
+end
+
+------------------------------------------------------------------------
+-- Craters (experimental): set_shader on the baked damage meshes
+------------------------------------------------------------------------
+-- a method of an engine object, or nil (luabind objects raise on unknown names)
+local function method(obj, name)
+	local ok, f = pcall(function() return obj[name] end)
+	return ok and type(f) == "function" and f or nil
+end
+
+local function gone(obj, sec)
+	local ok, g = pcall(zgo_dismember.bone_gone, obj, sec)
+	return ok and g == true
+end
+
+-- give D back its own shader (zgo\off) and C its own, except where
+-- zgo_dismember cut the section off through the off shader (C is its
+-- business then; a cut that hides bones keeps C hidden with them)
+local function undo(obj, did, e)
+	pcall(obj.reset_shader, obj, did, false)
+	local owned = false
+	if gone(obj, e.sec) then
+		local ok, uses = pcall(zgo_dismember.uses_shader, obj, e.sec)
+		owned = ok and uses == true
+	end
+	if not owned then pcall(obj.reset_shader, obj, e.C, false) end
+end
+
+local function unapply(id, obj)
+	local a = applied[id]
+	if not a then return end
+	applied[id] = nil
+	obj = obj or level.object_by_id(id)
+	if not (obj and method(obj, "reset_shader")) then return end
+	for did, e in pairs(a) do undo(obj, did, e) end
+end
+
+function unapply_all()
+	for id in pairs(applied) do unapply(id) end
+	applied = {}
+end
+
+local function renderer()
+	local ok, r = pcall(function() return get_console_cmd(0, "renderer") end)
+	return ok and r or nil
+end
+
+-- true, or false (why: caps) when craters can't be drawn on this machine
+local function capable(obj)
+	if caps == nil then
+		local why
+		local r = renderer()
+		if r ~= "renderer_r3" and r ~= "renderer_r4" then
+			why = "needs the DirectX 10 or 11 renderer (this is " .. tostring(r) .. ")"
+		elseif not zgo_bake.features().damage then
+			why = "the baked models have no damage meshes (bake.py --experimental-damage)"
+		elseif not U.file_exists("$game_shaders$", "r3\\zgo_dmg.s") then
+			why = "shaders\\r3\\zgo_dmg.s is missing"
+		elseif not (U.file_exists("$game_textures$", "zgo\\wounds\\n\\000.dds") and U.file_exists("$game_textures$", "zgo\\wounds\\n\\fff.dds")
+			and U.file_exists("$game_textures$", "zgo\\wounds\\tissue.dds")) then
+			why = "textures\\zgo\\wounds is incomplete"
+		end
+		caps = why or true
+		U.log("wound craters (experimental): %s", why and ("off: " .. why) or "available")
+	end
+	if caps ~= true then return false end
+	if obj and not (method(obj, "set_shader") and method(obj, "reset_shader") and method(obj, "get_default_shaders")
+		and method(obj, "get_shaders")) then
+		caps = "this game has no set_shader / reset_shader / get_shaders on objects"
+		U.log("wound craters (experimental): off: %s", caps)
+		return false
+	end
+	return true
+end
+
+-- the intact sub-mesh's own texture and shader, and its bump map
+local function child_info(obj, cid)
+	local key = zgo_bake.key(obj:get_visual_name())
+	local c = child_cache[key]
+	if not c then
+		c = {}
+		local ok, def = pcall(obj.get_default_shaders, obj, false)
+		if ok and type(def) == "table" and not def.error then
+			for id, e in pairs(def) do
+				if type(id) == "number" and type(e) == "table" then
+					local sh = string.lower(tostring(e.shader or ""))
+					local tex = e.texture and e.texture ~= "" and string.lower(tostring(e.texture)) or nil
+					local bump
+					if tex then
+						bump = bump_cache[tex]
+						if bump == nil then
+							bump = U.file_exists("$game_textures$", tex .. "_bump.dds") and (tex .. "_bump") or false
+							bump_cache[tex] = bump
+						end
+					end
+					c[id] = { tex = tex, ok = SHADER_ALLOW[sh] == true and tex ~= nil and #tex <= MAX_TEX_ITEM, bump = bump or nil }
+				end
+			end
+		end
+		child_cache[key] = c
+	end
+	return c[cid]
+end
+
+-- the wounds worth drawing, deepest first
+local function sorted_wounds(st, min_stage)
+	local list = {}
+	for _, w in pairs(st.w) do if w.stage >= (min_stage or 2) then list[#list + 1] = w end end
+	table.sort(list, function(a, b)
+		if a.level ~= b.level then return a.level > b.level end
+		if a.dmg ~= b.dmg then return (a.dmg or 0) > (b.dmg or 0) end
+		if a.sec ~= b.sec then return a.sec < b.sec end
+		return a.idx < b.idx
+	end)
+	return list
+end
+
+-- D id -> { C, sec, base, str } this body should show now
+local function wanted(obj, st)
+	local want = {}
+	local by_sec = {}
+	for _, w in ipairs(sorted_wounds(st, 2)) do
+		if w.level > 0 then
+			local l = by_sec[w.sec] or {}
+			by_sec[w.sec] = l
+			if #l < 4 then l[#l + 1] = pack(w.idx, w.level, w.bone) end
+		end
+	end
+	for sec, nums in pairs(by_sec) do
+		if not gone(obj, sec) then
+			for cid, did in pairs(zgo_bake.damage_ids(obj, sec) or {}) do
+				local info = child_info(obj, cid)
+				if info and info.ok then
+					want[did] = { C = cid, sec = sec, base = info.tex, str = texture_string(info.tex, nums, info.bump) }
+				end
+			end
+		end
+	end
+	return want
+end
+
+local function apply(id, obj, st, force)
+	local cur = applied[id] or {}
+	local want = wanted(obj, st)
+	for did, e in pairs(cur) do
+		if not want[did] then undo(obj, did, e) end
+	end
+	for did, e in pairs(want) do
+		local c = cur[did]
+		if force or not c or c.str ~= e.str then
+			local ok1, err1 = pcall(obj.set_shader, obj, e.C, "zgo\\off", e.base, false)
+			local ok2, err2 = true, nil
+			if ok1 then ok2, err2 = pcall(obj.set_shader, obj, did, "zgo\\dmg", e.str, false) end
+			if not (ok1 and ok2) then
+				stats_t.set_fail = stats_t.set_fail + 1
+				applied[id] = want
+				unapply(id, obj)
+				caps = "set_shader failed: " .. tostring(ok1 and err2 or err1)
+				U.log("wound craters (experimental): off: %s", caps)
+				return false
+			end
+			stats_t.applied = stats_t.applied + 1
+		end
+	end
+	applied[id] = next(want) and want or nil
+	return true
+end
+
+-- the engine forgets shader overrides when a body goes offline: put them back
+local function still_applied(obj, a)
+	local ok, cur = pcall(obj.get_shaders, obj, false)
+	if not (ok and type(cur) == "table") or cur.error then return true end
+	for did in pairs(a) do
+		local e = cur[did]
+		local sh = e and string.lower(tostring(e.shader or "")) or ""
+		if sh ~= "zgo\\dmg" then return false end
+	end
+	return true
+end
+
+local function dent_pass(reapply)
+	if not (want_dents() and U.gore() and on()) then
+		if next(applied) then unapply_all() end
+		return
+	end
+	if not capable() then return end
+	local apos = db.actor and db.actor:position()
+	if not apos then return end
+	local range = math.max(U.setting("performance/detail_range") or 55, 30) * 1.5
+	local cands = {}
+	for id, st in pairs(npcs) do
+		if next(st.w) then
+			local obj = level.object_by_id(id)
+			if obj and obj:section() == st.s then
+				local d = obj:position():distance_to_sqr(apos)
+				if d <= range * range then cands[#cands + 1] = { id = id, obj = obj, st = st, d = d } end
+			end
+		end
+	end
+	table.sort(cands, function(a, b) return a.d < b.d end)
+	local keep = {}
+	local n = 0
+	for _, c in ipairs(cands) do
+		if n >= max_dented() then break end
+		if not capable(c.obj) then return end
+		-- another mod's model (or one loaded before the bake) has other sub-meshes
+		if zgo_bake.loaded_matches(c.obj) == true then
+			n = n + 1
+			local force = reapply and applied[c.id] and not still_applied(c.obj, applied[c.id])
+			if c.st.dirty or force or not applied[c.id] then
+				if not apply(c.id, c.obj, c.st, force) then return end
+			end
+			keep[c.id] = true
+		end
+	end
+	for id in pairs(applied) do if not keep[id] then unapply(id) end end
+end
+
+------------------------------------------------------------------------
+-- Wound state
+------------------------------------------------------------------------
+local function count(t)
+	local n = 0
+	for _ in pairs(t) do n = n + 1 end
+	return n
+end
+
+function forget(id)
+	if not id then return end
+	unapply(id)
+	npcs[id] = nil
+end
+
+local function state_for(obj)
+	local id = obj:id()
+	local st = npcs[id]
+	if st and st.s ~= obj:section() then forget(id) st = nil end
+	if not st then
+		if count(npcs) >= MAX_NPCS then
+			-- make room: the longest-untouched body, living ones first
+			local victim, vt
+			for oid, o in pairs(npcs) do
+				local k = (o.alive and 0 or 1e12) + (o.t or 0)
+				if not vt or k < vt then victim, vt = oid, k end
+			end
+			if victim then forget(victim) end
+		end
+		st = { s = obj:section(), w = {}, t = time_global() }
+		npcs[id] = st
+	end
+	st.alive = obj:alive()
+	return st
+end
+
+-- keep at most max_sites() wounds: the lightest goes (its marks stay)
+local function trim(st, keep)
+	local limit = max_sites()
+	while count(st.w) > limit do
+		local lk, ld
+		for k, w in pairs(st.w) do
+			if k ~= keep and (not ld or w.dmg < ld) then lk, ld = k, w.dmg end
+		end
+		if not lk then return end
+		st.w[lk] = nil
+	end
+end
+
+local function recompute(w)
+	local st, p = stage_of(w.dmg, w.cap)
+	w.stage = st
+	local d, bone = depth_of(st, p, w.site, section_class(w.sec))
+	w.level, w.bone = level_of(d), bone
+end
+
+------------------------------------------------------------------------
+-- What a stage change does (authority)
+------------------------------------------------------------------------
+GIBS_AT = { [3] = { 1, 2 }, [4] = { 2, 3 }, [5] = { 3, 4 } }
+-- body marks (category, size) per stage, on top of the hit's own marks
+MARKS_AT = {
+	[3] = { { "p_wound", 0.14 } },
+	[4] = { { "p_wound", 0.17 }, { "p_splash", 0.16 } },
+	[5] = { { "p_wound", 0.21 }, { "p_splash", 0.22 } },
+}
+
+local function mm(v) return math.floor(v * 1000 + 0.5) end
+
+-- (chunks only leave a body that dies of the hit or was already dead; the
+-- killing hit is still being applied when the stage goes up, so look again
+-- a moment later)
+local CHUNK_WAIT_MS = 250
+
+local function throw_chunks_now(obj, w, stage)
+	local r = GIBS_AT[stage]
+	if not r then return end
+	local pos, n = site_world(obj, w.site)
+	if not pos then return end
+	n = n or U.v3(0, 1, 0)
+	local dir = U.unit(U.add(n, U.v3(0, 0.6, 0))) or U.v3(0, 1, 0)
+	pos, dir = U.qv(U.along(pos, n, 0.03)), U.qv(dir)
+	local cnt, seed = math.random(r[1], r[2]), math.random(1, 999999999)   -- (zgo_sync sends integers below 1e9 as such)
+	stats_t.gibs = stats_t.gibs + cnt
+	-- the site's own baked chunk when the bake has one (experimental damage bake), else gibs
+	local ok, err = pcall(zgo_debris.spawn_chunks, obj, w.sec, w.idx, pos, dir, cnt, seed)
+	if not ok then U.log("wound chunks failed: %s", tostring(err)) end
+	-- (the section and the site's bind point, not its index: every machine maps it onto its own bake)
+	zgo_sync.emit({ "Y", "g", obj:id(), pos.x, pos.y, pos.z, dir.x, dir.y, dir.z, cnt, seed,
+		w.sec, mm(w.bp.x), mm(w.bp.y), mm(w.bp.z) })
+end
+
+local function throw_chunks(obj, w, stage)
+	if U.setting("wounds/chunks") == false or not U.setting("dismember/gibs") then return end
+	if not GIBS_AT[stage] then return end
+	local id = obj:id()
+	U.after(CHUNK_WAIT_MS, function()
+		local o = level.object_by_id(id)
+		if not o or (o:alive() and (o.health or 1) > 0.005) then
+			stats_t.chunks_spared = (stats_t.chunks_spared or 0) + 1
+			return
+		end
+		throw_chunks_now(o, w, stage)
+	end)
+end
+
+local function mark(obj, w, stage)
+	if U.setting("wounds/marks") == false then return end
+	local list = MARKS_AT[stage]
+	if not list then return end
+	local pos, n = site_world(obj, w.site)
+	if not (pos and n) then return end
+	local k = U.clamp(w.site.radius / 0.08, 0.7, 1.4)
+	for _, m in ipairs(list) do
+		local ok, err = pcall(zgo_decals.place_body, obj, zgo_decals.section(m[1]), pos, U.v3(-n.x, -n.y, -n.z), m[2] * k)
+		if not ok then U.log("wound mark failed: %s", tostring(err)) end
+	end
+end
+
+local HEADS = { bip01_head = true, bip01_neck = true, bip01_ponytail2 = true, jaw_1 = true, bone01 = true, head = true }
+
+-- stage 5 on a dead body's head or limb: the part comes off (Dismemberment rules)
+local function sever(obj, w, info)
+	if U.setting("wounds/sever") == false or w.sec == "body" or not info.dead or not info.allow then return end
+	local D = zgo_dismember
+	if type(D) ~= "table" then return end
+	local ev = { id = obj:id(), bone = w.sec, prof = info.prof, dir = info.dir or U.v3(0, -1, 0), pos = info.pos,
+		dead = true, was_dead = info.was_dead and true or false, center = info.center, allow_dismember = true }
+	-- the cuts workstream's entry point when it exists (docs/integration/wounds.md)
+	if type(D.sever_wound) == "function" then
+		local ok, res = pcall(D.sever_wound, obj, w.sec, ev)
+		if not ok then U.log("wound sever failed: %s", tostring(res))
+		elseif res then stats_t.severs = stats_t.severs + 1 end
+		return
+	end
+	if not (U.setting("dismember/enable") and type(D.sever) == "function") then return end
+	if ev.was_dead and not U.setting("dismember/corpses") then return end
+	if IsMonster(obj) and not U.setting("dismember/mutants") then return end
+	if obj:get_bone_id(w.sec) == 65535 then return end
+	if gone(obj, w.sec) then return end
+	local okc, can = pcall(D.can_show_cut, obj, w.sec)
+	if not (okc and can) then return end
+	local head = HEADS[w.sec] or section_class(w.sec) == "head"
+	if not ((head and U.setting("dismember/head")) or (not head and U.setting("dismember/limbs"))) then return end
+	local ok, err = pcall(D.sever, obj, w.sec, ev, head, false)
+	if ok then stats_t.severs = stats_t.severs + 1 else U.log("wound sever failed: %s", tostring(err)) end
+end
+
+------------------------------------------------------------------------
+-- Damage in (authority)
+------------------------------------------------------------------------
+-- info: { prof, dir, pos, dead, was_dead, allow, center }
+local function add_damage(obj, bone, wpos, cls, kind, energy, info, side)
+	if not (energy and energy > 0) then return end
+	stats_t.hits = stats_t.hits + 1
+	local sec, site = locate(obj, bone, wpos, info.dir, side)
+	if not sec then return end
+	stats_t.matched = stats_t.matched + 1
+	local st = state_for(obj)
+	local key = sec .. "#" .. site.index
+	local w = st.w[key]
+	if not w then
+		w = { sec = sec, idx = site.index, site = site, bp = site.pos, dmg = 0, cap = 0, stage = 0, level = 0, bone = false }
+		st.w[key] = w
+	end
+	local before, lvl = w.stage, w.level
+	w.dmg = w.dmg + energy * (W_CLS[cls] or 1) * (W_KIND[kind] or 1) * growth()
+	w.cap = math.max(w.cap, cap_of(cls, kind))
+	w.t = time_global()
+	recompute(w)
+	trim(st, key)
+	st.t = w.t
+	if w.stage ~= before or w.level ~= lvl then st.dirty = true end
+	if w.stage > before then
+		stats_t.stage_ups = stats_t.stage_ups + 1
+		U.dbg("wound %s on %s: stage %s -> %s (damage %s, %s mm%s)", key, obj:section(), before, w.stage, U.r3(w.dmg),
+			w.level * 2, w.bone and ", bone" or "")
+		if w.stage >= 3 then
+			throw_chunks(obj, w, w.stage)
+			mark(obj, w, w.stage)
+		end
+		if w.stage >= 5 then sever(obj, w, info) end
+	end
+	return w
+end
+
+local function on_hit(obj, ev)
+	if not (U.enabled() and on() and U.is_authority()) then return end
+	if not (obj and ev and ev.prof and ev.pos and ev.bone) then return end
+	local prof = ev.prof
+	local info = { prof = prof, dir = ev.dir, pos = ev.pos, dead = ev.dead, was_dead = ev.was_dead,
+		allow = ev.allow_dismember }
+	if ev.penetrated == false then
+		-- stopped by armour: a bruise at most
+		add_damage(obj, ev.bone, ev.pos, prof.cls, "bruise", 0.25 * (prof.energy or 0.5), info, -1)
+		return
+	end
+	add_damage(obj, ev.bone, ev.pos, prof.cls, prof.kind, prof.energy, info, -1)
+	if ev.exits and prof.kind ~= "melee" and ev.dir then
+		local ex = U.along(ev.pos, ev.dir, ev.head and 0.14 or 0.2)
+		add_damage(obj, ev.bone, ex, prof.cls, prof.kind, (prof.energy or 0) * EXIT_K, info, 1)
+	end
+end
+
+local function first_bone(W, list)
+	for _, b in ipairs(list) do if W.skel.by_name[b] then return b end end
+end
+
+local function on_blast(obj, ev, r)
+	if not (U.enabled() and on() and U.is_authority()) then return end
+	if not (obj and ev) then return end
+	-- fragment wounds
+	for _, f in ipairs(ev.frags or {}) do
+		if f.pos and f.bone then
+			add_damage(obj, f.bone, f.pos, 1, "frag", FRAG_E, { prof = { kind = "bullet", cls = 1, energy = FRAG_E },
+				dir = f.dir, pos = f.pos, dead = ev.dead, was_dead = ev.was_dead, allow = true }, -1)
+		end
+	end
+	-- the blast itself tears the side that faced it
+	local sev = ev.sev or 0
+	if sev >= 0.3 and ev.torso and ev.away then
+		local W = zgo_bake.wound_sites(obj)
+		local tb = W and W.skel and first_bone(W, TORSO)
+		if tb then
+			local face = U.along(ev.torso, ev.away, -0.15)
+			add_damage(obj, tb, face, 5, "blast", 4 * sev, { prof = { kind = "blast", cls = 5, energy = 3 }, dir = ev.away,
+				pos = face, dead = ev.dead, was_dead = ev.was_dead, allow = true, center = ev.center }, -1)
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- Co-op
+------------------------------------------------------------------------
+-- "sec,bx,by,bz,stage,level,bone;..." (bind point in mm), "-" for none
+function encode(st)
+	local out = {}
+	for i, w in ipairs(sorted_wounds(st, 2)) do
+		if i > MAX_SYNC then break end
+		out[#out + 1] = string.format("%s,%d,%d,%d,%d,%d,%d", w.sec, mm(w.bp.x), mm(w.bp.y), mm(w.bp.z), w.stage, w.level, w.bone and 1 or 0)
+	end
+	return #out > 0 and table.concat(out, ";") or "-"
+end
+
+function decode(text)
+	local out = {}
+	for item in string.gmatch(text or "", "[^;]+") do
+		local sec, x, y, z, s, l, b = string.match(item, "^([%w_]+),(%-?%d+),(%-?%d+),(%-?%d+),(%d),(%d+),([01])$")
+		if sec then
+			out[#out + 1] = { sec = sec, bp = { x = tonumber(x) / 1000, y = tonumber(y) / 1000, z = tonumber(z) / 1000 },
+				stage = U.clamp(tonumber(s), 0, 5), level = U.clamp(tonumber(l), 0, 63), bone = b == "1" }
+		end
+	end
+	return out
+end
+
+local function send(id, st)
+	if not U.has_peers() then return end
+	zgo_sync.emit({ "Y", "w", id, st.s, encode(st) })
+	stats_t.lines = stats_t.lines + 1
+end
+
+-- entries (from the host or a save) onto this machine's own sites
+local function map_entries(obj, st, entries)
+	local w2 = {}
+	for _, e in ipairs(entries) do
+		local site, dist = zgo_bake.nearest_site(obj, e.sec, e.bp)
+		if site and dist and dist <= 0.08 then
+			local key = e.sec .. "#" .. site.index
+			local w = { sec = e.sec, idx = site.index, site = site, bp = site.pos, dmg = e.dmg or 0, cap = e.cap or 5,
+				stage = e.stage or 0, level = e.level or 0, bone = e.bone or false, t = time_global() }
+			if e.dmg then recompute(w) end
+			w2[key] = w
+		end
+	end
+	st.w = w2
+end
+
+local function resolve_raw(id, st)
+	local obj = U.resolve(id, st.s)
+	if not (obj and zgo_bake.wound_sites(obj)) then return false end
+	map_entries(obj, st, st.raw)
+	st.raw = nil
+	st.dirty = true
+	return true
+end
+
+local function on_line(t)
+	if t[2] == "w" then
+		if #t < 5 then return end
+		local id = tonumber(t[3])
+		if not id then return end
+		local entries = t[5] == "-" and {} or decode(t[5])
+		if #entries == 0 and t[5] ~= "-" then return end     -- (not a line the host sends)
+		local st = npcs[id]
+		if not st or st.s ~= t[4] then
+			if st then forget(id) end
+			st = { s = t[4], w = {}, t = time_global() }
+			npcs[id] = st
+		end
+		st.raw, st.t = entries, time_global()
+		resolve_raw(id, st)
+		st.dirty = true
+	elseif t[2] == "g" then
+		if #t < 11 then return end
+		local pos = U.v3(tonumber(t[4]) or 0, tonumber(t[5]) or 0, tonumber(t[6]) or 0)
+		local dir = U.v3(tonumber(t[7]) or 0, tonumber(t[8]) or 1, tonumber(t[9]) or 0)
+		local n, seed = U.clamp(tonumber(t[10]) or 1, 1, 6), tonumber(t[11])
+		local obj = U.resolve(t[3])
+		-- (1.7: section and bind point follow; this machine's own nearest site of it)
+		local sec, idx = t[12], nil
+		local bx, by, bz = tonumber(t[13]), tonumber(t[14]), tonumber(t[15])
+		if obj and sec and bx and by and bz then
+			local oks, site, dist = pcall(zgo_bake.nearest_site, obj, sec, { x = bx / 1000, y = by / 1000, z = bz / 1000 })
+			if oks and site and dist and dist <= 0.08 then idx = site.index end
+		end
+		local ok, err = pcall(zgo_debris.spawn_chunks, obj, idx and sec or nil, idx, pos, dir, n, seed)
+		if not ok then U.log("wound chunks failed: %s", tostring(err)) end
+	end
+end
+
+------------------------------------------------------------------------
+-- Upkeep
+------------------------------------------------------------------------
+function update()
+	local now = time_global()
+	if not U.enabled() then
+		if next(applied) then unapply_all() end
+		return
+	end
+	-- kid mode on: craters go at once (kid_mode() is the same, called by zgo_settings once wired)
+	local kid = not U.gore()
+	if kid ~= kid_was then
+		kid_was = kid
+		if kid then unapply_all() end
+	end
+	if now < next_tick then return end
+	next_tick = now + tick_ms()
+	local reapply = now >= next_reapply
+	if reapply then next_reapply = now + REAPPLY_MS end
+	local host = U.is_authority()
+	for id, st in pairs(npcs) do
+		if st.raw then
+			if reapply then resolve_raw(id, st) end
+		elseif host and st.alive and now - (st.t or now) > HEAL_MS then
+			-- healed: partners forget it too
+			if U.has_peers() then zgo_sync.emit({ "Y", "w", id, st.s, "-" }) end
+			forget(id)
+		elseif host and st.dirty then
+			send(id, st)
+		end
+	end
+	local ok, err = pcall(dent_pass, reapply)
+	if not ok then U.log("wound craters error: %s", tostring(err)) end
+	for _, st in pairs(npcs) do st.dirty = nil end
+	-- co-op: every body's wounds again now and then, for late joiners
+	if host and U.has_peers() and now >= next_rebroadcast then
+		next_rebroadcast = now + REBROADCAST_MS
+		local ids = {}
+		for id, st in pairs(npcs) do
+			if not st.raw and next(st.w) and level.object_by_id(id) then ids[#ids + 1] = id end
+		end
+		table.sort(ids)
+		if #ids > 0 then
+			local start = rebroadcast_at % #ids
+			for k = 0, math.min(REBROADCAST_N, #ids) - 1 do
+				local id = ids[(start + k) % #ids + 1]
+				send(id, npcs[id])
+			end
+			rebroadcast_at = start + REBROADCAST_N
+		end
+	end
+end
+
+-- kid mode switched (zgo_settings.update, docs/integration/wounds.md):
+-- on: the craters go now; off: they come back on the next pass
+function kid_mode(kid)
+	kid_was = kid
+	if kid then unapply_all() else next_tick, next_reapply = 0, 0 end
+end
+
+-- level change: what is on screen goes, the wounds stay with their bodies
+function reset()
+	applied, child_cache = {}, {}
+	caps = nil
+	next_tick, next_reapply, next_rebroadcast = 0, 0, 0
+	for _, st in pairs(npcs) do st.dirty = true end
+end
+
+local function on_unregister(se_obj)
+	if se_obj and se_obj.id and U.is_authority() then forget(se_obj.id) end
+end
+
+------------------------------------------------------------------------
+-- Save / load (single player and host; clients get the wounds from the host)
+------------------------------------------------------------------------
+-- m_data.zgo_wounds = { [id] = "<game section>|sec,bx,by,bz,damage x1000,cap;..." }
+local function save_item(sec, bp, dmg, cap)
+	return string.format("%s,%d,%d,%d,%d,%d", sec, mm(bp.x), mm(bp.y), mm(bp.z), math.floor((dmg or 0) * 1000 + 0.5), cap or 5)
+end
+
+function save_state(m_data)
+	if U.is_client() then return end
+	local out = {}
+	for id, st in pairs(npcs) do
+		if alife_object(id) then
+			local items = {}
+			if st.raw then
+				for _, e in ipairs(st.raw) do if e.dmg then items[#items + 1] = save_item(e.sec, e.bp, e.dmg, e.cap) end end
+			else
+				for _, w in pairs(st.w) do items[#items + 1] = save_item(w.sec, w.bp, w.dmg, w.cap) end
+			end
+			if #items > 0 then
+				table.sort(items)
+				out[id] = st.s .. "|" .. table.concat(items, ";")
+			end
+		end
+	end
+	m_data.zgo_wounds = out
+end
+
+function load_state(m_data)
+	unapply_all()
+	npcs = {}
+	local t = type(m_data) == "table" and m_data.zgo_wounds
+	if type(t) ~= "table" then return end
+	for id, line in pairs(t) do
+		local s, rest = string.match(tostring(line), "^([^|]+)|(.*)$")
+		if s and tonumber(id) then
+			local raw = {}
+			for item in string.gmatch(rest, "[^;]+") do
+				local sec, x, y, z, d, c = string.match(item, "^([%w_]+),(%-?%d+),(%-?%d+),(%-?%d+),(%d+),(%d)$")
+				if sec then
+					raw[#raw + 1] = { sec = sec, bp = { x = tonumber(x) / 1000, y = tonumber(y) / 1000, z = tonumber(z) / 1000 },
+						dmg = tonumber(d) / 1000, cap = U.clamp(tonumber(c), 1, 5) }
+				end
+			end
+			if #raw > 0 then npcs[tonumber(id)] = { s = s, w = {}, raw = raw, t = time_global() } end
+		end
+	end
+	next_tick, next_reapply = 0, 0
+end
+
+------------------------------------------------------------------------
+-- Start-up
+------------------------------------------------------------------------
+function on_game_start()
+	U.on_event("hit", on_hit)
+	U.on_event("blast_body", on_blast)
+	zgo_sync.on("Y", on_line)
+	RegisterScriptCallback("actor_on_update", update)
+	RegisterScriptCallback("on_level_changing", reset)
+	RegisterScriptCallback("server_entity_on_unregister", on_unregister)
+	RegisterScriptCallback("save_state", save_state)
+	RegisterScriptCallback("load_state", load_state)
+end
+
+-- (tests / status)
+function get_state() return npcs end
+function get_applied() return applied end
+function stats()
+	local nb, nw = 0, 0
+	for _, st in pairs(npcs) do nb = nb + 1 nw = nw + count(st.w) end
+	local s = { bodies = nb, wounds = nw, dented = count(applied), caps = caps }
+	for k, v in pairs(stats_t) do s[k] = v end
+	return s
+end
+function status()
+	local s = stats()
+	U.log("wounds: %s bodies, %s wounds, %s with craters (%s); hits %s matched %s, stage ups %s, chunks %s, severed %s, lines %s",
+		s.bodies, s.wounds, s.dented, tostring(caps), s.hits, s.matched, s.stage_ups, s.gibs, s.severs, s.lines)
+end

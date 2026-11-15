@@ -1,0 +1,237 @@
+--[[
+  Zone Gore Overhaul - data for props (zgo_props): materials, liquids, and
+  the sets of pieces objects break into. Plain tables, no engine calls.
+
+  Sizes and engine materials of the base game's prop models are generated
+  into zgo_props_models.script (tools/zgo_fracture/assets/gen_props_models.py).
+  Fracture rigs the player baked (tools/zgo_fracture) are listed in
+  zgo_props_fracture_index.script when present.
+]]
+
+------------------------------------------------------------------------
+-- Material classes
+--   hp       health of a 20 kg object of this material (0 = never breaks)
+--   bullet / blast / melee   damage multipliers (Source propdata style)
+--   fx       hit effects (zgo\props\...), each drawn per hit
+--   spark    chance of sparks on top (scaled by the round's energy)
+--   burst    effects when one breaks apart
+--   sound    breaking sounds (the game's own, sounds\<path>.ogg)
+--   code     one letter for co-op lines
+------------------------------------------------------------------------
+MATERIALS = {
+	wood = { code = "w", hp = 32, bullet = 1.0, blast = 1.5, melee = 2.0, spark = 0,
+		fx = { "zgo\\props\\splinters", "zgo\\props\\dust_wood" },
+		burst = { "zgo\\props\\burst_wood", "zgo\\props\\dust_wood_big" },
+		sound = { "material\\wood\\wood_crash_hl2", "material\\wood\\wood_crash1_hl2", "material\\wood\\wood_big_hard_1" } },
+	metal = { code = "m", hp = 0, bullet = 0.3, blast = 0.5, melee = 0.2, spark = 0.7,
+		fx = { "zgo\\props\\dust_metal" },
+		burst = { "zgo\\props\\sparks_big", "zgo\\props\\dust_metal" },
+		sound = { "material\\metal_box\\collide\\big_metal_1", "material\\metal_box\\collide\\big_metal_2" } },
+	barrel = { code = "b", hp = 0, bullet = 0.4, blast = 0.6, melee = 0.2, spark = 0.55,
+		fx = { "zgo\\props\\dust_metal" },
+		burst = { "zgo\\props\\sparks_big", "zgo\\props\\dust_metal" },
+		sound = { "material\\barrel\\collide\\barrel_1", "material\\barrel\\collide\\barrel_2" } },
+	tin = { code = "t", hp = 0, bullet = 0.6, blast = 0.8, melee = 0.4, spark = 0.35,
+		fx = { "zgo\\props\\dust_metal" },
+		burst = { "zgo\\props\\sparks", "zgo\\props\\dust_metal" },
+		sound = { "material\\large_metal_trash\\collide\\large_metal_trash_1" } },
+	glass = { code = "g", hp = 3, bullet = 1.0, blast = 3.0, melee = 2.0, spark = 0,
+		fx = { "zgo\\props\\glass" },
+		burst = { "zgo\\props\\glass_burst", "zgo\\props\\glass" },
+		sound = { "material\\bottle\\collide\\bottle_break_1" } },
+	cloth = { code = "c", hp = 0, bullet = 0.5, blast = 0.5, melee = 0.5, spark = 0,
+		fx = { "zgo\\props\\fluff" },
+		burst = { "zgo\\props\\fluff", "zgo\\props\\dust_light" },
+		sound = {} },
+	concrete = { code = "k", hp = 0, bullet = 0.2, blast = 0.4, melee = 0.1, spark = 0.1,
+		fx = { "zgo\\props\\chips_stone", "zgo\\props\\dust_stone" },
+		burst = { "zgo\\props\\chips_stone", "zgo\\props\\dust_stone_big" },
+		sound = {} },
+	paper = { code = "p", hp = 8, bullet = 1.0, blast = 2.0, melee = 2.0, spark = 0,
+		fx = { "zgo\\props\\fluff_paper", "zgo\\props\\dust_light" },
+		burst = { "zgo\\props\\fluff_paper", "zgo\\props\\dust_light" },
+		sound = { "material\\wood\\wood_big_hard_2" } },
+	plastic = { code = "a", hp = 16, bullet = 0.8, blast = 1.5, melee = 1.0, spark = 0,
+		fx = { "zgo\\props\\chips_light", "zgo\\props\\dust_light" },
+		burst = { "zgo\\props\\chips_light", "zgo\\props\\dust_light" },
+		sound = { "material\\large_furniture\\large_furniture_1" } },
+	ceramic = { code = "r", hp = 5, bullet = 1.0, blast = 2.5, melee = 2.0, spark = 0,
+		fx = { "zgo\\props\\chips_light", "zgo\\props\\dust_light" },
+		burst = { "zgo\\props\\chips_light", "zgo\\props\\dust_light" },
+		sound = { "material\\bottle\\collide\\bottle_break_1" } },
+	electro = { code = "e", hp = 0, bullet = 0.7, blast = 1.0, melee = 0.5, spark = 0.8,
+		fx = { "zgo\\props\\chips_light" },
+		burst = { "zgo\\props\\sparks_big", "zgo\\props\\chips_light", "zgo\\props\\glass" },
+		sound = {} },
+	-- hanging lamps (glass shade, a live bulb)
+	lamp = { code = "l", hp = 0, bullet = 0, blast = 0, melee = 0, spark = 0.9,
+		fx = { "zgo\\props\\glass" },
+		burst = { "zgo\\props\\glass_burst", "zgo\\props\\sparks" },
+		sound = { "material\\bottle\\collide\\bottle_break_1" } },
+	generic = { code = "x", hp = 0, bullet = 0.5, blast = 0.8, melee = 0.5, spark = 0,
+		fx = { "zgo\\props\\dust_light" },
+		burst = { "zgo\\props\\dust_light" },
+		sound = {} },
+}
+-- sparks for spark > 0 (chance per hit, by energy): light rounds, heavy rounds
+SPARKS = { "zgo\\props\\sparks_small", "zgo\\props\\sparks" }
+
+-- code letter -> material name
+BY_CODE = {}
+for name, m in pairs(MATERIALS) do BY_CODE[m.code] = name end
+
+-- Name keywords (visual path or section, lower case), checked in order; the
+-- first match wins over the engine material from zgo_props_models.
+KEYWORDS = {
+	{ "glass", "glass" }, { "steklo", "glass" }, { "bottle", "glass" }, { "butilka", "glass" }, { "vodka", "glass" },
+	{ "dev_drink", "tin" }, { "drink_", "tin" }, { "konserv", "tin" }, { "conserv", "tin" },
+	{ "monitor", "electro" }, { "komp_", "electro" }, { "notebook", "electro" }, { "priemnik", "electro" },
+	{ "transiver", "electro" }, { "radiola", "electro" }, { "radio", "electro" }, { "speakerphone", "electro" },
+	{ "tv_", "electro" }, { "televizor", "electro" }, { "el_tehnika", "electro" }, { "switcher", "electro" },
+	{ "rupor", "electro" }, { "phone", "electro" },
+	{ "box_paper", "paper" }, { "karton", "paper" }, { "carton", "paper" }, { "paper", "paper" }, { "document", "paper" },
+	{ "bochka", "barrel" }, { "barrel", "barrel" }, { "kanistra", "barrel" }, { "fuelcan", "barrel" },
+	{ "bidon", "barrel" }, { "butil", "plastic" }, { "gaz_balon", "metal" }, { "balon", "metal" },
+	{ "ognetushitel", "metal" }, { "box_metall", "metal" }, { "seif", "metal" }, { "safe", "metal" },
+	{ "locker", "metal" }, { "konteyner", "metal" }, { "vedro", "tin" }, { "banka_kraski", "tin" },
+	{ "kitchen_tarelka", "tin" }, { "kitchen_krujka", "tin" }, { "kitchen_miska", "tin" }, { "teapot", "tin" },
+	{ "kastrula", "tin" }, { "tarelka", "ceramic" }, { "chashka", "ceramic" }, { "cup", "ceramic" },
+	{ "vaza", "ceramic" }, { "unitaz", "ceramic" }, { "rakovina", "ceramic" },
+	{ "box_wood", "wood" }, { "box_1", "wood" }, { "yashik", "wood" }, { "stul", "wood" }, { "taburet", "wood" },
+	{ "stol", "wood" }, { "bench", "wood" }, { "doski", "wood" }, { "board", "wood" }, { "fence", "wood" },
+	{ "shkaf", "wood" }, { "polka", "wood" }, { "tumba", "wood" }, { "crate", "wood" },
+	{ "matras", "cloth" }, { "mattress", "cloth" }, { "podushka", "cloth" }, { "pillow", "cloth" },
+	{ "rukzak", "cloth" }, { "sumka", "cloth" }, { "bag", "cloth" },
+	{ "beton", "concrete" }, { "concrete", "concrete" }, { "kirpich", "concrete" }, { "brick", "concrete" },
+	{ "plastic", "plastic" }, { "plastik", "plastic" },
+}
+
+------------------------------------------------------------------------
+-- Liquids. Containers whose name matches leak this (first match wins).
+--   fx: the stream; mark: puddle wallmark sections (mod_system_zgo_props.ltx);
+--   jet = true: a gas jet instead of a stream, no puddle
+------------------------------------------------------------------------
+LIQUIDS = {
+	water = { code = "w", fx = "zgo\\props\\leak_water",
+		marks = { "zgo_props_puddle_water_1", "zgo_props_puddle_water_2", "zgo_props_puddle_water_3" } },
+	fuel = { code = "f", fx = "zgo\\props\\leak_fuel",
+		marks = { "zgo_props_puddle_fuel_1", "zgo_props_puddle_fuel_2", "zgo_props_puddle_fuel_3" } },
+	oil = { code = "o", fx = "zgo\\props\\leak_oil",
+		marks = { "zgo_props_puddle_oil_1", "zgo_props_puddle_oil_2", "zgo_props_puddle_oil_3" } },
+	chem = { code = "c", fx = "zgo\\props\\leak_chem",
+		marks = { "zgo_props_puddle_chem_1", "zgo_props_puddle_chem_2" } },
+	gas = { code = "g", fx = "zgo\\props\\jet_gas", jet = true },
+	powder = { code = "p", fx = "zgo\\props\\jet_powder", jet = true },
+}
+LIQUID_BY_CODE = {}
+for name, l in pairs(LIQUIDS) do LIQUID_BY_CODE[l.code] = name end
+
+LEAKERS = {
+	{ "bochka_fuel", "fuel" }, { "explosive_barrel", "fuel" }, { "explosive_fuelcan", "fuel" }, { "fuelcan", "fuel" },
+	{ "mobiltank", "fuel" }, { "kanistra", "fuel" }, { "benzin", "fuel" },
+	{ "bochka", "oil" }, { "barrel", "oil" },
+	{ "bidon", "water" }, { "butil", "water" },
+	{ "box_lab_03", "chem" },
+	{ "gaz_balon", "gas" }, { "balon_0", "gas" }, { "explosive_gaz", "gas" },
+	{ "ognetushitel", "powder" },
+}
+
+------------------------------------------------------------------------
+-- Breaking: sets of pieces the game already ships (kit-bash). Every piece
+-- is a one-bone physics part modelled in the reference model's space; a
+-- rig maps the set into the breaking object's own box (zgo_props_models).
+------------------------------------------------------------------------
+PART_SETS = {
+	crate = { ref = "dynamics\\box\\box_wood_01", parts = {
+		"dynamics\\box\\part\\box_wood_01_part_1", "dynamics\\box\\part\\box_wood_01_part_2",
+		"dynamics\\box\\part\\box_wood_01_part_3", "dynamics\\box\\part\\box_wood_01_part_4",
+		"dynamics\\box\\part\\box_wood_01_part_5", "dynamics\\box\\part\\box_wood_01_part_6",
+		"dynamics\\box\\part\\box_wood_01_part_7" } },
+	jar = { ref = "dynamics\\kitchen_room\\bottle_3l", parts = {
+		"dynamics\\kitchen_room\\part\\bottle_3l_part_0", "dynamics\\kitchen_room\\part\\bottle_3l_part_1",
+		"dynamics\\kitchen_room\\part\\bottle_3l_part_2", "dynamics\\kitchen_room\\part\\bottle_3l_part_3",
+		"dynamics\\kitchen_room\\part\\bottle_3l_part_4", "dynamics\\kitchen_room\\part\\bottle_3l_part_5",
+		"dynamics\\kitchen_room\\part\\bottle_3l_part_6", "dynamics\\kitchen_room\\part\\bottle_3l_part_7" } },
+}
+
+-- Part models (one bone each, from the base game): their boxes, for pivots
+-- and collision sizes when zgo_props_models doesn't have them.
+PART_BOXES = {
+	["dynamics\\box\\part\\box_wood_01_part_1"] = { -0.369, 0.000, -0.391, 0.369, 0.061, 0.390 },
+	["dynamics\\box\\part\\box_wood_01_part_2"] = { -0.419, 0.025, -0.390, -0.369, 0.792, 0.389 },
+	["dynamics\\box\\part\\box_wood_01_part_3"] = { -0.421, 0.019, -0.440, 0.421, 0.797, -0.181 },
+	["dynamics\\box\\part\\box_wood_01_part_4"] = { 0.369, 0.025, -0.389, 0.420, 0.670, 0.389 },
+	["dynamics\\box\\part\\box_wood_01_part_5"] = { -0.369, 0.619, -0.248, 0.420, 0.806, 0.389 },
+	["dynamics\\box\\part\\box_wood_01_part_6"] = { -0.421, 0.019, 0.389, 0.421, 0.536, 0.440 },
+	["dynamics\\box\\part\\box_wood_01_part_7"] = { -0.421, 0.409, 0.389, 0.421, 0.797, 0.440 },
+	["dynamics\\kitchen_room\\part\\bottle_3l_part_0"] = { -0.082, 0.155, 0.081, 0.069, 0.310, 0.116 },
+	["dynamics\\kitchen_room\\part\\bottle_3l_part_1"] = { -0.096, 0.274, -0.084, 0.020, 0.357, 0.112 },
+	["dynamics\\kitchen_room\\part\\bottle_3l_part_2"] = { -0.115, 0.000, -0.114, 0.113, 0.117, 0.115 },
+	["dynamics\\kitchen_room\\part\\bottle_3l_part_3"] = { -0.037, 0.285, -0.094, 0.098, 0.357, 0.091 },
+	["dynamics\\kitchen_room\\part\\bottle_3l_part_4"] = { -0.116, 0.064, -0.082, -0.073, 0.309, 0.081 },
+	["dynamics\\kitchen_room\\part\\bottle_3l_part_5"] = { -0.082, 0.052, -0.116, 0.058, 0.299, -0.082 },
+	["dynamics\\kitchen_room\\part\\bottle_3l_part_6"] = { 0.057, 0.038, -0.099, 0.116, 0.307, 0.058 },
+	["dynamics\\kitchen_room\\part\\bottle_3l_part_7"] = { 0.000, 0.072, 0.047, 0.105, 0.246, 0.115 },
+	["dynamics\\stul\\stul_school_01_br"] = { -0.292, 0.000, -0.332, 0.362, 1.103, 0.332 },
+	["dynamics\\medical_object\\kolyaska_01_braked"] = { -0.496, 0.000, -1.026, 0.500, 1.030, 0.457 },
+	["dynamics\\medical_object\\kolyaska_wheel_01_braked"] = { -0.307, 0.001, -0.359, 0.309, 0.102, 0.358 },
+}
+PART_BOXES["dynamics\\box\\box_wood_01"] = { -0.421, 0.000, -0.440, 0.421, 0.806, 0.440 }
+PART_BOXES["dynamics\\kitchen_room\\bottle_3l"] = { -0.116, 0.000, -0.116, 0.116, 0.357, 0.116 }
+
+-- visual -> how it breaks
+--   set      a PART_SETS entry, fitted into the object's box
+--   whole    pieces placed as they are (a damaged copy of the object; its
+--            own model space), each { model, still = true when it barely moves }
+--   mtl / hp optional overrides (hp: health of this object, not per 20 kg)
+RIGS = {
+	["dynamics\\box\\box_1a"] = { set = "crate" },
+	["dynamics\\box\\box_1b"] = { set = "crate" },
+	["dynamics\\box\\box_1c"] = { set = "crate" },
+	["dynamics\\box\\box_wood_02"] = { set = "crate" },
+	["dynamics\\box\\box_bottle_1"] = { set = "crate", mtl = "wood", extra_fx = "zgo\\props\\glass_burst" },
+	["dynamics\\stul\\stul_wood_01"] = { set = "crate" },
+	["dynamics\\stul\\stul_child_01"] = { set = "crate" },
+	["dynamics\\stul\\taburet_wood_01"] = { set = "crate" },
+	["dynamics\\stul\\taburet_village"] = { set = "crate" },
+	["dynamics\\stul\\child_bench"] = { set = "crate" },
+	["dynamics\\stul\\stul_school_01"] = { whole = { { "dynamics\\stul\\stul_school_01_br", still = true } }, mtl = "wood" },
+	["dynamics\\medical_object\\kolyaska_01"] = { mtl = "metal", hp = 160,
+		whole = { { "dynamics\\medical_object\\kolyaska_01_braked", still = true }, { "dynamics\\medical_object\\kolyaska_wheel_01_braked" } } },
+	["dynamics\\decor\\butilka_vodka_01"] = { set = "jar" },
+	["dynamics\\devices\\dev_vodka\\dev_vodka"] = { set = "jar" },
+	["dynamics\\devices\\dev_vodka\\dev_vodka2"] = { set = "jar" },
+}
+-- Glass objects up to this size (largest side, m) that have no rig still
+-- break: into jar shards fitted to their box.
+GLASS_AUTO_RIG = 0.45
+
+-- Visuals the game itself breaks into parts ([destroyed] in their model
+-- data): zgo_props only adds the burst. (Doors and vehicles are left out.)
+NATIVE = {
+	["dynamics\\box\\box_metall_01"] = "metal", ["dynamics\\box\\box_paper"] = "paper",
+	["dynamics\\box\\box_wood_01"] = "wood", ["objects\\dynamics\\box\\box_wood_011"] = "wood",
+	["physics\\box\\box_wood_01"] = "wood", ["dynamics\\decor\\bottle_bar_stakan"] = "glass",
+	["dynamics\\decor\\ventilator_mike"] = "wood", ["dynamics\\door\\door_locker"] = "metal",
+	["dynamics\\fence\\wood_fence_1"] = "wood", ["dynamics\\fence\\wood_fence_2"] = "wood",
+	["dynamics\\fence\\wood_fence_3"] = "wood", ["dynamics\\fence\\wood_fence_4"] = "wood",
+	["dynamics\\fence\\wood_fence_5"] = "wood", ["dynamics\\fence\\wooden_board_01"] = "wood",
+	["dynamics\\fence\\wooden_board_01_2m"] = "wood", ["dynamics\\fence\\wooden_board_02"] = "wood",
+	["dynamics\\fence\\wooden_board_03"] = "wood", ["dynamics\\fence\\wooden_board_04"] = "wood",
+	["dynamics\\kitchen_room\\bottle_3l"] = "glass",
+	["dynamics\\scene_objects\\hospital\\hospital_arka_1"] = "concrete", ["dynamics\\scene_objects\\hospital\\hospital_arka_2"] = "concrete",
+	["dynamics\\scene_objects\\hospital\\hospital_arka_3"] = "concrete", ["dynamics\\scene_objects\\hospital\\hospital_arka_4"] = "concrete",
+	["dynamics\\scene_objects\\hospital\\hospital_arka_5"] = "concrete", ["dynamics\\scene_objects\\hospital\\hospital_debris_01"] = "concrete",
+	["dynamics\\scene_objects\\hospital\\hospital_fence_01"] = "metal",
+	["dynamics\\scene_objects\\hospital\\hospital_wooden_board_01"] = "wood",
+	["dynamics\\scene_objects\\hospital\\hospital_wooden_board_02"] = "wood",
+	["dynamics\\scene_objects\\pripyat\\pri_a25_antenna_destroyable_barrier"] = "metal",
+	["dynamics\\small_trash\\wood_board_br_01"] = "wood", ["dynamics\\small_trash\\wood_board_br_01a"] = "wood",
+	["dynamics\\small_trash\\wood_board_br_01b"] = "wood", ["dynamics\\small_trash\\wood_board_br_02"] = "wood",
+	["dynamics\\small_trash\\wood_board_br_03"] = "wood", ["dynamics\\wood_doski\\wood_stolb_fixed"] = "wood",
+}
+
+-- sections and visuals never touched by breaking, leaks or extra push
+-- (substrings, lower case)
+NEVER = { "door", "_case", "stash", "quest", "story", "placeable", "furniture", "hf_", "workbench",
+	"anomaly", "artefact", "af_", "level_changer", "teleport", "invbox", "inventory_box" }

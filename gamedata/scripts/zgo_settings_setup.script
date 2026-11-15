@@ -1,0 +1,38 @@
+--[[
+  Zone Gore Overhaul - options of the setup workstream (zgo_setup_notice):
+  the in-game check of the baked models that ZGO Setup (tools\zgo_setup)
+  makes for each player's mod list. Data only; zgo_settings merges it into
+  the menu (format: zgo_settings.script).
+
+  Everything here is per machine (coop = "local"): each player has their own
+  bake. The check only reads; it never changes the game.
+]]
+
+SETTINGS = {
+	{
+		page = "setup", coop = "local", after = "dismember",
+		name = { "Baked models", "Запечённые модели" },
+		note = {
+			{ "ZGO Setup (in the ZGO folder: tools\\zgo_setup) bakes the body models for your own mod list. These options only decide what the game tells you about that bake. Each player sets them for their own computer.",
+			  "ZGO Setup (в папке ZGO: tools\\zgo_setup) запекает модели тел под ваш список модов. Эти настройки решают только, что игра сообщает об этом запекании. Каждый игрок настраивает их для своего компьютера." },
+		},
+		items = {
+			{ id = "notice", type = "check", def = true,
+			  name = { "Check the bake when a game loads", "Проверять запекание при загрузке игры" },
+			  desc = { "A few seconds after a save loads, compares your baked models with what the game really loads, and tells you once per problem (a message on screen and a line in the log) when ZGO Setup should be run again or a mod in MO2 hides baked models: a newer ZGO, changed body-part tables, models replaced by a mod that loads after ZGO, missing files. It only reads, spread over the first second; off = no check at all.",
+			           "Через несколько секунд после загрузки сохранения сравнивает ваши запечённые модели с тем, что игра загружает на самом деле, и один раз на каждую проблему сообщает (сообщение на экране и строка в логе), когда нужно снова запустить ZGO Setup или когда мод в MO2 перекрывает запечённые модели: новая версия ZGO, изменённые таблицы частей тела, модели, заменённые модом, который грузится после ZGO, пропавшие файлы. Только читает, в течение первой секунды; выкл. = никакой проверки." } },
+			{ id = "remind", type = "check", def = true, show_if = "setup/notice",
+			  name = { "Remind me when nothing is baked", "Напоминать, если ничего не запечено" },
+			  desc = { "If no models are baked, says once per ZGO version that running ZGO Setup gives cleaner cuts on bodies. ZGO also works without a bake, with the limits described in the README (BAKED MODELS).",
+			           "Если модели не запечены, один раз для каждой версии ZGO напоминает, что запуск ZGO Setup даёт более чистые разрезы тел. ZGO работает и без запекания, с ограничениями из README (BAKED MODELS)." } },
+			{ id = "check_mods", type = "check", def = false, show_if = "setup/notice",
+			  name = { "Also look at the other mods' files (experimental)", "Проверять и файлы других модов (экспериментально)" },
+			  desc = { "Also reads MO2's mod list and the model files the bake was made from, straight from the MO2 folder (under Proton through drive Z:), so the message can name the mod that was added, removed, reordered or updated. Experimental: whether the game may read MO2's folders this way is not checked in the game yet; if it cannot, the log says so once and nothing else happens. Costs a few thousand file look-ups spread over a few seconds after loading.",
+			           "Дополнительно читает список модов MO2 и файлы моделей, из которых сделано запекание, прямо из папки MO2 (под Proton через диск Z:), чтобы сообщение называло мод, который добавлен, удалён, перемещён или обновлён. Экспериментально: может ли игра так читать папки MO2, в игре ещё не проверено; если не может, лог один раз сообщит об этом, и больше ничего не произойдёт. Несколько тысяч обращений к файлам, растянутых на несколько секунд после загрузки." } },
+			{ id = "check_now", type = "button", action = "zgo_setup_notice.check_now",
+			  name = { "Check the bake now", "Проверить запекание сейчас" },
+			  desc = { "Runs the check as soon as you close the menu and shows the result, even if it was shown before (also when everything is fine).",
+			           "Запускает проверку, как только вы закроете меню, и показывает результат, даже если он уже показывался (и когда всё в порядке)." } },
+		},
+	},
+}

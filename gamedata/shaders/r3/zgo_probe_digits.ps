@@ -1,0 +1,36 @@
+// Zone Gore Overhaul: probe 3 (per-NPC digit textures), pixel shader.
+// The stock flat model pixel shader (deffer_base_flat.ps, whichever mod's
+// copy wins: it writes the G-buffer and, with SSS, the motion vectors),
+// wrapped. Six digit textures in the pixel-shader slots below carry, per NPC,
+//   p0, p1, p2 = the colour zgo_probe asked for (red, green or blue: 15 / 0)
+//   p3 = (p0 + p1 + p2 + 7) mod 16, p4 = 15 - p0, p5 = 15 - p1
+// The part is painted in that colour when every slot reads back right, and
+// magenta when any of them doesn't (zeros: nothing bound).
+#define main zgo_stock_main
+#include "deffer_base_flat.ps"
+#undef main
+
+Texture2D s_zgo_p0;
+Texture2D s_zgo_p1;
+Texture2D s_zgo_p2;
+Texture2D s_zgo_p3;
+Texture2D s_zgo_p4;
+Texture2D s_zgo_p5;
+
+#define ZGO_DIGIT(t) ((int)round((t).Load(int3(0, 0, 0)).r * 15.0))
+
+f_deffer main(p_flat I)
+{
+	f_deffer O = zgo_stock_main(I);
+	int r = ZGO_DIGIT(s_zgo_p0);
+	int g = ZGO_DIGIT(s_zgo_p1);
+	int b = ZGO_DIGIT(s_zgo_p2);
+	int c = ZGO_DIGIT(s_zgo_p3);
+	int nr = ZGO_DIGIT(s_zgo_p4);
+	int ng = ZGO_DIGIT(s_zgo_p5);
+	float3 colour = float3(r, g, b) / 15.0;
+	if (c != (r + g + b + 7) % 16 || nr != 15 - r || ng != 15 - g)
+		colour = float3(1.0, 0.0, 1.0);
+	O.C.rgb = colour;
+	return O;
+}

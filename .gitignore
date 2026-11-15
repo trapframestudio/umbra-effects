@@ -1,0 +1,28 @@
+# Written by tools/zgo_baker for the local mod list (python3 tools/zgo_baker/bake.py);
+# every player bakes their own. The baker lists its files in zgo_bake_report.json.
+/gamedata/meshes/actors/
+/gamedata/meshes/monsters/
+/gamedata/meshes/zgo/baked/
+/gamedata/scripts/zgo_bake_*.script
+!/gamedata/scripts/zgo_bake.script
+/zgo_bake_report.json
+# Written by tools/zgo_fracture (breakable objects bake), listed in zgo_fracture_report.json
+/gamedata/meshes/zgo/props/fracture/
+/gamedata/scripts/zgo_props_fracture_index.script
+/zgo_fracture_report.json
+# native/ build output (the shipped DLL is bin/zgo_native.dll)
+/native/build/
+__pycache__/
+*.pyc
+*.part
+# Kid mode copies of other mods' particles (tools/zgo_kidfx/kidfx_pe.py, listed in
+# kidfx_copies.json); ZGO Setup makes them per mod list. ZGO ships nothing in these folders.
+/gamedata/particles/anomaly2/
+/gamedata/particles/hit_fx/effects/
+# ZGO Setup programs: build output of dev/build_setup/build.sh linux|windows (23 MB + 77 MB);
+# dev/package.py needs them built before it zips
+/tools/zgo_setup/ZGO Setup.exe
+/tools/zgo_setup/zgo-setup-linux
+/tools/zgo_setup/SHA256SUMS.txt
+.pytest_cache/
+*.tmp

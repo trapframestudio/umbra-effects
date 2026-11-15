@@ -1,0 +1,57 @@
+ZONE GORE OVERHAUL - CREDITS AND NOTICES
+========================================
+
+This mod is built on, and redistributes parts of, PAINTER OF THE ZONE.
+
+  Painter of the Zone
+    Author:   sunn
+    Source:   https://github.com/windelicato/painterofthezone
+    Licence:  Apache License 2.0 (full text: LICENSE-PainterOfTheZone.txt)
+
+  Painter of the Zone in turn credits, and so do we:
+    - xcvb (bvcx on ModDB): Long Range Blood Decals and Dismemberment, the
+      basis for Painter's decals and the creature / limb tables we still use
+    - Death Orchird: HFX (HollywoodFX), source of some of the particles
+    - exDeMODER: BULLET TIME (ported by Painter; not included here)
+    - 0scoar: help formatting textures for X-Ray
+    - Kaiser: translation help
+
+  The blood decal shader is based on the one from Screen Space Shaders by
+  Ascii1457, as shipped modified by Painter of the Zone.
+
+  Severed-limb gibs and stump caps reuse meat meshes from other installed
+  mods when present (in GAMMA: "New mutants icons parts" by TDLemon,
+  meshes\dynamics\zpf\raw_*); this mod does not ship those meshes.
+
+  Armour feedback reads the visual tables of Wepl's Hit Effects
+  (configs\plugins\wepl_hit_effect_visuals.ltx) like Painter does.
+
+Thank you all.
+
+
+WHAT WAS TAKEN FROM PAINTER OF THE ZONE, AND HOW IT WAS CHANGED
+(Apache License 2.0, section 4(b): modified files carry notices)
+
+  gamedata\particles\**                         copied unchanged
+  gamedata\textures\<particle texture dirs>\** copied unchanged
+  gamedata\textures\wm\wm_blood_1 .. _22,
+    wm_blood_1_1 .. 1_3, wm_blood_drip_*,
+    wm_blood_drop_*                             MODIFIED: colour-graded
+  gamedata\shaders\r3\effects_wallmark_blood.ps MODIFIED: adds the
+                                                spreading-pool mode
+  gamedata\scripts\zgo_tables.script            MODIFIED: from
+                                                short_range_blood_lookup_tables;
+                                                human arms enabled, notice added
+  gamedata\configs\mod_system_zgo_engine_marks.ltx  values from
+                                                mod_system_blooddecals.ltx
+
+Everything else (all zgo_* scripts, the zgo_* wallmark, pool and drip-run
+textures, the droplet particles in particles\zgo with their textures in
+textures\zgo, configs and menus) is new work for this mod.
+
+
+A NOTE BEFORE PUBLISHING
+  Some of the particle textures inherited from Painter of the Zone appear
+  to be taken from commercial games (folder names crysis_3, fallout4,
+  farcry4, unrealengine). That is fine for personal use and for playing with
+  friends; check them before uploading this mod anywhere public.

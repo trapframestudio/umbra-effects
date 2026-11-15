@@ -1,0 +1,9 @@
+--[[
+  Zone Gore Overhaul - MCM menu (id "zgo")
+  Built from zgo_settings, which describes every option (defaults, ranges,
+  presets, co-op authority, texts).
+]]
+
+function on_mcm_load()
+	return zgo_settings.mcm()
+end

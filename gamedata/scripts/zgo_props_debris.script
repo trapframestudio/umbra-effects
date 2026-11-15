@@ -1,0 +1,410 @@
+--[[
+  Zone Gore Overhaul - pieces of broken objects (zgo_props)
+
+  A broken object becomes a "debris rig": a few one-bone piece models (parts
+  the game already ships, fitted into the object's box, or fracture pieces
+  the player baked with tools/zgo_fracture), each drawn as a level script
+  attachment and moved by a small rigid-body simulation here:
+    * a box per piece (its half extents), gravity, ground contact on the
+      eight corners (one ray down per piece, cached while it moves little),
+      walls along the motion, restitution, friction, spin damping, sleep;
+    * a fixed 60 Hz step and a seeded generator: every co-op machine that
+      gets the same break line computes the same flight and rest pose;
+    * pieces collide with the level only (not with players, NPCs, objects or
+      each other) and are not saved; past their lifetime they sink into the
+      ground and are removed.
+  Attachment transform (script_attachment::RecalcOffset without an origin):
+  world = position + R(hpb) * (scale * v), scale applied in model space.
+]]
+
+local U = zgo_util
+
+local GRAVITY = 9.81
+local STEP    = 1 / 60
+local SINK_MS = 1500
+local WORLD_TYPE = (rawget(_G, "script_attachment_type") and script_attachment_type.World) or 1
+
+local items, serial = {}, 0
+local model_ok = {}
+
+local function max_pieces() return U.setting("performance/props_pieces") or 28 end
+local function life_ms() return (U.setting("performance/props_pieces_life") or 60) * 1000 end
+local function far_sqr()
+	local r = math.max(60, (U.setting("performance/props_range") or 45) * 2)
+	return r * r
+end
+
+------------------------------------------------------------------------
+-- Rotations as X-Ray matrices: rows i, j, k are where the model's x, y, z
+-- axes point in the world (Fmatrix, world = v.x*i + v.y*j + v.z*k + c)
+------------------------------------------------------------------------
+-- Fmatrix::setHPB (radians)
+function rows_from_hpb(h, p, b)
+	local sh, ch, sp, cp, sb, cb = math.sin(h), math.cos(h), math.sin(p), math.cos(p), math.sin(b), math.cos(b)
+	local cc, cs, sc, ss = ch * cb, ch * sb, sh * cb, sh * sb
+	return U.v3(cc - sp * ss, -cp * sb, sp * cs + sc),
+	       U.v3(sp * sc + cs, cp * cb, ss - sp * cc),
+	       U.v3(-cp * sh, sp, cp * ch)
+end
+
+-- Fmatrix::getHPB (radians)
+function hpb_from_rows(i, j, k)
+	local cy = math.sqrt(j.y * j.y + i.y * i.y)
+	if cy > 16 * 1.192092896e-07 then
+		return -math.atan2(k.x, k.z), -math.atan2(-k.y, cy), -math.atan2(i.y, j.y)
+	end
+	return -math.atan2(-i.z, i.x), -math.atan2(-k.y, cy), 0
+end
+
+-- model-space vector -> world direction
+local function rot(i, j, k, v)
+	return U.v3(v.x * i.x + v.y * j.x + v.z * k.x, v.x * i.y + v.y * j.y + v.z * k.y, v.x * i.z + v.y * j.z + v.z * k.z)
+end
+apply_rows = rot
+
+local function rodrigues(v, axis, ang)
+	local c, s = math.cos(ang), math.sin(ang)
+	local d = U.dot(axis, v)
+	local cr = U.cross(axis, v)
+	return U.v3(v.x * c + cr.x * s + axis.x * d * (1 - c),
+		v.y * c + cr.y * s + axis.y * d * (1 - c),
+		v.z * c + cr.z * s + axis.z * d * (1 - c))
+end
+
+-- keep the frame orthonormal (Gram-Schmidt, k from i and j)
+local function orthonormal(B)
+	local i = U.unit(B.i) or U.v3(1, 0, 0)
+	local j = U.sub(B.j, U.mul(i, U.dot(i, B.j)))
+	j = U.unit(j) or U.v3(0, 1, 0)
+	B.i, B.j, B.k = i, j, U.cross(i, j)
+end
+
+------------------------------------------------------------------------
+-- Rigid box body
+------------------------------------------------------------------------
+local CORNERS = {
+	{ -1, -1, -1 }, { 1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 },
+	{ -1, -1, 1 }, { 1, -1, 1 }, { -1, 1, 1 }, { 1, 1, 1 },
+}
+
+local function ground_at(B, ign)
+	local g = B.g
+	if g.y == nil or math.abs(g.x - B.c.x) + math.abs(g.z - B.c.z) > 0.15 or B.c.y < g.y - 0.2 or B.c.y > g.top then
+		local top = B.c.y + B.r + 0.4
+		local d = U.cast(U.v3(B.c.x, top, B.c.z), U.v3(0, -1, 0), B.r * 2 + 4, rq_target.rqtStatic, ign)
+		g.x, g.z, g.top = B.c.x, B.c.z, top
+		g.y = d and (top - d) or -1e9
+	end
+	return g.y
+end
+
+local function step(B, ign)
+	if B.asleep then return end
+	local dt = STEP
+	local p0 = U.vcopy(B.c)
+	B.v = U.v3(B.v.x, B.v.y - GRAVITY * dt, B.v.z)
+	B.c = U.add(B.c, U.mul(B.v, dt))
+	local wl = U.len(B.w)
+	if wl > 1e-6 then
+		local ax = U.mul(B.w, 1 / wl)
+		B.i, B.j, B.k = rodrigues(B.i, ax, wl * dt), rodrigues(B.j, ax, wl * dt), rodrigues(B.k, ax, wl * dt)
+		B.n = (B.n or 0) + 1
+		if B.n % 16 == 0 then orthonormal(B) end
+	end
+	-- walls / obstacles along the motion (centre ray)
+	local mv = U.sub(B.c, p0)
+	local ml = U.len(mv)
+	if ml > 1e-4 then
+		local md = U.mul(mv, 1 / ml)
+		local reach = ml + B.rmin
+		local d = U.cast(p0, md, reach, rq_target.rqtStatic, ign)
+		if d then
+			local hp, n = U.surface_at(p0, md, reach + 0.1, ign)
+			if hp and n and n.y < 0.7 then
+				B.c = U.along(hp, n, B.rmin)
+				local vn = U.dot(B.v, n)
+				if vn < 0 then
+					local vt = U.sub(B.v, U.mul(n, vn))
+					B.v = U.add(U.mul(vt, 0.6), U.mul(n, -vn * 0.25))
+					B.w = U.mul(B.w, 0.7)
+					B.contacts = B.contacts + 1
+					B.impact = math.max(B.impact or 0, -vn)
+				end
+			end
+		end
+	end
+	-- ground: every corner below it gets its own impulse (in a fixed order)
+	local gy = ground_at(B, ign)
+	local ex, ey, ez = U.mul(B.i, B.h.x), U.mul(B.j, B.h.y), U.mul(B.k, B.h.z)
+	local low, under = 1e9, nil
+	for idx, s in ipairs(CORNERS) do
+		local py = B.c.y + s[1] * ex.y + s[2] * ey.y + s[3] * ez.y
+		if py < gy then
+			under = under or {}
+			under[#under + 1] = idx
+			if py < low then low = py end
+		end
+	end
+	local contact = under ~= nil
+	if contact then
+		B.c = U.v3(B.c.x, B.c.y + (gy - low), B.c.z)
+		local n = U.v3(0, 1, 0)
+		local share = 1 / #under
+		local fast = -B.v.y > 1.5
+		-- a face down (three or more corners) and no hard landing: it rests on
+		-- that face (single-pass corner impulses would rock it forever)
+		local resting = #under >= 3 and not fast
+		if resting then
+			-- standing on a narrow face (a plank on its edge): tip it over instead
+			local ay, ax, az = math.abs(B.j.y), math.abs(B.i.y), math.abs(B.k.y)
+			local long, wide, axis
+			if ay >= ax and ay >= az then wide, long, axis = math.min(B.h.x, B.h.z), math.max(B.h.x, B.h.z), (B.h.x > B.h.z and B.i or B.k)
+			elseif ax >= az then wide, long, axis = math.min(B.h.y, B.h.z), math.max(B.h.y, B.h.z), (B.h.y > B.h.z and B.j or B.k)
+			else wide, long, axis = math.min(B.h.x, B.h.y), math.max(B.h.x, B.h.y), (B.h.x > B.h.y and B.i or B.j) end
+			if wide < 0.35 * math.max(B.h.x, B.h.y, B.h.z) and (B.tipped or 0) < 3 then
+				B.tipped = (B.tipped or 0) + 1
+				B.w = U.add(B.w, U.mul(axis, 3 * (B.tip or 1)))
+				resting = false
+			end
+		end
+		if resting then
+			B.impact = math.max(B.impact or 0, -B.v.y)
+			B.v = U.v3(B.v.x * 0.9, math.max(B.v.y, 0), B.v.z * 0.9)
+			B.w = U.mul(B.w, 0.6)
+			under = {}
+		end
+		for _, idx in ipairs(under) do
+			local s = CORNERS[idx]
+			local r = U.v3(s[1] * ex.x + s[2] * ey.x + s[3] * ez.x, s[1] * ex.y + s[2] * ey.y + s[3] * ez.y,
+				s[1] * ex.z + s[2] * ey.z + s[3] * ez.z)
+			local vp = U.add(B.v, U.cross(B.w, r))
+			if vp.y < 0 then
+				local rn = U.cross(r, n)
+				local k = 1 + U.dot(rn, rn) / B.inertia
+				local jn = -(1 + (fast and B.bounce or 0)) * vp.y / k
+				B.v = U.add(B.v, U.mul(n, jn))
+				B.w = U.add(B.w, U.mul(rn, jn / B.inertia))
+				B.impact = math.max(B.impact or 0, -vp.y)
+				-- friction on the sliding part of the contact velocity
+				local vt = U.v3(vp.x, 0, vp.z)
+				local vtl = U.len(vt)
+				if vtl > 1e-5 then
+					local t = U.mul(vt, 1 / vtl)
+					local rt = U.cross(r, t)
+					local kt = 1 + U.dot(rt, rt) / B.inertia
+					local jt = math.min(vtl / kt * share * 2, B.mu * jn)
+					B.v = U.sub(B.v, U.mul(t, jt))
+					B.w = U.sub(B.w, U.mul(rt, jt / B.inertia))
+				end
+			end
+		end
+		-- rolling resistance; a slow piece on the ground settles
+		local slow = U.len(B.v) < 0.6
+		B.w = U.mul(B.w, slow and 0.86 or 0.95)
+		B.v = U.v3(B.v.x * 0.985, B.v.y, B.v.z * 0.985)
+		B.contacts = B.contacts + 1
+	else
+		B.w = U.mul(B.w, 0.995)
+	end
+	-- sleep when at rest on the ground
+	if contact and U.len(B.v) < 0.25 and U.len(B.w) < 0.6 then
+		B.sleep_t = B.sleep_t + dt
+		if B.sleep_t > 0.3 then
+			B.asleep, B.v, B.w = true, U.v3(0, 0, 0), U.v3(0, 0, 0)
+			orthonormal(B)
+		end
+	else
+		B.sleep_t = 0
+	end
+	-- fell out of the world (no ground below): stop simulating, it gets removed
+	if gy < -1e8 and B.c.y < p0.y - 50 then B.lost = true end
+end
+
+------------------------------------------------------------------------
+-- Attachments
+------------------------------------------------------------------------
+local function model_exists(m)
+	local ok = model_ok[m]
+	if ok == nil then
+		ok = U.file_exists("$game_meshes$", m .. ".ogf")
+		model_ok[m] = ok
+	end
+	return ok
+end
+has_model = model_exists
+
+local function level_add(name, model)
+	local la = level.add_attachment
+	if not la then return nil end
+	local ok, att = pcall(la, name, model)
+	if ok and att then return att end
+	U.dbg("props: attachment %s failed: %s", model, tostring(att))
+end
+
+local function level_remove(name)
+	local lr = level.remove_attachment
+	if lr then pcall(lr, name) end
+end
+
+local function pose(it)
+	local B = it.body
+	-- world = pos + R (s * v); the pivot o (part model space) sits at the body centre
+	local off = rot(B.i, B.j, B.k, U.v3(it.s.x * it.o.x, it.s.y * it.o.y, it.s.z * it.o.z))
+	local pos = U.sub(B.c, off)
+	if it.sink then pos = U.v3(pos.x, pos.y - it.sink, pos.z) end
+	local h, p, b = hpb_from_rows(B.i, B.j, B.k)
+	pcall(function()
+		it.att:set_position(pos)
+		it.att:set_rotation(U.v3(math.deg(h), math.deg(p), math.deg(b)))
+	end)
+end
+
+local function remove_item(it)
+	if it.att then level_remove(it.name) it.att = nil end
+end
+
+-- over the limit the oldest resting piece goes first, then the oldest one
+local function enforce_limit(max)
+	while #items > max do
+		local pick
+		for i, it in ipairs(items) do
+			if it.body.asleep then pick = i break end
+		end
+		remove_item(table.remove(items, pick or 1))
+	end
+end
+
+------------------------------------------------------------------------
+-- Spawning
+------------------------------------------------------------------------
+--[[ pieces: list of { model, s = scale vector, t = offset, o = pivot (part
+     model space), half = half size (part model space), still = true for the
+     bulk of a damaged copy (barely moves) }. A piece vertex v lands at
+     s * v + t in the broken object's model space.
+     frame: { pos, i, j, k } the broken object's transform (quantized by the
+     caller so every machine starts from the same numbers)
+     opts: { seed, dir (unit), imp (m/s of the fatal hit), burst (m/s outward),
+     center (object centre, world) }
+     Returns the number of pieces spawned. ]]
+function spawn(pieces, frame, opts)
+	opts = opts or {}
+	local max = max_pieces()
+	if max <= 0 or not (level and level.add_attachment) then return 0 end
+	local g = U.rng(opts.seed or 1)
+	local dir = opts.dir or U.v3(0, 0, 0)
+	local imp = opts.imp or 0
+	local burst = opts.burst or 1.5
+	local center = opts.center or frame.pos
+	local n = 0
+	for idx, pc in ipairs(pieces) do
+		-- draw the numbers for every piece whether or not it is spawned: the
+		-- sequence stays the same on machines that skip a missing model
+		local r1, r2, r3, r4, r5 = g.next(), g.next(), g.next(), g.next(), g.next()
+		local wx, wy, wz = g.range(-1, 1), g.range(-1, 1), g.range(-1, 1)
+		if model_exists(pc.model) then
+			local s, o, hh, t = pc.s, pc.o, pc.half, pc.t or U.v3(0, 0, 0)
+			local q = U.v3(s.x * o.x + t.x, s.y * o.y + t.y, s.z * o.z + t.z)
+			local c = U.add(frame.pos, rot(frame.i, frame.j, frame.k, q))
+			local h = U.v3(math.max(0.01, math.abs(s.x * hh.x)), math.max(0.01, math.abs(s.y * hh.y)), math.max(0.01, math.abs(s.z * hh.z)))
+			local out = U.unit(U.sub(c, center)) or U.v3(0, 1, 0)
+			local k = pc.still and 0.15 or 1
+			local v = U.add(U.mul(dir, imp * (0.3 + 0.7 * r1) * k), U.mul(out, burst * (0.4 + 0.8 * r2) * k))
+			v = U.v3(v.x, v.y + (0.4 + 1.6 * r3) * k, v.z)
+			local spin = (2 + 7 * r4) * (pc.still and 0.08 or 1)
+			local w = U.mul(U.unit(U.v3(wx, wy, wz)) or U.v3(0, 1, 0), spin)
+			local r = math.sqrt(h.x * h.x + h.y * h.y + h.z * h.z)
+			serial = serial + 1
+			local name = string.format("zgo_prop_%s_%s", serial, math.random(1000, 9999))
+			local att = level_add(name, pc.model)
+			if att then
+				pcall(att.set_type, att, WORLD_TYPE)
+				pcall(att.set_scale, att, U.v3(s.x, s.y, s.z))
+				local it = {
+					name = name, att = att, model = pc.model, s = U.vcopy(s), o = U.vcopy(o), t0 = time_global(),
+					ignore_id = opts.ignore_id, mtl = opts.mtl,
+					body = {
+						c = c, v = v, w = w, i = U.vcopy(frame.i), j = U.vcopy(frame.j), k = U.vcopy(frame.k),
+						h = h, r = r, rmin = math.max(0.02, math.min(h.x, h.y, h.z)),
+						inertia = math.max(0.002, r * r * 0.35), bounce = 0.25, mu = 0.6,
+						g = {}, contacts = 0, sleep_t = 0, asleep = false, tip = r5 < 0.5 and -1 or 1,
+					},
+				}
+				items[#items + 1] = it
+				pose(it)
+				n = n + 1
+			end
+		end
+	end
+	enforce_limit(max)
+	return n
+end
+
+------------------------------------------------------------------------
+-- Frame update
+------------------------------------------------------------------------
+local last_t
+
+local function advance(it, dt)
+	it.acc = math.min((it.acc or 0) + dt, 0.12)
+	local steps = 0
+	local ign = nil
+	if it.ignore_id then ign = level.object_by_id(it.ignore_id) end
+	while it.acc >= STEP and steps < 8 do
+		it.acc = it.acc - STEP
+		step(it.body, ign)
+		steps = steps + 1
+	end
+	return steps
+end
+
+function update()
+	if #items == 0 then last_t = nil return end
+	local now = time_global()
+	local dt = last_t and (now - last_t) / 1000 or STEP
+	last_t = now
+	dt = U.clamp(dt, 0, 0.1)
+	local apos = db.actor and db.actor:position()
+	local life, far = life_ms(), far_sqr()
+	for i = #items, 1, -1 do
+		local it = items[i]
+		local age = now - it.t0
+		local gone = not it.att or it.body.lost or age > life + SINK_MS
+			or (apos and it.body.c:distance_to_sqr(apos) > far)
+		if gone then
+			remove_item(it)
+			table.remove(items, i)
+		else
+			local ok, err = pcall(function()
+				local moved = false
+				if not it.body.asleep then
+					moved = advance(it, dt) > 0
+				end
+				if age > life then
+					-- sink into the ground over the last moments instead of popping out
+					it.sink = (age - life) / SINK_MS * (it.body.r * 2 + 0.05)
+					moved = true
+				end
+				if moved or not it.posed_asleep then
+					pose(it)
+					if it.body.asleep then it.posed_asleep = true end
+				end
+			end)
+			if not ok then
+				U.log("props: piece update failed, removing: %s", tostring(err))
+				remove_item(it)
+				table.remove(items, i)
+			end
+		end
+	end
+end
+
+function reset()
+	for _, it in ipairs(items) do remove_item(it) end
+	items, last_t = {}, nil
+end
+
+function count() return #items end
+function list() return items end
+
+-- (tests) one simulation step of a body
+step_body = step
