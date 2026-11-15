@@ -496,11 +496,13 @@ class TestBakeAndCheck(FakeInstallCase):
         mo2 = self.inst.mo2
         # the same size, another date and other bytes: found by the hash
         a = self.inst.model('Synth Models', 'actors\\synth\\synth_a')
+        when = os.stat(a).st_mtime
         with open(a, 'r+b') as f:
             f.seek(-1, 2)
             last = f.read(1)
             f.seek(-1, 2)
             f.write(bytes([last[0] ^ 1]))
+        os.utime(a, (when + 10, when + 10))     # another date even when the edit lands in the bake's second
         st = self.check()
         self.assertEqual(st.state, 'stale')
         self.assertIn('Mod "Synth Models" changed 1 model', st.reasons[0])
@@ -963,6 +965,24 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn('The prebaked bake fits your mod list.', out)
         self.assertIn('RESULT match=yes fingerprint=%s' % rep['inputs']['fingerprint'], out)
+        # made with other settings than this player's last bake: baked here instead, with theirs
+        other = os.path.join(self.tmp, 'prebaked-other-settings')
+        os.makedirs(other, exist_ok=True)
+        rep2 = dict(rep, options=dict(rep.get('options') or {}, gibs=False, experimental_damage=True))
+        with open(os.path.join(other, bake.REPORT), 'w') as f:
+            json.dump(rep2, f)
+        code, out = self.cmd('--match', other)
+        self.assertEqual(code, 1, out)
+        self.assertIn('It was made with other settings than yours: "Body gibs" off there, on in yours; '
+                      '"Damage meshes and gib chunks (experimental)" on there, off in yours.', out)
+        self.assertIn('RESULT match=no ', out)
+        with open(os.path.join(other, bake.REPORT), 'w') as f:
+            json.dump(rep, f)
+        with open(os.path.join(other, 'zgo_fracture_report.json'), 'w') as f:
+            json.dump({'options': {'experimental_native': True}, 'files': [], 'results': []}, f)
+        code, out = self.cmd('--match', other)
+        self.assertEqual(code, 1, out)
+        self.assertIn('"Game breaks crates and stools itself (experimental)" on there, off in yours', out)
         code, out = self.cmd('--match', self.tmp)
         self.assertEqual(code, 2, out)
         self.assertIn('no bake report', out)

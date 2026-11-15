@@ -79,12 +79,21 @@ rebuilt after a loss and some tests weren't updated):
   expects no notice;
 - `kidfx` and `native`: files missing (`native/` lacks `src/zgo_pe.c` and `include/`);
 - baker: `test_damage_mesh`, `test_progress_report_manifest_remove`;
-- `test_setup.py`: 5 tests (`TestBakeAndCheck` 2, `TestKidfx` 1, `TestLuaReader` 2). Run it in
+- `test_setup.py`: 4 tests (`TestBakeAndCheck` 1, `TestKidfx` 1, `TestLuaReader` 2). Run it in
   the container: the host's Python has no tkinter, so the window drive (`test_drive`) is skipped there.
+
+`python3 dev/ci_tests.py` runs the Python suites the way CI does: the stale tests above are
+expected failures there, so CI fails on any new failure and when a stale test passes again
+(then take it off `STALE` in that script and off this list).
 
 ## Releases
 
-Build the setup programs first (`dev/build_setup/build.sh linux|windows`), then
+GitHub Actions (`.github/workflows/build.yml`) runs the Python tests (`dev/ci_tests.py`), builds
+both setup programs and the release zip on every push, and checks the zip's Windows program on a
+real Windows; the zip is the run's `umbra-effects` artifact. A `vX.Y.Z` tag matching `VERSION`
+drafts a GitHub release; pushing the tag and publishing the draft are the maintainer's call.
+
+By hand: build the setup programs first (`dev/build_setup/build.sh linux|windows`), then
 `python3 dev/package.py --dry-run`, then `python3 dev/package.py`. It writes
 `~/Desktop/Umbra Gore & Effects <VERSION>.zip` and refuses while a setup program is missing or
 doesn't match `tools/zgo_setup/SHA256SUMS.txt`. Bump `VERSION` and `meta.ini`'s `version=`

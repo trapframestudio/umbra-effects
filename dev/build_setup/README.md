@@ -45,6 +45,28 @@ The host Python on the dev machine has no tkinter: run the window tests in the
 container (`dev/run.sh python3 -m unittest discover -s dev/build_setup -p 'test_*.py'`).
 `python3 dev/build_setup/fakezgo.py DIR` makes a fake install to try things by hand.
 
+`python3 dev/ci_tests.py` runs these with the baker's suites the way CI does, with the
+known stale tests as expected failures (see the script).
+
+## CI
+
+`.github/workflows/build.yml` does on GitHub's machines what this folder does here, on
+every push and pull request:
+
+1. **Tests:** `dev/ci_tests.py` (with LuaJIT and Xvfb, so the window test runs) and
+   Umbra's secrets check (from a pinned Umbra commit; key patterns only there).
+2. **Build:** `build.sh all` on Ubuntu 24.04 (Ubuntu's Wine with `wine32:i386` runs the
+   32-bit Python installer), then `dev/package.py`. The zip and both programs are the
+   run's `umbra-effects` artifact (kept 14 days).
+3. **Windows:** the zip unpacked on a real Windows, its Umbra Effects Setup run with
+   `--version` and `--selftest`.
+4. **Release**, for a tag `vX.Y.Z` matching `VERSION` (and `meta.ini`): a draft GitHub
+   release with `Umbra-Gore-and-Effects-X.Y.Z.zip` and its `SHA256SUMS.txt`. Nothing is
+   public until the maintainer publishes the draft.
+
+A newer push cancels a running build of the same branch (this repo is private, so its
+Actions minutes count); tag builds always finish.
+
 ## Building
 
     dev/build_setup/build.sh linux      # tools/zgo_setup/zgo-setup-linux

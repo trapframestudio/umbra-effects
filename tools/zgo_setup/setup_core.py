@@ -733,14 +733,23 @@ def _who(m):
     return 'The game itself' if not m else 'Mod "%s"' % m
 
 
-def check(tools, paths, progress=None, cancel=None, deep=False, report=None, prebaked=False):
+# what a prebaked bake must have been made with: the player's own settings (setup_gui's LABEL)
+PREBAKE_SETTINGS = (('caps', 'Stump caps'), ('pieces', 'Limb pieces'), ('wounds', 'Wound sites'), ('gibs', 'Body gibs'),
+                    ('experimental_caps', 'Caps inside every model (experimental)'),
+                    ('experimental_damage', 'Damage meshes and gib chunks (experimental)'),
+                    ('experimental_props', 'Game breaks crates and stools itself (experimental)'))
+
+
+def check(tools, paths, progress=None, cancel=None, deep=False, report=None, prebaked=False, props_report=None):
     """Compare the last bake's recorded inputs with the mod list now.
     progress(done, total, message); deep=True hashes every source file even
     when its size and date match.
     prebaked=True: report is a bake made on another machine (Umbra Setup's prebaked
     bakes) whose files are not here yet: would it fit this mod list? Its files and
     profile name are not checked, the game's archives only by size, and a model
-    whose source file has another date must have the recorded md5."""
+    whose source file has another date must have the recorded md5. It must also
+    have been made with the player's settings: those of their last bake here (the
+    defaults without one); props_report is its props report, if it has one."""
     say = progress or (lambda *a: None)
     b = tools.bake
     rep = report if (report is not None or prebaked) else b.read_report(paths.out)
@@ -787,6 +796,15 @@ def check(tools, paths, progress=None, cancel=None, deep=False, report=None, pre
         info.append("Umbra Effects' body-part tables could not be read (%s)" % e)
     if inputs.get('tables') and tables_now and inputs['tables'] != tables_now:
         reasons.append("Umbra Effects' body-part tables changed since this bake (an update of Umbra Effects).")
+    if prebaked:
+        want = last_choices(tools, paths.out)
+        got = Choices.from_dict(rep.get('options') or {})        # (a report without 'gibs' had them)
+        got.experimental_props = (bool((props_report.get('options') or {}).get('experimental_native'))
+                                  if props_report else want.experimental_props)
+        diff = [(label, getattr(got, k)) for k, label in PREBAKE_SETTINGS if bool(getattr(got, k)) != bool(getattr(want, k))]
+        if diff:
+            reasons.append('It was made with other settings than yours: %s.' % '; '.join(
+                '"%s" %s there, %s in yours' % (label, 'on' if on else 'off', 'off' if on else 'on') for label, on in diff))
     if not prebaked and rep.get('profile') and paths.profile and rep['profile'] != paths.profile:
         reasons.append('This bake was made for the MO2 profile "%s"; you chose "%s".' % (rep['profile'], paths.profile))
     arch = inputs.get('archives') or {}

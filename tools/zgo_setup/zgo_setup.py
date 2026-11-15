@@ -242,7 +242,8 @@ def cli(a, mod_root, say):
         if rep is None:
             say('Umbra Effects Setup: no bake report (%s) in %s' % (tools.bake.REPORT, a.match))
             return 2
-        st = core.check(tools, paths, deep=a.deep, report=rep, prebaked=True)
+        prep = tools.fracture.read_report(os.path.abspath(a.match)) if tools.fracture else None
+        st = core.check(tools, paths, deep=a.deep, report=rep, prebaked=True, props_report=prep)
         say(st.text())
         for d in st.details[:200]:
             say('  ' + d)

@@ -1,0 +1,198 @@
+# Tests, then Umbra Effects Setup for Linux and Windows (dev/build_setup/build.sh, as on the
+# maintainer's machine: the Windows program is built under Wine and baked with in the setup
+# tests), the release zip (dev/package.py), and a check of that zip's Windows program on a real
+# Windows. Every push to main leaves the zip and the programs as the run's "umbra-effects"
+# artifact. A tag vX.Y.Z (matching VERSION in gamedata/scripts/zgo_main.script and meta.ini)
+# also makes a DRAFT GitHub release with the zip: nothing is public until the maintainer
+# publishes it. Bakes (body models for a mod list) are never made here: they need a G.A.M.M.A.
+# install (Umbra's dev/pack_build.py --bake-only, on the maintainer's machine).
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  # a newer push replaces a running build (this repo's Actions minutes are counted); tags never
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Python packages (pinned by sha256)
+        run: |
+          python -m pip install --disable-pip-version-check --no-input --require-hashes --only-binary :all: -r dev/build_setup/requirements.txt
+      - name: LuaJIT (the generated scripts must load) and Xvfb (the window test)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends luajit xvfb xauth
+      - name: Python tests (dev/ci_tests.py; the known stale ones run as expected failures)
+        run: python dev/ci_tests.py
+      - name: Umbra's secrets check (key patterns only here)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: trapframestudio/umbra
+          ref: 8800cd87d11eb10b8d75cb11a291df737e0d55bc
+          path: .umbra-tools
+          persist-credentials: false
+      - name: Secrets check
+        run: git ls-files -z | xargs -0 python3 .umbra-tools/dev/check_secrets.py
+
+  build:
+    name: Build Umbra Effects Setup and the release zip
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Version
+        id: version
+        run: |
+          v="$(sed -n 's/^VERSION = "\(.*\)".*/\1/p' gamedata/scripts/zgo_main.script)"
+          m="$(sed -n 's/^version=\([^\r]*\).*/\1/p' meta.ini)"
+          echo "Umbra Gore & Effects $v (meta.ini: $m)"
+          if [ -z "$v" ] || [ "$v" != "$m" ]; then
+            echo "::error::VERSION in zgo_main.script ($v) and meta.ini's version= ($m) must match"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$v" ]; then
+            echo "::error::the tag $GITHUB_REF_NAME does not match VERSION $v"
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Python packages for the setup tests (pinned by sha256)
+        run: |
+          python -m pip install --disable-pip-version-check --no-input --require-hashes --only-binary :all: -r dev/build_setup/requirements.txt
+      - name: Build tools (Wine that runs 32-bit programs, Xvfb)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends wine wine64 wine32:i386 xvfb xauth
+          wine --version
+      - name: Download cache (every file is checked against its sha256 pin anyway)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/zgo-setup-build/downloads
+          key: zgo-setup-build-${{ hashFiles('dev/build_setup/build.sh', 'dev/build_setup/requirements.txt') }}
+      - name: Build the programs and test them (Linux, and Windows under Wine)
+        run: xvfb-run -a dev/build_setup/build.sh all
+      - name: Release zip
+        run: |
+          python3 dev/package.py --out dist
+          cp tools/zgo_setup/zgo-setup-linux "tools/zgo_setup/Umbra Effects Setup.exe" tools/zgo_setup/SHA256SUMS.txt dist/
+          ls -la dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: umbra-effects
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Check the zip's Umbra Effects Setup on Windows
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: umbra-effects
+          path: dist
+      - name: Unzip the release as a player would, then --version and --selftest
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist -Filter "*.zip" | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath mod
+          # the zip holds the mod's folder, "Umbra Gore & Effects"
+          $exe = (Get-ChildItem mod -Recurse -Filter "Umbra Effects Setup.exe" | Select-Object -First 1).FullName
+          if (-not $exe) { Write-Error "no Umbra Effects Setup.exe in the zip"; exit 1 }
+          foreach ($what in @("--version", "--selftest")) {
+            $log = Join-Path $PWD ("{0}.log" -f $what.TrimStart("-"))
+            $p = Start-Process -FilePath $exe -ArgumentList @($what, "--log", "`"$log`"") -Wait -PassThru -NoNewWindow
+            Get-Content $log
+            if ($p.ExitCode -ne 0) { Write-Error "$what exited with $($p.ExitCode)"; exit 1 }
+          }
+          if (-not (Select-String -Path version.log -SimpleMatch "Umbra Gore & Effects $env:VERSION")) {
+            Write-Error "--version does not say $env:VERSION"; exit 1
+          }
+          if (-not (Select-String -Path selftest.log -SimpleMatch "SELFTEST PASSED")) {
+            Write-Error "the self-test did not pass"; exit 1
+          }
+
+  release:
+    name: Draft the GitHub release
+    if: github.ref_type == 'tag'
+    needs: [build, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: umbra-effects
+          path: dist
+      - name: Release files
+        working-directory: dist
+        run: |
+          # GitHub turns spaces in asset names into dots, so the release's zip name has none
+          mkdir ../release
+          mv "Umbra Gore & Effects $VERSION.zip" "../release/Umbra-Gore-and-Effects-$VERSION.zip"
+          cd ../release
+          sha256sum "Umbra-Gore-and-Effects-$VERSION.zip" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Release notes
+        run: |
+          {
+            echo "Umbra Gore & Effects $VERSION: blood, gore, dismemberment and explosions for S.T.A.L.K.E.R. G.A.M.M.A. (Anomaly), in single player and xrRazom co-op."
+            echo
+            echo "Install \`Umbra-Gore-and-Effects-$VERSION.zip\` with Mod Organizer 2 as a mod named \"Umbra Gore & Effects\", then run Umbra Effects Setup from its folder (\`tools/zgo_setup\`) to bake the body models for your mod list. README.txt in the zip has the details."
+            echo
+            echo "Checksums (\`SHA256SUMS.txt\`):"
+            echo
+            echo '```'
+            cat release/SHA256SUMS.txt
+            echo '```'
+          } > notes.md
+      - name: Draft release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]; then
+              echo "::error::$TAG is already published; its files are not replaced"
+              exit 1
+            fi
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* --draft --verify-tag --title "Umbra Gore & Effects $VERSION" --notes-file notes.md
+          fi
+          echo "Draft release $TAG: review it on the Releases page, then publish it." >> "$GITHUB_STEP_SUMMARY"

@@ -106,8 +106,8 @@ def kidfx_copies():
 
 def why_not(rel, fn, gen, copies):
     """Why rel stays out of the zip, or None."""
-    if fn.startswith('.') or fn.endswith(('.pyc', '.part')):
-        return 'dotfile / build leftover'
+    if any(part.startswith('.') for part in rel.split('/')) or fn.endswith(('.pyc', '.part')):
+        return 'dotfile / build leftover'     # (also what is in a dot-folder: .github/)
     if rel in DEV_NOTES:
         return 'dev notes'
     if rel.startswith(SKIP_TREES):
