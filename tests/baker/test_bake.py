@@ -3,6 +3,7 @@ remove(), refusing to overwrite, default output identical to plain splitting,
 the experimental flags, and the Lua fixtures being current."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -147,10 +148,16 @@ class TestBake(unittest.TestCase):
                     ogf.Model(fh.read())
 
     def test_lua_fixtures_current(self):
+        # The generated files' names (caps, pieces, chunks, gibs) are hashes of their bytes, and
+        # the bytes differ in the last float bits between CPUs (OpenBLAS picks its kernel per
+        # CPU: AVX-512 and AVX2 machines differ), so the names are compared as placeholders.
+        # The scripts' format and every other value are compared as they are.
+        named = re.compile(r'(?<![0-9a-f])[0-9a-f]{12}(?![0-9a-f])')
         got = fakemo2.fixture_scripts()
         for name, text in got.items():
             with open(os.path.join(fakemo2.FIXTURES, name), encoding='utf-8', newline='') as f:
-                self.assertEqual(f.read(), text, '%s is stale: python3 tests/baker/fakemo2.py --fixtures' % name)
+                self.assertEqual(named.sub('#', f.read()), named.sub('#', text),
+                                 '%s is stale: python3 tests/baker/fakemo2.py --fixtures' % name)
 
     @unittest.skipUnless(shutil.which('luajit'), 'needs luajit')
     def test_scripts_load_in_luajit(self):
