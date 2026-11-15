@@ -1,4 +1,4 @@
--- Zone Gore Overhaul: the "off" shader (set_shader(child, "zgo\\off", ...))
+-- Umbra Gore & Effects: the "off" shader (set_shader(child, "zgo\\off", ...))
 --
 -- A sub-mesh drawn with this shader is skipped by every pass of the renderer:
 -- (line numbers: xray-monolith b86d733f4a, src/Layers/xrRender*)

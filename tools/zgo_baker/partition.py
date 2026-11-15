@@ -3,7 +3,7 @@ Split every sub-mesh of a skinned model into one sub-mesh per severable
 section, so the renderer can drop a section once its bones are hidden.
 
 CSkeletonX::has_visible_bones() keeps a sub-mesh on screen while ANY bone
-its vertices reference (BonesUsed, zero weights included) is visible. ZGO
+its vertices reference (BonesUsed, zero weights included) is visible. Umbra Effects
 hides a cut part recursively (root bone and everything below it). So a
 section's sub-mesh may only reference bones at or below the section root:
 

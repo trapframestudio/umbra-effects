@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - explosions
+  Umbra Gore & Effects - explosions
 
   The engine delivers an explosion to a body in two separate parts:
     * fragments: ordinary bullets with no ammo section, all fired from the

@@ -1,4 +1,4 @@
--- Single-player behaviour tests for Zone Gore Overhaul (run: luajit zgo_test_sp.lua)
+-- Single-player behaviour tests for Umbra Gore & Effects (run: luajit zgo_test_sp.lua)
 -- S: this folder (scratch files are written here); the mod scripts are in ../gamedata/scripts
 local S = (debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or ".")
 arg = { S .. "/../gamedata/scripts", "sp" }

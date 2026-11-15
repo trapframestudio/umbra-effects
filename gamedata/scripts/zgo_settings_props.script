@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - options of the props workstream (zgo_props*):
+  Umbra Gore & Effects - options of the props workstream (zgo_props*):
   hit effects on objects, extra push, leaks, lamps, breaking objects.
   Data only; zgo_settings merges it into the menu (format: zgo_settings.script).
 

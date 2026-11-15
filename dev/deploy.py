@@ -18,12 +18,12 @@ What it never touches in the mod folder:
     and the baked folders and index scripts (in case a report is missing);
   * kid mode's per-player state: the particle copies listed in its
     tools/zgo_kidfx/kidfx_copies.json, that file, and kidfx_snapshot.txt
-    (both rewritten by ZGO Setup for that mod list);
+    (both rewritten by Umbra Effects Setup for that mod list);
   * meta.ini (MO2's file).
 It never deletes anything. Files in the mod folder that the repo no longer has
 are listed so you can remove them yourself.
 
-It refuses to run while the game, ZGO Setup, the baker or kidfx is running.
+It refuses to run while the game, Umbra Effects Setup, the baker or kidfx is running.
 """
 import argparse
 import filecmp
@@ -39,15 +39,15 @@ sys.path.insert(0, HERE)
 import package  # noqa: E402  (the release file list)
 
 ROOT = package.ROOT
-DEFAULT_TO = os.path.join('~', 'gamma', 'gamma', 'mods', 'Zone Gore Overhaul')
+DEFAULT_TO = os.path.join('~', 'gamma', 'gamma', 'mods', 'Umbra Gore & Effects')
 MARKER = 'gamedata/scripts/zgo_main.script'
 KIDFX_STATE = ('tools/zgo_kidfx/kidfx_copies.json', 'tools/zgo_kidfx/kidfx_snapshot.txt')
-# ZGO Setup programs: build output (dev/build_setup/build.sh), not in a fresh checkout,
+# Umbra Effects Setup programs: build output (dev/build_setup/build.sh), not in a fresh checkout,
 # so their absence from the repo doesn't make the mod folder's copies stale
-SETUP_BUILDS = ('tools/zgo_setup/ZGO Setup.exe', 'tools/zgo_setup/zgo-setup-linux', 'tools/zgo_setup/SHA256SUMS.txt')
+SETUP_BUILDS = ('tools/zgo_setup/Umbra Effects Setup.exe', 'tools/zgo_setup/zgo-setup-linux', 'tools/zgo_setup/SHA256SUMS.txt')
 MO2_OWNED = ('meta.ini',)
 BUSY = re.compile(r'anomalydx[0-9a-z]*\.exe|xrengine\.exe|zgo_baker[/\\]bake\.py|zgo_fracture'
-                  r'|kidfx_pe\.py|zgo[-_ ]setup', re.I)
+                  r'|kidfx_pe\.py|zgo[-_ ]setup|umbra effects setup', re.I)
 
 
 def busy():
@@ -181,10 +181,10 @@ def main():
         copy(rel, dst)
     print('copied %d file(s)' % (len(new) + len(changed)))
     if any(r.startswith('gamedata/particles/') for r in new + changed):
-        print('particles changed: run ZGO Setup (or tools/zgo_kidfx/kidfx_pe.py apply in the mod folder) '
+        print('particles changed: run Umbra Effects Setup (or tools/zgo_kidfx/kidfx_pe.py apply in the mod folder) '
               'to refresh kid mode for them')
     if any(r.startswith(('tools/zgo_baker/', 'gamedata/scripts/zgo_bake')) for r in new + changed):
-        print('baker changed: ZGO Setup will say if the bake needs redoing')
+        print('baker changed: Umbra Effects Setup will say if the bake needs redoing')
 
 
 if __name__ == '__main__':

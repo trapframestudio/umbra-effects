@@ -1,4 +1,4 @@
--- World impacts and craters (zgo_impacts*) for Zone Gore Overhaul.
+-- World impacts and craters (zgo_impacts*) for Umbra Gore & Effects.
 --   luajit zgo_test_world.lua [seed]            single player, then runs itself as
 --                                               a co-op host and a co-op client
 --   luajit zgo_test_world.lua host|client seed  one co-op role (ZGO_WORLD_WIRE: the

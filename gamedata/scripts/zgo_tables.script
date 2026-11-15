@@ -1,9 +1,9 @@
 --[[
-  Zone Gore Overhaul - creature / limb data tables.
+  Umbra Gore & Effects - creature / limb data tables.
 
   Derived from short_range_blood_lookup_tables.script in Painter of the Zone
   by sunn (Apache License 2.0), whose dismemberment data came from xcvb.
-  MODIFIED by Zone Gore Overhaul: renamed; human arm and finger entries
+  MODIFIED by Umbra Gore & Effects: renamed; human arm and finger entries
   enabled; human bone groups extended with both arms; xcvb's unused
   mesh_map / meshes_params tables kept as-is for reference.
   See LICENSE-PainterOfTheZone.txt and CREDITS.txt in the mod root.
@@ -47,7 +47,7 @@ limb_map = {
         eyelid_1 = { "bip01_head", { nil, nil, -1 } },
         eye_right = { "bip01_head", { nil, nil, -1 } },
         bip01_neck = { "bip01_head", { nil, nil, -1 } },
-        -- arms (enabled in Zone Gore Overhaul)
+        -- arms (enabled in Umbra Gore & Effects)
         bip01_l_upperarm = { "bip01_l_upperarm" },
         bip01_l_forearm = { "bip01_l_forearm" },
         bip01_l_hand = { "bip01_l_hand" },

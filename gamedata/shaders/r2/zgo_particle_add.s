@@ -1,4 +1,4 @@
--- Zone Gore Overhaul, kid mode for particles: particles\add on the DX9 (R2) renderer.
+-- Umbra Gore & Effects, kid mode for particles: particles\add on the DX9 (R2) renderer.
 -- Exactly the C++ particle blender (xray-monolith Blender_Particle.cpp, R2 branch) with this
 -- mod list's shaders.xr settings for particles\add (from base:files.db0): priority 3, strict sorting off,
 -- blending ADD, texture clamp on. It only exists so that effects pointed at zgo\particle_*

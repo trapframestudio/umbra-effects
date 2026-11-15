@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - co-op sync (xrRazom, optional)
+  Umbra Gore & Effects - co-op sync (xrRazom, optional)
 
   Host-authoritative. The host decides every effect, runs it, and batches a
   compact line per effect into one script event per frame; clients replay
@@ -159,7 +159,7 @@ function register()
 		xrr_script_event.register(name, function()
 			if warned then return end
 			warned = true
-			zgo_util.log("a co-op peer runs an older Zone Gore Overhaul (sync protocol %s, this is %s): its gore is ignored; use the same version on every machine", proto, PROTO)
+			zgo_util.log("a co-op peer runs an older Umbra Gore & Effects (sync protocol %s, this is %s): its gore is ignored; use the same version on every machine", proto, PROTO)
 		end)
 	end
 	zgo_util.log("co-op sync registered (protocol %s)", PROTO)

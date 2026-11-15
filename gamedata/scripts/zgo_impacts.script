@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - world impact layer (bullets on walls, floors, objects)
+  Umbra Gore & Effects - world impact layer (bullets on walls, floors, objects)
 
   Driven by the zgo_util "bullet" event (every impact this machine saw, on
   the main thread). For a hit on level geometry (target_id 65535):

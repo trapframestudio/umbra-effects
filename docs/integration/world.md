@@ -115,7 +115,7 @@ U.defer(U.emit_event, "bullet", { pos = U.v3(p.x, p.y, p.z), dir = U.v3(d.x, d.y
 **R3. Deep-mark dispatcher:** ship `gamedata/shaders/r3/effects_wallmark.s` (only for the experimental "Deep impact marks" option). Nothing in the modlist overrides this file; it lives only in `shaders.db0`. The else-branch below is byte-identical to the stock file. Content:
 ```lua
 function normal(shader, t_base, t_second, t_detail)
-  -- Zone Gore Overhaul: textures under zgo\impacts\deep\ (MCM World impacts ->
+  -- Umbra Gore & Effects: textures under zgo\impacts\deep\ (MCM World impacts ->
   -- Deep impact marks) go to its parallax decal shader; everything else is stock.
   if t_base and string.find(string.lower(t_base), "zgo\\impacts\\deep\\", 1, true) then
     shader:begin("zgo_wm_deep","zgo_wm_deep")

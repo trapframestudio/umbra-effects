@@ -323,8 +323,8 @@ class Resolved:
         return sorted(r for r in self.chain if fnmatch.fnmatch(r, pattern))
 
     def game_winner(self, rel):
-        """The provider the game really loads: ZGO at its own MO2 position,
-        not on top. Only differs from winner() for ZGO files."""
+        """The provider the game really loads: Umbra Effects at its own MO2 position,
+        not on top. Only differs from winner() for Umbra Effects files."""
         c = self.chain.get(rel.lower()) or []
         zgo = [x for x in c if x[0].label == ZGO_LABEL]
         if not zgo:
@@ -333,15 +333,15 @@ class Resolved:
         return above[-1] if above else zgo[0]
 
     def below_zgo(self, rel):
-        """The provider ZGO's copy replaces in the game (None for a new file)."""
+        """The provider Umbra Effects' copy replaces in the game (None for a new file)."""
         c = self.chain.get(rel.lower()) or []
         above = set(id(x) for x in self.above_zgo(rel))
         rest = [x for x in c if x[0].label != ZGO_LABEL and id(x) not in above]
         return rest[-1] if rest else None
 
     def above_zgo(self, rel):
-        """Providers the game ranks above ZGO (MO2 overwrite, mods higher in
-        modlist.txt), lowest first: in the game these beat ZGO's copy."""
+        """Providers the game ranks above Umbra Effects (MO2 overwrite, mods higher in
+        modlist.txt), lowest first: in the game these beat Umbra Effects' copy."""
         c = self.chain.get(rel.lower()) or []
         zgo = [x for x in c if x[0].label == ZGO_LABEL]
         if not zgo or zgo[0][0].mo2_index is None:

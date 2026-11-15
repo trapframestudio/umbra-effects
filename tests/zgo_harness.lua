@@ -1,4 +1,4 @@
--- LuaJIT mock of the bits of the X-Ray script API that Zone Gore Overhaul uses.
+-- LuaJIT mock of the bits of the X-Ray script API that Umbra Gore & Effects uses.
 -- Room: floor y=0, wall z=-2 (facing +z), wall x=3 (facing -x).
 local DIR = arg[1]
 local MODE = arg[2] or "sp"

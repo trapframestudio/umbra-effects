@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - options of the progressive wounds (zgo_wounds, PLAN Phase C)
+  Umbra Gore & Effects - options of the progressive wounds (zgo_wounds, PLAN Phase C)
   Data only; zgo_settings merges it (format in the header of zgo_settings.script).
 
   "Wounds" page: what the host decides for everyone (how wounds grow, the

@@ -1,5 +1,5 @@
 """
-Mesh cutting for the ZGO fracture baker: clip a prop's triangles into pieces.
+Mesh cutting for the Umbra Effects fracture baker: clip a prop's triangles into pieces.
 
 A mesh here is a list of "parts" (one per source sub-mesh / texture), each
 { 'texture', 'shader', 'V': (n,14) float64 rows [P N T B uv], 'tris': (m,3) }.

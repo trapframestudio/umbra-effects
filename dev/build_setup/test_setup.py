@@ -1,5 +1,5 @@
 """
-Tests of ZGO Setup (tools/zgo_setup) and the parts of the baker it relies on
+Tests of Umbra Effects Setup (tools/zgo_setup) and the parts of the baker it relies on
 (the pure-Python Lua reader, fingerprints, zgo_bake_inputs.script).
 
     python3 -m unittest discover -s dev/build_setup -p 'test_*.py'      (from the ZGO folder)
@@ -294,7 +294,7 @@ class TestCoreParts(unittest.TestCase):
 
     def test_environment(self):
         lines = core.environment_lines(core.Tools(MOD))
-        self.assertIn('ZGO Setup', lines[0])
+        self.assertIn('Umbra Effects Setup', lines[0])
         self.assertTrue(any('baker %d' % bake.BAKER_VERSION in l for l in lines))
         self.assertIn('Kid mode for particles: found', lines)
 
@@ -561,7 +561,7 @@ class TestBakeAndCheck(FakeInstallCase):
         self.bake()
         st = self.check()
         self.assertEqual(st.state, 'order', st.text())
-        self.assertIn('"Hider" (1 models) loads after Zone Gore Overhaul', st.advice)
+        self.assertIn('"Hider" (1 models) loads after Umbra Gore & Effects', st.advice)
         self.assertIn('drag "Out" below it', st.advice)
         p = core.plan(self.tools, self.paths, self.choices)
         self.assertEqual(p.overrides, [('Hider', 1)])
@@ -581,7 +581,7 @@ class TestBakeAndCheck(FakeInstallCase):
             json.dump(old, f)
         st = self.check()
         self.assertEqual(st.state, 'stale')
-        self.assertIn('older Zone Gore Overhaul', st.reasons[0])
+        self.assertIn('older Umbra Gore & Effects', st.reasons[0])
         # a 1.6 bake (no inputs at all)
         old = {k: v for k, v in rep.items() if k != 'inputs'}
         old['version'] = 1
@@ -618,7 +618,7 @@ class TestBakeAndCheck(FakeInstallCase):
         code, ev = self.worker(cancel=True)
         self.assertEqual(code, 3)
         self.assertTrue(ev[-1]['cancelled'])
-        self.assertIn('Nothing in the ZGO folder was changed', ev[-1]['msg'])
+        self.assertIn('Nothing in the Umbra Effects folder was changed', ev[-1]['msg'])
         self.assertEqual(os.listdir(self.inst.mod), [])
 
     def test_failures_are_explained(self):
@@ -697,7 +697,7 @@ class TestKidfx(FakeInstallCase):
                                       'applied': 0, 'problems': 0})
         logs = [e['msg'] for e in ev if e['t'] == 'log']
         self.assertIn('Kid mode for particles: 14 particle shaders rebuilt for your mod list; 2 gory effects other '
-                      'mods play copied into ZGO (2 new).', logs)
+                      'mods play copied into Umbra Effects (2 new).', logs)
         tasks = [e.get('task') for e in ev if e['t'] == 'progress']
         self.assertEqual(tasks[-1], 'particles', 'the last step')
         for rel in fakezgo.KIDFX_COPIES:
@@ -713,7 +713,7 @@ class TestKidfx(FakeInstallCase):
             self.assertEqual(sorted(json.load(f)['copies']), sorted(fakezgo.KIDFX_COPIES))
         st, text = core.check_kidfx(self.tools, self.paths)
         self.assertEqual(st, 'ok', text)
-        self.assertIn("on (4 gory effects use ZGO's particle shaders, 2 of them copied from your other mods)", text)
+        self.assertIn("on (4 gory effects use Umbra Effects' particle shaders, 2 of them copied from your other mods)", text)
         self.assertTrue(core.last_choices(self.tools, self.inst.mod).kid_particles)
         baked = self.tree()
         # ---- undo: every effect back to the game's own shaders, only the shader lines change
@@ -760,7 +760,7 @@ class TestKidfx(FakeInstallCase):
             self.assertEqual(json.load(f)['copies'], {})
         self.assertEqual(self.check().state, 'none')
         self.assertEqual(core.check_kidfx(self.tools, self.paths), (
-            'ok', "Kid mode for particles: on (2 gory effects use ZGO's particle shaders)."))
+            'ok', "Kid mode for particles: on (2 gory effects use Umbra Effects' particle shaders)."))
 
     def test_a_kidfx_failure_is_a_warning(self):
         before = self.tree()
@@ -920,13 +920,13 @@ class EndToEnd(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.inst.mod, *bake.INPUTS.split('/'))))
         # kid mode for particles came along (the fake ZGO folder's own copy of tools/zgo_kidfx)
         self.assertIn('Kid mode for particles: 14 particle shaders rebuilt for your mod list; 2 gory effects other '
-                      'mods play copied into ZGO (2 new).', out)
+                      'mods play copied into Umbra Effects (2 new).', out)
         part = os.path.join(self.inst.mod, 'gamedata', 'particles')
         for rel in fakezgo.KIDFX_COPIES:
             self.assertTrue(os.path.isfile(os.path.join(part, *rel.split('/'))), rel)
         code, out = self.cmd('--check')
         self.assertIn('Your bake is up to date.', out)
-        self.assertIn("Kid mode for particles: on (4 gory effects use ZGO's particle shaders, 2 of them copied from "
+        self.assertIn("Kid mode for particles: on (4 gory effects use Umbra Effects' particle shaders, 2 of them copied from "
                       'your other mods).', out)
         # the props tool came along: with no props in this mod list it says so, the models stay
         self.assertTrue('Breakable props' in out or code == 0, out)
@@ -943,7 +943,7 @@ class EndToEnd(unittest.TestCase):
         self.assertIn('Kid mode for particles: off.', out)
         code, out = self.cmd('--kid-particles-apply', '--yes')
         self.assertEqual(code, 0, out)
-        self.assertIn("Kid mode for particles is on: 4 effects now use ZGO's particle shaders again.", out)
+        self.assertIn("Kid mode for particles is on: 4 effects now use Umbra Effects' particle shaders again.", out)
         with open(spray, 'rb') as f:
             self.assertEqual(f.read(), shipped)
         fakezgo.write_model(self.inst.mo2, 'Synth Models', 'actors\\synth\\synth_b', b'not a model any more')
@@ -997,7 +997,7 @@ class EndToEnd(unittest.TestCase):
             prog = [sys.executable, os.path.join(inst.mod, 'tools', 'zgo_setup', 'zgo_setup.py')]
             code, out = run(prog + ['--kid-particles-revert', '--yes'], env=dict(self.env, ZGO_BAKER_CACHE=inst.cache))
             self.assertEqual(code, 2, out)
-            self.assertIn('Kid mode for particles (tools/zgo_kidfx) is not installed with this ZGO.', out)
+            self.assertIn('Kid mode for particles (tools/zgo_kidfx) is not installed with this version of Umbra Effects.', out)
             code, out = run(prog + ['--plan'], env=dict(self.env, ZGO_BAKER_CACHE=inst.cache))
             self.assertEqual(code, 0, out)
             self.assertNotIn('kid_particles', out)
@@ -1010,7 +1010,7 @@ class EndToEnd(unittest.TestCase):
             shutil.copy(os.path.join(SETUP_DIR, 'zgo_setup.py'), src)
             code, out = run([sys.executable, src, '--check'], env=self.env)
             self.assertEqual(code, 2)
-            self.assertIn('run it from the Zone Gore Overhaul folder', out)
+            self.assertIn('run it from the Umbra Gore & Effects folder', out)
 
 
 def _frozen_linux():
@@ -1053,17 +1053,17 @@ class TestWindow(unittest.TestCase):
 
 
 def _windows_exe():
-    p = os.environ.get('ZGO_SETUP_EXE') or os.path.join(SETUP_DIR, 'ZGO Setup.exe')
+    p = os.environ.get('ZGO_SETUP_EXE') or os.path.join(SETUP_DIR, 'Umbra Effects Setup.exe')
     return p if os.path.isfile(p) else None
 
 
 @unittest.skipUnless(os.environ.get('ZGO_TEST_WINE') == '1' and _windows_exe() and shutil.which('wine'),
-                     'set ZGO_TEST_WINE=1 (needs wine and the built ZGO Setup.exe)')
+                     'set ZGO_TEST_WINE=1 (needs wine and the built Umbra Effects Setup.exe)')
 class WindowsUnderWine(unittest.TestCase):
     def test_selftest(self):
         with tempfile.TemporaryDirectory() as d:
             inst = fakezgo.make(d)
-            exe = os.path.join(inst.mod, 'tools', 'zgo_setup', 'ZGO Setup.exe')
+            exe = os.path.join(inst.mod, 'tools', 'zgo_setup', 'Umbra Effects Setup.exe')
             shutil.copy(_windows_exe(), exe)
             prefix = os.environ.get('WINEPREFIX') or os.path.expanduser('~/.cache/zgo-wine-setup')
             env = {'WINEPREFIX': prefix, 'WINEDEBUG': '-all', 'ZGO_BAKER_CACHE': ''}

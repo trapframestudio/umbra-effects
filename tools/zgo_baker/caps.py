@@ -1,5 +1,5 @@
 """
-Fitted stump caps for the ZGO mesh baker (PLAN Phase B, item 2).
+Fitted stump caps for the Umbra Effects mesh baker (PLAN Phase B, item 2).
 
 A cut at section root s (parent bone p) leaves a hole in what remains: the
 seam between the triangles of s's subtree and the rest of the mesh. This

@@ -1,4 +1,4 @@
-# ZGO mesh baker
+# Umbra Effects mesh baker
 
 Rebuilds every character / mutant model the game would load so that each
 severable section (the cut roots in `zgo_tables.script` limb_map: head, upper
@@ -42,7 +42,7 @@ Experimental (off by default; see docs/formats/caps.md and damage.md, and
 player bakes for their own mod list). A GUI drives the same code through
 `bake.bake(options, progress, cancel)`; see `docs/formats/bake-api.md`.
 
-Needs Python 3 + numpy. Players use ZGO Setup (tools/zgo_setup), which runs this baker.
+Needs Python 3 + numpy. Players use Umbra Effects Setup (tools/zgo_setup), which runs this baker.
 ZGO_BAKER_CACHE=DIR moves the work folder (it needs as much free space as the bake).
 
 - `bake.py`       library API + command line: resolve, bake in parallel, scripts, install, manifest

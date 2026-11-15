@@ -1,4 +1,4 @@
--- Zone Gore Overhaul: probe 3, per-NPC numbers through "digit" textures
+-- Umbra Gore & Effects: probe 3, per-NPC numbers through "digit" textures
 -- (set_shader(child, "zgo\\probe_digits", "<base>,zgo_dg_<10 hex digits>") from zgo_probe)
 --
 -- The second texture string is per NPC (each NPC owns its sub-meshes; every

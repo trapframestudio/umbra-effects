@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - in-game probes (docs/PLAN.md, Phase 0)
+  Umbra Gore & Effects - in-game probes (docs/PLAN.md, Phase 0)
 
   Smoke tests of engine behaviour nobody has confirmed in the game yet. Their
   results decide which route the later phases take. They live on the MCM page
@@ -69,7 +69,7 @@ local VCODE = { [1] = 1, [2] = 2, [3] = 3, [4] = 4,
 SPARE_PROPS = { "dynamics\\box\\box_paper", "dynamics\\balon\\kanistra", "dynamics\\devices\\dev_vodka\\dev_vodka",
 	"dynamics\\kitchen_room\\kitchen_krujka", "dynamics\\devices\\dev_conserv\\dev_conserv" }
 local DIGIT_COLOURS = { { 15, 0, 0, "red" }, { 0, 15, 0, "green" }, { 0, 0, 15, "blue" } }
-local LANE_OWNER = "Zone Gore Overhaul"
+local LANE_OWNER = "Umbra Gore & Effects"
 local LANE_DESC = "x = 1: kid mode, the blood shaders draw nothing"
 local KID_MODULES = { "zgo_fx", "zgo_debris", "zgo_dismember", "zgo_decals", "zgo_native" }
 
@@ -107,7 +107,7 @@ local function header()
 	local okb, nb = pcall(zgo_bake.count)
 	local oke, on = pcall(zgo_bake.enabled)
 	local ver = rawget(zgo_main, "VERSION") or "?"
-	return string.format("\n==== Zone Gore Overhaul %s probes, %s, %s, level %s, mod %s, kid mode %s, baked models %s (switch %s)",
+	return string.format("\n==== Umbra Gore & Effects %s probes, %s, %s, level %s, mod %s, kid mode %s, baked models %s (switch %s)",
 		tostring(ver), okd and date or "?", mode_name(), level_name(), U.enabled() and "on" or "off",
 		U.gore() and "off" or "on", okb and tostring(nb) or "?", oke and (on and "on" or "off") or "?")
 end
@@ -118,7 +118,7 @@ local function append(lines)
 	if not report_header then
 		report_header = true
 		local ok, h = pcall(header)
-		f:write(ok and h or "\n==== Zone Gore Overhaul probes", "\n")
+		f:write(ok and h or "\n==== Umbra Gore & Effects probes", "\n")
 	end
 	for _, l in ipairs(lines) do f:write(l, "\n") end
 	f:close()
@@ -130,7 +130,7 @@ local function hud(text, secs)
 end
 
 local function news(text, ms)
-	pcall(function() db.actor:give_game_news("Zone Gore Overhaul", text, "ui_iconsTotal_grouping", 0, ms or 10000, 0) end)
+	pcall(function() db.actor:give_game_news("Umbra Gore & Effects", text, "ui_iconsTotal_grouping", 0, ms or 10000, 0) end)
 end
 
 ------------------------------------------------------------------------
@@ -367,7 +367,7 @@ function Ctx:result(status, fmt, ...)
 	self.status, self.details = status, ok and msg or tostring(fmt)
 end
 
-function Ctx:news(text) news(string.format("ZGO probe %s: %s", self.name, text), 15000) end
+function Ctx:news(text) news(string.format("Umbra Effects probe %s: %s", self.name, text), 15000) end
 
 local function finish(ctx, why)
 	if active ~= ctx then return end
@@ -393,7 +393,7 @@ local function finish(ctx, why)
 	session[#session + 1] = { name = ctx.name, status = ctx.status, details = ctx.details }
 	last_name = ctx.name
 	if group then group.results[#group.results + 1] = ctx.status end
-	hud(string.format("ZGO probe %s: %s", ctx.name, ctx.status), 6)
+	hud(string.format("Umbra Effects probe %s: %s", ctx.name, ctx.status), 6)
 end
 
 local function resume(ctx)
@@ -459,7 +459,7 @@ local function summary(g)
 		TAG, c.PASS, c.FAIL, c.MANUAL, report_file())
 	say(line)
 	append({ line })
-	hud(string.format("ZGO probes: %d PASS, %d FAIL, %d MANUAL", c.PASS, c.FAIL, c.MANUAL), 8)
+	hud(string.format("Umbra Effects probes: %d PASS, %d FAIL, %d MANUAL", c.PASS, c.FAIL, c.MANUAL), 8)
 end
 
 local function update()
@@ -550,7 +550,7 @@ end
 ------------------------------------------------------------------------
 def("off_shader", 1, "off shader", false, function(ctx)
 	if not shader_file("zgo_off.s") then
-		return ctx:result("FAIL", "gamedata\\shaders\\r3\\zgo_off.s is not in the game's file system (is ZGO enabled in MO2?)")
+		return ctx:result("FAIL", "gamedata\\shaders\\r3\\zgo_off.s is not in the game's file system (is Umbra Gore & Effects enabled in MO2?)")
 	end
 	local live = nearby(30, living, 1)[1]
 	local body
@@ -666,7 +666,7 @@ def("dmg_shader", 2, "pass-through shader", false, function(ctx)
 	if total == 0 then return ctx:result("FAIL", "set_shader(zgo\\probe_dmg) did not take on any sub-mesh") end
 	local have, miss = {}, {}
 	for i = 1, 4 do if covered[i] then have[#have + 1] = i .. "W" else miss[#miss + 1] = i .. "W" end end
-	ctx:news(string.format("%d bodies now use ZGO's copy of the stock shader: %s. For %d s they must look exactly as before: same colours and bumps, shadows, no flicker, no smearing when they or you move.",
+	ctx:news(string.format("%d bodies now use Umbra Effects' copy of the stock shader: %s. For %d s they must look exactly as before: same colours and bumps, shadows, no flicker, no smearing when they or you move.",
 		#chosen, table.concat(names, ", "), hold_ms() * 2 / 1000))
 	ctx:wait(hold_ms() * 2)
 	local bad = ctx:restore()
@@ -869,7 +869,7 @@ def("save_reload_check", 5, "save and reload", false, function(ctx)
 			local have = {}
 			for _, b in ipairs(type(st) == "table" and type(st.b) == "table" and st.b or {}) do have[b] = true end
 			for _, r in ipairs(c.roots or {}) do
-				if not have[r] then issue[#issue + 1] = r .. " missing from ZGO's state" end
+				if not have[r] then issue[#issue + 1] = r .. " missing from Umbra Effects' state" end
 				local okv, vis = call(o, "bone_visible", r)
 				-- (an off-shader cut keeps its bones until the ragdoll exists: zgo_dismember.shown says how it is drawn)
 				local oks, how = pcall(zgo_dismember.shown, o, r)
@@ -981,7 +981,7 @@ local function on_verdict(t)
 	local line = string.format("%s 6 co-op: the host compared player %s: %s%s", TAG, tostring(t[4]), tostring(t[5]), t[6] and (" (" .. t[6] .. ")") or "")
 	say(line)
 	append({ line })
-	hud("ZGO probe 6 co-op: " .. tostring(t[5]), 6)
+	hud("Umbra Effects probe 6 co-op: " .. tostring(t[5]), 6)
 end
 
 local function on_down(t)
@@ -1067,7 +1067,7 @@ def("coop", 6, "co-op", true, function(ctx)
 		zgo_sync.emit({ "Z", "r", nonce, s, word, (string.gsub(detail, "[|\n]", " ")) })
 	end
 	if answered == 0 then
-		return ctx:result("FAIL", "no player answered within %d s (ZGO switched off there, or another ZGO version?)", COOP_WAIT_MS / 1000)
+		return ctx:result("FAIL", "no player answered within %d s (Umbra Effects switched off there, or another Umbra Effects version?)", COOP_WAIT_MS / 1000)
 	end
 	ctx:result(matched == answered and answered >= peers and "PASS" or "FAIL", "%d of %d player(s) answered over %d bodies: %s",
 		answered, peers, #ids, table.concat(lines, "; "))
@@ -1203,7 +1203,7 @@ def("kid_lane", 8, "kid mode lane", true, function(ctx)
 		return ctx:result("FAIL", "the lane %s is not registered: zgo_settings never claimed it (the log has its reason) or another mod holds the name", LANE)
 	end
 	if owner ~= LANE_OWNER then
-		return ctx:result("FAIL", "the lane %s belongs to \"%s\", not to ZGO", LANE, tostring(owner))
+		return ctx:result("FAIL", "the lane %s belongs to \"%s\", not to Umbra Effects", LANE, tostring(owner))
 	end
 	if not U.gore() then
 		return ctx:result(x0 == 1 and "PASS" or "FAIL", "kid mode is on and the lane reads x = %s (expected 1). The flip test is skipped (it would show gore): untick kid mode to run it.", tostring(x0))
@@ -1245,7 +1245,7 @@ def("kid_lane", 8, "kid mode lane", true, function(ctx)
 			ctx:wait(500)
 			local t2 = lane_x(b)
 			extra = string.format("; written directly with the lane's token it reads %s then %s: %s", tostring(t1), tostring(t2),
-				oks and t1 == 1 and t2 == 0 and "the bus works, so ZGO's own write is what fails (zgo_settings must pass its token to shader_bus.set)"
+				oks and t1 == 1 and t2 == 0 and "the bus works, so Umbra Effects' own write is what fails (zgo_settings must pass its token to shader_bus.set)"
 				or "the bus did not take the write either")
 		else
 			extra = "; could not get the lane's token to test the bus directly"
@@ -1280,7 +1280,7 @@ end
 def("baked", 9, "baked models", true, function(ctx)
 	local okc, n_index = pcall(zgo_bake.count)
 	if not okc or (tonumber(n_index) or 0) == 0 then
-		return ctx:result("MANUAL", "not run: no baked models are installed (zgo_bake_index.script missing or empty): bake with the ZGO setup first")
+		return ctx:result("MANUAL", "not run: no baked models are installed (zgo_bake_index.script missing or empty): bake with Umbra Effects Setup first")
 	end
 	local list = nearby(60, creature, MAX_BODIES)
 	if #list == 0 then return ctx:result("MANUAL", "not run: no NPC or body within 60 m; stand near a few and run it again") end
@@ -1307,7 +1307,7 @@ def("baked", 9, "baked models", true, function(ctx)
 				verdict = "the file is baked but the game still has the old model loaded: restart the game"
 				problems[#problems + 1] = key .. " (stale)"
 			else
-				verdict = "another mod's model wins over ZGO's (or the bake is gone): give ZGO a higher priority in MO2 (lower in the left pane), or bake again"
+				verdict = "another mod's model wins over Umbra Effects' (or the bake is gone): give Umbra Gore & Effects a higher priority in MO2 (lower in the left pane), or bake again"
 				problems[#problems + 1] = key .. " (overridden)"
 			end
 			ctx:note("%s: %d sub-meshes in the game, baked %s %d, file %s: %s", key, #kids, exact and "exactly" or "at least",

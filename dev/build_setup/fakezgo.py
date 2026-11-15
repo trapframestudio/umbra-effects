@@ -1,5 +1,5 @@
 """
-A throw-away MO2 + game install for the ZGO Setup tests, with the synthetic
+A throw-away MO2 + game install for the Umbra Effects Setup tests, with the synthetic
 character from tests/baker/synth.py:
 
   <root>/mo2/ModOrganizer.ini            selected profile P, game path as MO2 writes it under Wine (Z:\\...)
@@ -20,7 +20,7 @@ game's loose gamedata the stock particle shaders, a shaders.xr with the four
 C++ particle blenders, and the gory effects the game plays from elsewhere that
 tools/zgo_kidfx copies (KIDFX_COPIES; a spark effect it must leave alone).
 
-    python3 dev/build_setup/fakezgo.py DIR     # make one to try ZGO Setup by hand
+    python3 dev/build_setup/fakezgo.py DIR     # make one to try Umbra Effects Setup by hand
 """
 import json
 import os
@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.join(MOD, 'tests', 'baker'))
 sys.path.insert(0, os.path.join(MOD, 'tools', 'zgo_baker'))
 import synth  # noqa: E402
 
-ZGO = 'Zone Gore Overhaul'
+ZGO = 'Umbra Gore & Effects'
 MOD_MODELS = ('actors\\synth\\synth_a', 'actors\\synth\\synth_b', 'monsters\\synth\\synth_m')
 GAME_MODELS = ('actors\\synth\\synth_g',)
 

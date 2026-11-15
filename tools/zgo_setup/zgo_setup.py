@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-ZGO Setup: bakes Zone Gore Overhaul's body models (and breakable props, and
+Umbra Effects Setup: bakes Umbra Gore & Effects' body models (and breakable props, and
 kid mode for particles) for your own MO2 mod list, checks whether that bake is
 still up to date, and removes it. It finds MO2 and the profile by itself: it lives in
-<MO2>/mods/<Zone Gore Overhaul>/tools/zgo_setup.
+<MO2>/mods/<Umbra Gore & Effects>/tools/zgo_setup.
 
-  ZGO Setup.exe / zgo-setup-linux    the ready-made program (no Python needed)
+  Umbra Effects Setup.exe / zgo-setup-linux    the ready-made program (no Python needed)
   python3 zgo_setup.py               the same with your own Python (3.8+, numpy, tkinter)
 
 Without a window (any of these):
@@ -13,7 +13,7 @@ Without a window (any of these):
   --plan       what a bake would make, and its size
   --bake       bake in this terminal          --props   cut the props only
   --remove     remove the bake                --selftest  check that this program works
-  --kid-particles-apply    kid mode for particles on (gory effects use ZGO's particle shaders)
+  --kid-particles-apply    kid mode for particles on (gory effects use Umbra Effects' particle shaders)
   --kid-particles-revert   undo: every particle effect back to the game's own shaders
   --version    print the version
 Options: --mo2 DIR --profile NAME --game DIR --mod DIR --jobs N
@@ -64,9 +64,9 @@ def _find_mod_root(start):
 
 
 def use_mod(mod_root):
-    """Run this program's logic and the baker from the ZGO folder itself
+    """Run this program's logic and the baker from the Umbra Effects folder itself
     (tools/zgo_setup and tools/zgo_baker), so the ready-made program always
-    runs the code that came with the installed ZGO."""
+    runs the code that came with the installed Umbra Effects."""
     for sub in ('zgo_baker', 'zgo_setup'):
         d = os.path.join(mod_root, 'tools', sub)
         if os.path.isdir(d):
@@ -78,7 +78,7 @@ def use_mod(mod_root):
 def child_paths():
     """The ready-made program starts itself again for its worker processes
     (multiprocessing). They must import the same baker as the main process:
-    the installed ZGO's (ZGO_SETUP_MOD, set by main()), not the copy bundled
+    the installed Umbra Effects' (ZGO_SETUP_MOD, set by main()), not the copy bundled
     in the program."""
     mod = os.environ.get('ZGO_SETUP_MOD') or _find_mod_root(program_dir())
     if mod:
@@ -86,9 +86,9 @@ def child_paths():
 
 
 def parse(argv):
-    ap = argparse.ArgumentParser(prog='zgo_setup', description='Bake Zone Gore Overhaul for your MO2 mod list.')
-    ap.add_argument('--mod', help='the Zone Gore Overhaul folder (default: the one this program is in)')
-    ap.add_argument('--mo2', help='the Mod Organizer 2 folder (default: the one ZGO is installed in)')
+    ap = argparse.ArgumentParser(prog='zgo_setup', description='Bake Umbra Gore & Effects for your MO2 mod list.')
+    ap.add_argument('--mod', help='the Umbra Gore & Effects folder (default: the one this program is in)')
+    ap.add_argument('--mo2', help='the Mod Organizer 2 folder (default: the one Umbra Effects is installed in)')
     ap.add_argument('--profile', help="the MO2 profile (default: MO2's selected profile)")
     ap.add_argument('--game', help="the game's folder, holding db/ (default: MO2's game path)")
     ap.add_argument('--out', help=argparse.SUPPRESS)
@@ -97,7 +97,7 @@ def parse(argv):
     for name in ('caps', 'pieces', 'wounds', 'gibs', 'props'):
         ap.add_argument('--no-' + name, action='store_true')
     ap.add_argument('--no-kid-particles', action='store_true',
-                    help="--bake: leave kid mode for particles (ZGO's particle shaders and copies) as it is")
+                    help="--bake: leave kid mode for particles (Umbra Effects' particle shaders and copies) as it is")
     for name in ('caps', 'damage', 'props'):
         ap.add_argument('--experimental-' + name, action='store_true')
     g = ap.add_mutually_exclusive_group()
@@ -107,7 +107,7 @@ def parse(argv):
     g.add_argument('--props', action='store_true', help='cut the props only')
     g.add_argument('--remove', action='store_true', help='remove the bake')
     g.add_argument('--kid-particles-apply', action='store_true',
-                   help="kid mode for particles on: gory effects use ZGO's particle shaders (no bake)")
+                   help="kid mode for particles on: gory effects use Umbra Effects' particle shaders (no bake)")
     g.add_argument('--kid-particles-revert', action='store_true',
                    help="undo kid mode for particles: every effect back to the game's own particle shaders")
     g.add_argument('--selftest', action='store_true', help='check that this program works')
@@ -188,7 +188,7 @@ def cli(a, mod_root, say):
     try:
         tools = core.Tools(mod_root)
     except core.SetupError as e:
-        say('ZGO Setup:', e)
+        say('Umbra Effects Setup:', e)
         return 2
     for line in core.environment_lines(tools):
         say(line)
@@ -212,7 +212,7 @@ def cli(a, mod_root, say):
         for part, n in sorted(p.estimate.items(), key=lambda kv: -kv[1]):
             say('  %-22s about %s' % (part, core.human_bytes(n)))
         for m, n in p.overrides:
-            say('  Load order: "%s" loads after ZGO and replaces %d baked models; drag ZGO below it in MO2.' % (m, n))
+            say('  Load order: "%s" loads after Umbra Effects and replaces %d baked models; drag Umbra Gore & Effects below it in MO2.' % (m, n))
         for s in core.space_problems(p) + p.notes:
             say('  ' + s)
         if a.plan:
@@ -234,7 +234,7 @@ def cli(a, mod_root, say):
     action = ('bake' if a.bake else 'props' if a.props else 'kidfx_apply' if a.kid_particles_apply else
               'kidfx_revert' if a.kid_particles_revert else 'remove')
     if kid_action and core.kidfx_for(tools, paths) is None:
-        say('ZGO Setup:', core.kidfx_unavailable(tools, paths))
+        say('Umbra Effects Setup:', core.kidfx_unavailable(tools, paths))
         return 2
     if action == 'kidfx_revert':
         say("Undo kid mode for particles: every particle effect goes back to the game's own particle shaders. Kid "
@@ -308,9 +308,9 @@ def selftest(a, mod_root, say):
             for line in traceback.format_exc().splitlines()[-6:]:
                 say('     ' + line)
 
-    say('ZGO Setup self-test: %s %s, Python %s, %s' % (platform.system(), platform.release(), platform.python_version(),
+    say('Umbra Effects Setup self-test: %s %s, Python %s, %s' % (platform.system(), platform.release(), platform.python_version(),
                                                        'frozen' if FROZEN else sys.executable))
-    step('ZGO folder', lambda: mod_root or (_ for _ in ()).throw(RuntimeError('not found next to %s' % program_dir())))
+    step('Umbra Effects folder', lambda: mod_root or (_ for _ in ()).throw(RuntimeError('not found next to %s' % program_dir())))
     if not mod_root:
         say('SELFTEST FAILED')
         return 1
@@ -332,7 +332,7 @@ def selftest(a, mod_root, say):
             if d not in sys.path:
                 sys.path.append(d)
             for fn in sorted(os.listdir(d)):
-                if fn.endswith('.py') and fn not in ('zgo_setup.py', 'selftest.py', 'setup_gui.py'):
+                if fn.endswith('.py') and fn not in ('zgo_setup.py', 'selftest.py', 'setup_gui.py', 'typeface.py'):
                     names.append(fn[:-3])
         for n in names:
             importlib.import_module(n)
@@ -346,7 +346,7 @@ def selftest(a, mod_root, say):
         assert len(kinds) >= 5, kinds
         if tools.kidfx_problem:
             raise RuntimeError('kid mode for particles (tools/zgo_kidfx) could not be loaded: %s' % tools.kidfx_problem)
-        return 'baker %d, ZGO %s, %d creature kinds, props tool %s, kid mode for particles %s' % (
+        return 'baker %d, Umbra Effects %s, %d creature kinds, props tool %s, kid mode for particles %s' % (
             tools.bake.BAKER_VERSION, tools.bake.zgo_version(mod_root), len(kinds), 'yes' if tools.fracture else 'no',
             'yes' if tools.kidfx else 'no')
     step('baker', t_core)
@@ -419,7 +419,7 @@ class _Skip(Exception):
 # ---------------------------------------------------------------- main
 
 def _no_window_message(e):
-    return ('ZGO Setup could not open its window (%s).\n'
+    return ('Umbra Effects Setup could not open its window (%s).\n'
             'On Linux, install tkinter (Debian/Ubuntu: sudo apt install python3-tk; Fedora: sudo dnf install '
             'python3-tkinter; Arch: sudo pacman -S tk), or use the ready-made program zgo-setup-linux.\n'
             'Without a window: python3 zgo_setup.py --check / --bake / --remove' % e)
@@ -439,12 +439,12 @@ def main(argv=None):
         return core.run_worker(a.worker)
     if a.version:
         import platform
-        line = 'ZGO Setup, Python %s%s' % (platform.python_version(), ' (ready-made program)' if FROZEN else '')
+        line = 'Umbra Effects Setup, Python %s%s' % (platform.python_version(), ' (ready-made program)' if FROZEN else '')
         if mod_root:
             try:
                 import setup_core as core
                 tools = core.Tools(mod_root)
-                line += ', Zone Gore Overhaul %s, baker %d' % (tools.bake.zgo_version(mod_root), tools.bake.BAKER_VERSION)
+                line += ', Umbra Gore & Effects %s, baker %d' % (tools.bake.zgo_version(mod_root), tools.bake.BAKER_VERSION)
             except Exception as e:  # noqa: BLE001
                 line += ' (%s)' % e
         say(line)
@@ -453,21 +453,21 @@ def main(argv=None):
         return selftest(a, mod_root, say)
     if a.check or a.plan or a.bake or a.props or a.remove or a.kid_particles_apply or a.kid_particles_revert:
         if not mod_root:
-            say('ZGO Setup: run it from the Zone Gore Overhaul folder (tools/zgo_setup), or pass --mod DIR.')
+            say('Umbra Effects Setup: run it from the Umbra Gore & Effects folder (tools/zgo_setup), or pass --mod DIR.')
             return 2
         return cli(a, mod_root, say)
     if FROZEN and not mod_root:
         # the program runs the tools of the ZGO folder it sits in; moved away, it has none
-        msg = ('ZGO Setup has to stay in the Zone Gore Overhaul folder (in %s), next to the files it '
-               'came with. It is at %s now. Start it from there (in MO2: the "mods" folder, then Zone Gore '
-               'Overhaul, tools, zgo_setup).' % (os.path.join('tools', 'zgo_setup'), program_dir()))
+        msg = ('Umbra Effects Setup has to stay in the Umbra Gore & Effects folder (in %s), next to the files it '
+               'came with. It is at %s now. Start it from there (in MO2: the "mods" folder, then Umbra Gore '
+               '& Effects, tools, zgo_setup).' % (os.path.join('tools', 'zgo_setup'), program_dir()))
         say(msg)
         try:
             import tkinter as tk
             from tkinter import messagebox
             r = tk.Tk()
             r.withdraw()
-            messagebox.showerror('ZGO Setup', msg)
+            messagebox.showerror('Umbra Effects Setup', msg)
             r.destroy()
         except Exception:  # noqa: BLE001
             pass

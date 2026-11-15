@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - props and destruction
+  Umbra Gore & Effects - props and destruction
 
   What bullets, knives and explosions do to physics objects in the world
   (crates, barrels, bottles, chairs, lamps). Driven by the zgo_util events

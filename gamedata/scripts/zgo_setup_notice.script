@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - the in-game check of the baked models (stale-bake
+  Umbra Gore & Effects - the in-game check of the baked models (stale-bake
   notice). ZGO Setup (tools\zgo_setup) bakes the body models for each
   player's own mod list; this script tells the player when that bake no
   longer fits, and what to do.
@@ -47,25 +47,25 @@ local SETUP = "tools\\zgo_setup"
 -- Texts (English, Russian)
 ------------------------------------------------------------------------
 local T = {
-	caption = { "Zone Gore Overhaul", "Zone Gore Overhaul" },
-	run_setup = { "Run ZGO Setup (in the ZGO folder: %s) and press Bake.",
-	              "Запустите ZGO Setup (в папке ZGO: %s) и нажмите Bake." },
-	unbaked = { "The body models are not baked for your mod list yet. Run ZGO Setup (in the ZGO folder: %s) and press Bake for cleaner cuts on bodies; ZGO also works without it.",
-	            "Модели тел ещё не запечены под ваш список модов. Запустите ZGO Setup (в папке ZGO: %s) и нажмите Bake, чтобы разрезы тел были чище; ZGO работает и без этого." },
-	older = { "Your baked models were made by an older Zone Gore Overhaul.",
-	          "Ваши запечённые модели сделаны более старой версией Zone Gore Overhaul." },
-	newer = { "Your baked models were made by a newer Zone Gore Overhaul than the one installed.",
-	          "Ваши запечённые модели сделаны более новой версией Zone Gore Overhaul, чем установленная." },
-	tables = { "Zone Gore Overhaul's body-part tables changed since your models were baked.",
-	           "Таблицы частей тела Zone Gore Overhaul изменились после запекания моделей." },
+	caption = { "Umbra Gore & Effects", "Umbra Gore & Effects" },
+	run_setup = { "Run Umbra Effects Setup (in the Umbra Effects folder: %s) and press Bake.",
+	              "Запустите Umbra Effects Setup (в папке Umbra Effects: %s) и нажмите Bake." },
+	unbaked = { "The body models are not baked for your mod list yet. Run Umbra Effects Setup (in the Umbra Effects folder: %s) and press Bake for cleaner cuts on bodies; Umbra Effects also works without it.",
+	            "Модели тел ещё не запечены под ваш список модов. Запустите Umbra Effects Setup (в папке Umbra Effects: %s) и нажмите Bake, чтобы разрезы тел были чище; Umbra Effects работает и без этого." },
+	older = { "Your baked models were made by an older Umbra Gore & Effects.",
+	          "Ваши запечённые модели сделаны более старой версией Umbra Gore & Effects." },
+	newer = { "Your baked models were made by a newer Umbra Gore & Effects than the one installed.",
+	          "Ваши запечённые модели сделаны более новой версией Umbra Gore & Effects, чем установленная." },
+	tables = { "Umbra Gore & Effects' body-part tables changed since your models were baked.",
+	           "Таблицы частей тела Umbra Gore & Effects изменились после запекания моделей." },
 	broken = { "Your bake looks incomplete (its files come from different bakes).",
 	           "Запекание выглядит незавершённым (его файлы от разных запеканий)." },
-	missing = { "%d baked models are missing from the ZGO folder (for example %s).",
-	            "В папке ZGO не хватает запечённых моделей: %d (например, %s)." },
-	replaced = { "%d baked body models are hidden by a mod that loads after ZGO (for example %s). In MO2, drag Zone Gore Overhaul below that mod in the left pane (lower wins); if you added or updated a mod with character models, run ZGO Setup (%s) and press Bake instead.",
-	             "Запечённых моделей тел, перекрытых модом, который грузится после ZGO: %d (например, %s). В MO2 перетащите Zone Gore Overhaul ниже этого мода в левой панели (ниже = важнее); если вы добавили или обновили мод с моделями персонажей, вместо этого запустите ZGO Setup (%s) и нажмите Bake." },
-	replaced_by = { "%d baked body models are hidden by %s, which loads after ZGO (for example %s). In MO2, drag Zone Gore Overhaul below it in the left pane (lower wins); if you just added or updated it, run ZGO Setup (%s) and press Bake instead.",
-	                "Запечённых моделей тел, перекрытых модом %s, который грузится после ZGO: %d (например, %s). В MO2 перетащите Zone Gore Overhaul ниже него в левой панели (ниже = важнее); если вы только что его добавили или обновили, вместо этого запустите ZGO Setup (%s) и нажмите Bake." },
+	missing = { "%d baked models are missing from the Umbra Effects folder (for example %s).",
+	            "В папке Umbra Effects не хватает запечённых моделей: %d (например, %s)." },
+	replaced = { "%d baked body models are hidden by a mod that loads after Umbra Effects (for example %s). In MO2, drag Umbra Gore & Effects below that mod in the left pane (lower wins); if you added or updated a mod with character models, run Umbra Effects Setup (%s) and press Bake instead.",
+	             "Запечённых моделей тел, перекрытых модом, который грузится после Umbra Effects: %d (например, %s). В MO2 перетащите Umbra Gore & Effects ниже этого мода в левой панели (ниже = важнее); если вы добавили или обновили мод с моделями персонажей, вместо этого запустите Umbra Effects Setup (%s) и нажмите Bake." },
+	replaced_by = { "%d baked body models are hidden by %s, which loads after Umbra Effects (for example %s). In MO2, drag Umbra Gore & Effects below it in the left pane (lower wins); if you just added or updated it, run Umbra Effects Setup (%s) and press Bake instead.",
+	                "Запечённых моделей тел, перекрытых модом %s, который грузится после Umbra Effects: %d (например, %s). В MO2 перетащите Umbra Gore & Effects ниже него в левой панели (ниже = важнее); если вы только что его добавили или обновили, вместо этого запустите Umbra Effects Setup (%s) и нажмите Bake." },
 	mods = { "Mods with character models changed since your bake: %s.",
 	         "Моды с моделями персонажей изменились после запекания: %s." },
 	m_new = { "%s (new)", "%s (новый)" },
@@ -74,8 +74,8 @@ local T = {
 	m_order = { "the load order of model mods", "порядок загрузки модов с моделями" },
 	fine = { "Your baked models are up to date (%d models checked).",
 	         "Ваши запечённые модели в порядке (проверено моделей: %d)." },
-	fine_unchecked = { "Your baked models look up to date (the game could not compare file sizes here; ZGO Setup can check fully).",
-	                   "Ваши запечённые модели, похоже, в порядке (игра не смогла сравнить размеры файлов; ZGO Setup проверит полностью)." },
+	fine_unchecked = { "Your baked models look up to date (the game could not compare file sizes here; Umbra Effects Setup can check fully).",
+	                   "Ваши запечённые модели, похоже, в порядке (игра не смогла сравнить размеры файлов; Umbra Effects Setup проверит полностью)." },
 }
 
 -- 2 when the game runs in Russian, else 1 (read each time: only used when a
@@ -365,7 +365,7 @@ local function check_body(found, forced)
 	end
 	local inputs = ns("zgo_bake_inputs")
 	if not inputs then
-		found.log[#found.log + 1] = "the bake records no inputs (made before ZGO Setup); only ZGO Setup can check it"
+		found.log[#found.log + 1] = "the bake records no inputs (made before Umbra Effects Setup); only Umbra Effects Setup can check it"
 		return
 	end
 	if rawget(inputs, "bake_id") ~= rawget(idx, "bake_id") then
@@ -503,7 +503,7 @@ local function finish(found, forced)
 		if found.checked or found.mods_checked then
 			U.log("bake check: %s", en("fine", found.checked or 0))
 		elseif not found.unbaked then
-			U.dbg("bake check: nothing to compare in the game; ZGO Setup checks the bake fully")
+			U.dbg("bake check: nothing to compare in the game; Umbra Effects Setup checks the bake fully")
 		end
 		if forced and not found.unbaked then
 			show(found.sizes and text("fine", found.checked or 0) or text("fine_unchecked"))

@@ -1,5 +1,5 @@
 function normal(shader, t_base, t_second, t_detail)
-  -- Zone Gore Overhaul: textures under zgo\impacts\deep\ (MCM World impacts ->
+  -- Umbra Gore & Effects: textures under zgo\impacts\deep\ (MCM World impacts ->
   -- Deep impact marks, experimental) go to its parallax decal shader; everything
   -- else is the stock shader below, byte for byte (base shaders.db0).
   if t_base and string.find(string.lower(t_base), "zgo\\impacts\\deep\\", 1, true) then

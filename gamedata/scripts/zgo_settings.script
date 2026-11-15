@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - settings
+  Umbra Gore & Effects - settings
 
   Every option is described once, in PAGES below:
     * where it sits in MCM, its type, range and default
@@ -212,8 +212,8 @@ PAGES = {
 				meat = { "Meat models (as before 1.7.1)", "Модели мяса (как до 1.7.1)" },
 			  },
 			  name = { "Gib look", "Вид ошмётков" },
-			  desc = { "What an explosion or a head burst throws. Pieces of the body: chunks torn out of that body's own model, with its clothes, skin or fur on the outside and raw flesh underneath; each one flies off from the spot it came from, the ones nearest the blast first. ZGO Setup makes them with the baked models (README, BAKED MODELS; a bake from 1.7.1 or newer, about 0.2 MB per body model). A body without them, or wearing a model another mod replaced after the bake, throws meat models. Meat models: G.A.M.M.A.'s mutant meat items, as before. To check: throw a grenade at a body with Pieces of the body: the pieces must wear the body's own clothes and fly out from where they were. If the game shows an error about a model, pick Meat models and report it. Each player's own setting.",
-			           "Что разлетается при взрыве или разрыве головы. Куски самого тела: куски, вырванные из модели этого тела, снаружи его одежда, кожа или шерсть, снизу сырое мясо; каждый вылетает с того места, где был, сначала ближайшие к взрыву. Их делает ZGO Setup вместе с запечёнными моделями (README, BAKED MODELS; запекание версии 1.7.1 или новее, около 0,2 МБ на модель тела). Тело без них или с моделью, которую другой мод заменил после запекания, бросает модели мяса. Модели мяса: куски мяса мутантов из G.A.M.M.A., как раньше. Проверка: бросьте гранату в труп при «Куски самого тела»: куски должны быть в одежде этого тела и вылетать с того места, где были. Если игра выдаёт ошибку о модели, выберите «Модели мяса» и сообщите. У каждого игрока своя настройка." } },
+			  desc = { "What an explosion or a head burst throws. Pieces of the body: chunks torn out of that body's own model, with its clothes, skin or fur on the outside and raw flesh underneath; each one flies off from the spot it came from, the ones nearest the blast first. Umbra Effects Setup makes them with the baked models (README, BAKED MODELS; a bake from 1.7.1 or newer, about 0.2 MB per body model). A body without them, or wearing a model another mod replaced after the bake, throws meat models. Meat models: G.A.M.M.A.'s mutant meat items, as before. To check: throw a grenade at a body with Pieces of the body: the pieces must wear the body's own clothes and fly out from where they were. If the game shows an error about a model, pick Meat models and report it. Each player's own setting.",
+			           "Что разлетается при взрыве или разрыве головы. Куски самого тела: куски, вырванные из модели этого тела, снаружи его одежда, кожа или шерсть, снизу сырое мясо; каждый вылетает с того места, где был, сначала ближайшие к взрыву. Их делает Umbra Effects Setup вместе с запечёнными моделями (README, BAKED MODELS; запекание версии 1.7.1 или новее, около 0,2 МБ на модель тела). Тело без них или с моделью, которую другой мод заменил после запекания, бросает модели мяса. Модели мяса: куски мяса мутантов из G.A.M.M.A., как раньше. Проверка: бросьте гранату в труп при «Куски самого тела»: куски должны быть в одежде этого тела и вылетать с того места, где были. Если игра выдаёт ошибку о модели, выберите «Модели мяса» и сообщите. У каждого игрока своя настройка." } },
 			{ id = "stump_caps", type = "check", def = true,
 			  name = { "Stump caps", "Культи" },
 			  desc = { "Raw meat covers each stump.", "Срез каждой культи закрыт сырым мясом." } },
@@ -460,11 +460,11 @@ end
 -- lang: 1 = English, 2 = Russian
 function strings(lang)
 	index()
-	local out = { { "ui_mcm_menu_zgo", "Zone Gore Overhaul" } }
+	local out = { { "ui_mcm_menu_zgo", "Umbra Gore & Effects" } }
 	for _, page in ipairs(pages()) do
 		local base = "ui_mcm_zgo_" .. page.id
 		out[#out + 1] = { base, page.name[lang] }
-		out[#out + 1] = { base .. "_title", page.id == "general" and "Zone Gore Overhaul" or page.name[lang] }
+		out[#out + 1] = { base .. "_title", page.id == "general" and "Umbra Gore & Effects" or page.name[lang] }
 		for i, n in ipairs(page.note or {}) do out[#out + 1] = { base .. "_note" .. i, n[lang] } end
 		for _, it in ipairs(page.items) do
 			out[#out + 1] = { base .. "_" .. it.id, it.name[lang] }
@@ -534,7 +534,7 @@ local function lane_ready(b)
 	end
 	local reg = b.try_register or b.register
 	local ok, err = false, "no register function"
-	if reg then ok, err = pcall(reg, LANE, "Zone Gore Overhaul", "x = 1: kid mode, the blood shaders draw nothing; w = 1: the kid-mode particle shaders too") end
+	if reg then ok, err = pcall(reg, LANE, "Umbra Gore & Effects", "x = 1: kid mode, the blood shaders draw nothing; w = 1: the kid-mode particle shaders too") end
 	-- register / try_register return the write token that set() takes
 	-- (lua_help_ex.script, shader_bus version 2); nil: another owner holds the id
 	if ok then

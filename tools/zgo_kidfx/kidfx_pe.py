@@ -2,7 +2,7 @@
 """
 kidfx: kid mode for particles already on screen.
 
-Gory particle effects (blood, flesh, gore) are pointed at ZGO's copies of the
+Gory particle effects (blood, flesh, gore) are pointed at Umbra Effects' copies of the
 stock particle shaders (zgo\\particle_blend, _add, _aadd, _set). Those draw
 exactly like the stock ones, except that their pixel shader discards every
 pixel while the shader bus lane zgo_view says so (x = kid mode on, w = 1 when
@@ -360,7 +360,7 @@ def kid_ps(src, stock_name, provider, sha1):
     b = text.index('{', m.end())
     text = text[:b + 1] + nl + KID_TEST + text[b + 1:]
     head = nl.join([
-        '// Zone Gore Overhaul, kid mode for particles: r3\\%s from %s (sha1 %s)' % (stock_name, provider, sha1),
+        '// Umbra Gore & Effects, kid mode for particles: r3\\%s from %s (sha1 %s)' % (stock_name, provider, sha1),
         '// with two lines added, both marked "ZGO kid mode": the shader bus uniform bus_zgo_view and a',
         '// discard while x (kid mode) is on and w = 1 (the experimental option is on). With the lane at 0',
         '// or never set the shader does exactly what the stock one does.',
@@ -397,7 +397,7 @@ def kid_s(blender_name, params, xr_provider):
     shadow = sc_blenders.PARTICLE_SHADOW[params['blend']]
     ps_map = {'particle': 'zgo_particle_kid', 'deffer_particle': 'zgo_particle_kid_deffer'}
     normal = dict(mode, clamp=params['clamp'])
-    head = ['-- Zone Gore Overhaul, kid mode for particles: %s for gory effects.' % blender_name,
+    head = ['-- Umbra Gore & Effects, kid mode for particles: %s for gory effects.' % blender_name,
             '-- The C++ particle blender\'s R4 elements (xray-monolith Blender_Particle.cpp) with this',
             '-- mod list\'s shaders.xr settings for %s (from %s): priority %d, strict sorting %s,' % (
                 blender_name, xr_provider, params['priority'], 'on' if params['strict'] else 'off'),
@@ -447,7 +447,7 @@ def legacy_s(renderer, blender_name, params, xr_provider):
     shadow = dict(sc_blenders.PARTICLE_SHADOW[params['blend']], clamp=params['clamp'])
     shadow.pop('colorwrite', None)         # R1 / R2 never turn colour writes off here
     prio, strict = params['priority'], params['strict']
-    head = ['-- Zone Gore Overhaul, kid mode for particles: %s on the %s renderer.' % (
+    head = ['-- Umbra Gore & Effects, kid mode for particles: %s on the %s renderer.' % (
                 blender_name, {'r1': 'DX8 (R1)', 'r2': 'DX9 (R2)'}[renderer]),
             '-- Exactly the C++ particle blender (xray-monolith Blender_Particle.cpp, %s branch) with this' % (
                 'R1' if renderer == 'r1' else 'R2'),
@@ -528,7 +528,7 @@ def gen_shaders(write=False, paths=None, legacy=False, shaders_root=None):
 
 # ---------------------------------------------------------------- copies (per-modlist bake)
 def copies(write=False, remove=False, paths=None):
-    """Gory effects the game plays from other mods, copied into ZGO with only
+    """Gory effects the game plays from other mods, copied into Umbra Effects with only
     the shader line changed; the source of each goes into kidfx_copies.json."""
     man = _load_copies()
     have = man.setdefault('copies', {})
@@ -582,7 +582,7 @@ def copies(write=False, remove=False, paths=None):
         e = Effect(rel, data)
         ent = {'file': rel, 'source': L.label, 'why': why, 'class': e.cls, 'reason': e.reason}
         if L.label == sc_tree.ZGO_LABEL:
-            ent['status'] = 'ZGO ships it' if rel.lower() not in have else 'ours (copied earlier)'
+            ent['status'] = 'Umbra Effects ships it' if rel.lower() not in have else 'ours (copied earlier)'
             if rel.lower() in have:
                 src_now = [x for x in res.chain.get('particles/' + rel.lower(), []) if x[0].label != sc_tree.ZGO_LABEL]
                 if src_now:

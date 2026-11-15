@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - co-op handshake: version and bakes (sync kind V)
+  Umbra Gore & Effects - co-op handshake: version and bakes (sync kind V)
 
   The host tells every client which ZGO it runs and what it baked; each
   client compares that with its own:
@@ -29,15 +29,15 @@ local U = zgo_util
 ANNOUNCE_MS = 30000
 
 local T = {
-	caption = { "Zone Gore Overhaul (co-op)", "Zone Gore Overhaul (кооператив)" },
-	version = { "The host runs Zone Gore Overhaul %s, you run %s: some gore may not match between you. Install the same version on every computer.",
-	            "У хоста Zone Gore Overhaul %s, у вас %s: часть эффектов может различаться. Установите одну и ту же версию на всех компьютерах." },
-	body_none_here = { "The host has baked body models and you don't: you see fewer cuts on bodies. Run ZGO Setup (tools\\zgo_setup in the ZGO folder) and press Bake.",
-	                   "У хоста есть запечённые модели тел, а у вас нет: разрезов на телах у вас будет меньше. Запустите ZGO Setup (tools\\zgo_setup в папке ZGO) и нажмите Bake." },
-	body_none_host = { "You have baked body models and the host doesn't: cuts on bodies may look different on your screen. That's fine; the host can run ZGO Setup too.",
-	                   "У вас есть запечённые модели тел, а у хоста нет: разрезы на телах у вас могут выглядеть иначе. Это не страшно; хост тоже может запустить ZGO Setup." },
-	body_differs = { "Your baked body models differ from the host's (another mod list or other ZGO Setup options): cuts and wounds may look a little different on your screen. Bake with the same mod list on every computer to match.",
-	                 "Ваши запечённые модели тел отличаются от моделей хоста (другой список модов или другие настройки ZGO Setup): разрезы и раны у вас могут выглядеть немного иначе. Для полного совпадения запеките с одинаковым списком модов на всех компьютерах." },
+	caption = { "Umbra Gore & Effects (co-op)", "Umbra Gore & Effects (кооператив)" },
+	version = { "The host runs Umbra Gore & Effects %s, you run %s: some gore may not match between you. Install the same version on every computer.",
+	            "У хоста Umbra Gore & Effects %s, у вас %s: часть эффектов может различаться. Установите одну и ту же версию на всех компьютерах." },
+	body_none_here = { "The host has baked body models and you don't: you see fewer cuts on bodies. Run Umbra Effects Setup (tools\\zgo_setup in the Umbra Effects folder) and press Bake.",
+	                   "У хоста есть запечённые модели тел, а у вас нет: разрезов на телах у вас будет меньше. Запустите Umbra Effects Setup (tools\\zgo_setup в папке Umbra Effects) и нажмите Bake." },
+	body_none_host = { "You have baked body models and the host doesn't: cuts on bodies may look different on your screen. That's fine; the host can run Umbra Effects Setup too.",
+	                   "У вас есть запечённые модели тел, а у хоста нет: разрезы на телах у вас могут выглядеть иначе. Это не страшно; хост тоже может запустить Umbra Effects Setup." },
+	body_differs = { "Your baked body models differ from the host's (another mod list or other Umbra Effects Setup options): cuts and wounds may look a little different on your screen. Bake with the same mod list on every computer to match.",
+	                 "Ваши запечённые модели тел отличаются от моделей хоста (другой список модов или другие настройки Umbra Effects Setup): разрезы и раны у вас могут выглядеть немного иначе. Для полного совпадения запеките с одинаковым списком модов на всех компьютерах." },
 	props_differs = { "Your breakable-objects bake differs from the host's: broken barrels and crates may use the game's own parts on your screen.",
 	                  "Ваше запекание разрушаемых предметов отличается от запекания хоста: сломанные бочки и ящики у вас могут состоять из стандартных частей игры." },
 	ok = { "Play goes on as usual.", "Игра продолжается как обычно." },
@@ -147,11 +147,11 @@ local function on_answer(t, sender)
 	if host_logged[sig] then return end
 	host_logged[sig] = true
 	if #diffs == 0 then
-		U.dbg("co-op player %s runs the same ZGO %s and the same bakes", tostring(sender), peer.version)
+		U.dbg("co-op player %s runs the same Umbra Effects %s and the same bakes", tostring(sender), peer.version)
 		return
 	end
 	local m = mine()
-	U.log("co-op player %s differs from this host: ZGO %s (host %s), body bake %s (host %s), props bake %s (host %s); play goes on",
+	U.log("co-op player %s differs from this host: Umbra Effects %s (host %s), body bake %s (host %s), props bake %s (host %s); play goes on",
 		tostring(sender), peer.version, m.version, peer.body, m.body, peer.props, m.props)
 end
 
@@ -179,10 +179,10 @@ local function on_host(t)
 	if shown[sig] then return end
 	shown[sig] = true
 	if #diffs == 0 then
-		U.dbg("co-op handshake: same ZGO %s and the same bakes as the host", me.version)
+		U.dbg("co-op handshake: same Umbra Effects %s and the same bakes as the host", me.version)
 		return
 	end
-	U.log("co-op handshake: this machine differs from the host: ZGO %s (host %s), body bake %s (host %s), props bake %s (host %s); play goes on",
+	U.log("co-op handshake: this machine differs from the host: Umbra Effects %s (host %s), body bake %s (host %s), props bake %s (host %s); play goes on",
 		me.version, host.version, me.body, host.body, me.props, host.props)
 	last_notice = notice_text(diffs, lang())
 	show(last_notice)

@@ -1,5 +1,5 @@
 """
-ZGO Setup, the window (tkinter). All logic lives in setup_core; this file
+Umbra Effects Setup, the window (tkinter). All logic lives in setup_core; this file
 only shows it and turns clicks into calls. Long work runs off the window's
 thread: the plan and the up-to-date check on threads, bakes in a worker
 process (setup_core.Job).
@@ -11,14 +11,18 @@ import time
 import traceback
 
 import tkinter as tk
-import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
 
 import setup_core as core
+import typeface
 
 PAD = 6
 WRAP = 470
+# Umbra's colours (the Umbra repo's branding/README.md); WARN is this window's own amber
+SOOT, PANEL, PANEL2, LINE = '#14130f', '#1c1a15', '#24211b', '#3a352b'
+BONE, MUTED, PAPER = '#d9cca6', '#9a907a', '#cdbf99'
+UMBER, UMBER_HI, OK, BAD, WARN = '#5e4532', '#71533c', '#8fa66b', '#d0614a', '#d39b4a'
 
 EXPLAIN = {
     'models': "Every character and mutant model your mod list loads, rebuilt so each body part can be cut off "
@@ -32,7 +36,7 @@ EXPLAIN = {
     'props': 'Cuts the barrels, crates, bottles and stools of your mod list into pieces, for '
              '"Objects break apart". A few MB, a few seconds.',
     'kid_particles': 'Lets kid mode hide blood and gore particles already flying (MCM: General -> Kid mode: hide '
-                     "particles already flying). Rebuilds ZGO's particle shaders from your mod list and copies the "
+                     "particles already flying). Rebuilds Umbra Effects' particle shaders from your mod list and copies the "
                      'gory effects other mods play. Under 1 MB, a few seconds.',
     'experimental_caps': 'Also puts the stump caps inside every body model as hidden parts, for a cut method that '
                          'is not switched on yet. If the game cannot hide them, every NPC shows them all the time. '
@@ -50,10 +54,11 @@ LABEL = {
     'experimental_damage': 'Damage meshes and gib chunks (experimental)',
     'experimental_props': 'Game breaks crates and stools itself (experimental)',
 }
-STATE_COLOUR = {'ok': '#1b7f2a', 'stale': '#b35c00', 'order': '#b35c00', 'broken': '#b00020', 'none': '#555555',
-                'busy': '#555555', 'off': '#555555'}
+# the bake's state -> the style of its headline
+STATE_STYLE = {'ok': 'Good.TLabel', 'stale': 'BoldWarn.TLabel', 'order': 'BoldWarn.TLabel',
+               'broken': 'BoldBad.TLabel', 'none': 'Bold.TLabel', 'busy': 'Bold.TLabel', 'off': 'Bold.TLabel'}
 # kid mode for particles, the short line beside its Apply now / Undo buttons
-KID_STATE = {'ok': "On: gory particles use ZGO's particle shaders.",
+KID_STATE = {'ok': "On: gory particles use Umbra Effects' particle shaders.",
              'off': "Off: every particle uses the game's own shaders.",
              'stale': 'Only partly on: press "Apply now".', 'none': ''}
 # what runs, in words (closing the window while it runs)
@@ -140,7 +145,7 @@ class App:
         # defaults (--cache; tests bake into a temporary folder)
         self._out = paths.out if paths is not None and paths.out and paths.out != paths.mod else None
         self._cache = paths.cache if paths is not None else None
-        root.title('ZGO Setup - Zone Gore Overhaul')
+        root.title('Umbra Effects Setup - Umbra Gore & Effects')
         root.minsize(820, 560)
         self._style()
         self._build()
@@ -154,21 +159,83 @@ class App:
 
     # ------------------------------------------------------------ layout
     def _style(self):
-        st = ttk.Style(self.root)
-        if 'clam' in st.theme_names() and os.name != 'nt':
-            st.theme_use('clam')
+        """Umbra's look: its colours, and its typefaces (typeface.py draws them where
+        Tk can't load a font file, as in the Linux program)."""
+        r = self.root
+        typeface.setup(r)
+        st = ttk.Style(r)
         try:
-            base = tkfont.nametofont('TkDefaultFont')
-            self.f_head = base.copy()
-            self.f_head.configure(size=base.cget('size') + 3, weight='bold')
-            self.f_small = base.copy()
-            self.f_small.configure(size=max(8, base.cget('size') - 1))
-            self.f_bold = base.copy()
-            self.f_bold.configure(weight='bold')
-        except Exception:  # noqa: BLE001
-            self.f_head = self.f_small = self.f_bold = None
-        st.configure('Primary.TButton', font=self.f_bold)
-        st.configure('Small.TButton', padding=(6, 1))
+            st.theme_use('clam')
+        except tk.TclError:
+            pass
+        f, body = typeface.font, typeface.BODY_SIZE
+        # what Tk draws itself (tabs, column heads) can't use the font files when typeface
+        # draws text as images (the Linux program): the best system font then
+        tk_font = f if typeface.MODE == 'native' else (lambda role, size: 'TkDefaultFont')
+        st.configure('.', background=SOOT, foreground=BONE, fieldbackground=PANEL2, bordercolor=LINE,
+                     lightcolor=LINE, darkcolor=LINE, troughcolor=PANEL, focuscolor=UMBER, arrowcolor=BONE,
+                     selectbackground=UMBER, selectforeground=PAPER, insertcolor=BONE)
+        st.map('.', foreground=[('disabled', MUTED)])
+        st.configure('TFrame', background=SOOT)
+        st.configure('TLabel', background=SOOT, foreground=BONE)
+        for name, fg, font in (('Muted', MUTED, None), ('Bad', BAD, None), ('Warn', WARN, None),
+                               ('Small', MUTED, f('body', body - 1)), ('SmallWarn', WARN, f('body', body - 1)),
+                               ('Bold', BONE, f('bold', body)), ('BoldBad', BAD, f('bold', body)),
+                               ('BoldWarn', WARN, f('bold', body)), ('Good', OK, f('bold', body)),
+                               ('Head', BONE, f('head', 22)), ('Frame', BONE, f('head', body + 1))):
+            st.configure(name + '.TLabel', background=SOOT, foreground=fg, **({'font': font} if font else {}))
+        st.configure('TLabelframe', background=SOOT, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE)
+        st.configure('TLabelframe.Label', background=SOOT, foreground=BONE, font=tk_font('head', body + 1))
+        st.configure('TButton', background=PANEL2, foreground=BONE, padding=(12, 5), borderwidth=1,
+                     font=f('head', body))
+        st.map('TButton', background=[('active', LINE), ('disabled', PANEL)], foreground=[('disabled', MUTED)])
+        st.configure('Primary.TButton', background=UMBER, foreground=PAPER, padding=(22, 6), font=f('head', body + 1))
+        st.map('Primary.TButton', background=[('active', UMBER_HI), ('disabled', PANEL)],
+               foreground=[('disabled', MUTED)])
+        st.configure('Small.TButton', padding=(8, 1), font=f('head', body - 1))
+        st.configure('TCheckbutton', background=SOOT, foreground=BONE, indicatorbackground=PANEL2,
+                     indicatorforeground=BONE)
+        st.map('TCheckbutton', background=[('active', SOOT)], foreground=[('disabled', MUTED)],
+               indicatorbackground=[('disabled', PANEL), ('pressed', LINE)])
+        st.configure('TEntry', foreground=BONE, fieldbackground=PANEL2, insertcolor=BONE, padding=3)
+        st.configure('TSpinbox', foreground=BONE, fieldbackground=PANEL2, background=PANEL2, arrowcolor=BONE,
+                     insertcolor=BONE)
+        st.configure('TCombobox', fieldbackground=PANEL2, foreground=BONE, background=PANEL2, arrowcolor=BONE)
+        # clam paints a read-only box light grey: keep it dark, and its list too
+        st.map('TCombobox', fieldbackground=[('readonly', PANEL2), ('disabled', PANEL)],
+               foreground=[('disabled', MUTED), ('readonly', BONE)], background=[('active', LINE)],
+               selectbackground=[('readonly', PANEL2)], selectforeground=[('readonly', BONE)])
+        for k, v in (('background', PANEL2), ('foreground', BONE), ('selectBackground', UMBER),
+                     ('selectForeground', PAPER)):
+            r.option_add('*TCombobox*Listbox.' + k, v)
+        st.configure('TNotebook', background=SOOT, bordercolor=LINE, tabmargins=(0, 2, 0, 0))
+        st.configure('TNotebook.Tab', background=PANEL, foreground=MUTED, bordercolor=LINE, padding=(14, 5),
+                     font=tk_font('head', body))
+        st.map('TNotebook.Tab', background=[('selected', PANEL2), ('active', LINE)],
+               foreground=[('selected', BONE), ('active', BONE)])
+        st.configure('Treeview', background=PANEL, fieldbackground=PANEL, foreground=BONE, bordercolor=LINE,
+                     rowheight=22)
+        st.configure('Treeview.Heading', background=PANEL2, foreground=BONE, bordercolor=LINE,
+                     font=tk_font('head', body))
+        st.map('Treeview.Heading', background=[('active', LINE)])
+        st.configure('Vertical.TScrollbar', background=PANEL2, troughcolor=PANEL, bordercolor=LINE,
+                     arrowcolor=MUTED)
+        st.map('Vertical.TScrollbar', background=[('active', LINE)])
+        st.configure('Horizontal.TProgressbar', background=UMBER, troughcolor=PANEL, bordercolor=LINE, thickness=14)
+        r.configure(background=SOOT)
+
+    def _frame(self, parent, text):
+        """A labelled frame whose title is in Umbra's heading face."""
+        lf = ttk.LabelFrame(parent, padding=(PAD, PAD // 2))
+        lf.configure(labelwidget=typeface.Label(lf, text=text, style='Frame.TLabel'))
+        return lf
+
+    def _image(self, name):
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', name)
+        try:
+            return tk.PhotoImage(master=self.root, file=p) if os.path.isfile(p) else None
+        except tk.TclError:
+            return None
 
     def _build(self):
         """Two tabs (Bake, Log) above the buttons and the progress bar, so it
@@ -176,11 +243,21 @@ class App:
         r = self.root
         r.columnconfigure(0, weight=1)
         r.rowconfigure(1, weight=1)
-        head = ttk.Frame(r, padding=(PAD * 2, PAD, PAD * 2, 0))
+        self._icons = [i for i in (self._image('umbra-icon-256.png'), self._image('umbra-icon-64.png')) if i]
+        if self._icons:
+            try:
+                r.iconphoto(True, *self._icons)
+            except tk.TclError:
+                pass
+        head = ttk.Frame(r, padding=(PAD * 2, PAD * 2, PAD * 2, 0))
         head.grid(row=0, column=0, sticky='ew')
-        ttk.Label(head, text='ZGO Setup', font=self.f_head).pack(side='left')
-        ttk.Label(head, text='  Bakes Zone Gore Overhaul\'s body models for your own mod list. '
-                             'Close the game before baking.').pack(side='left')
+        if len(self._icons) > 1:
+            ttk.Label(head, image=self._icons[1]).pack(side='left', padx=(0, PAD * 2))
+        titles = ttk.Frame(head)
+        titles.pack(side='left', fill='x')
+        typeface.Label(titles, text='UMBRA GORE & EFFECTS', style='Head.TLabel').pack(anchor='w')
+        typeface.Label(titles, text='Setup: bakes the body models for your own mod list. Close the game before baking.',
+                       style='Muted.TLabel').pack(anchor='w')
         self.nb = ttk.Notebook(r)
         self.nb.grid(row=1, column=0, sticky='nsew', padx=PAD * 2, pady=(PAD, 0))
         self.p_bake = Scrolled(self.nb)
@@ -194,16 +271,16 @@ class App:
         self.nb.bind('<<NotebookTabChanged>>', self._tab_changed)
 
         # ---- where
-        where = ttk.LabelFrame(page, text='Your game', padding=(PAD, PAD // 2))
+        where = self._frame(page, 'Your game')
         where.grid(row=0, column=0, sticky='ew')
         where.columnconfigure(1, weight=1)
         self.v_mo2, self.v_profile, self.v_game, self.v_mod = tk.StringVar(), tk.StringVar(), tk.StringVar(), tk.StringVar()
         rows = (('Mod Organizer 2 folder', self.v_mo2, self.pick_mo2),
                 ('MO2 profile', self.v_profile, None),
                 ('Game folder (Anomaly)', self.v_game, self.pick_game),
-                ('Zone Gore Overhaul folder', self.v_mod, self.pick_mod))
+                ('Umbra Gore & Effects folder', self.v_mod, self.pick_mod))
         for i, (label, var, pick) in enumerate(rows):
-            ttk.Label(where, text=label).grid(row=i, column=0, sticky='w', padx=(0, PAD), pady=1)
+            typeface.Label(where, text=label).grid(row=i, column=0, sticky='w', padx=(0, PAD), pady=1)
             if pick is None:
                 self.cb_profile = ttk.Combobox(where, textvariable=var, state='readonly', width=40)
                 self.cb_profile.grid(row=i, column=1, sticky='w', pady=1)
@@ -213,9 +290,9 @@ class App:
             e.grid(row=i, column=1, sticky='ew', pady=1)
             e.bind('<FocusOut>', lambda ev: self.paths_changed())
             e.bind('<Return>', lambda ev: self.paths_changed())
-            ttk.Button(where, text='Change...', style='Small.TButton', command=pick).grid(
+            typeface.Button(where, text='Change...', style='Small.TButton', command=pick).grid(
                 row=i, column=2, padx=(PAD, 0), pady=1)
-        self.l_problems = ttk.Label(where, text='', foreground='#b00020', wraplength=900, justify='left')
+        self.l_problems = typeface.Label(where, text='', style='Bad.TLabel', wraplength=900, justify='left')
         self.l_problems.grid(row=len(rows), column=0, columnspan=3, sticky='w')
         self.l_problems.grid_remove()
         where.bind('<Configure>', lambda e: self.l_problems.configure(wraplength=max(300, e.width - 3 * PAD)))
@@ -226,7 +303,7 @@ class App:
         mid.columnconfigure(0, weight=3)
         mid.columnconfigure(1, weight=2)
         mid.rowconfigure(0, weight=1)
-        what = ttk.LabelFrame(mid, text='What to bake', padding=(PAD, PAD // 2))
+        what = self._frame(mid, 'What to bake')
         what.grid(row=0, column=0, rowspan=2, sticky='nsew', padx=(0, PAD))
         what.columnconfigure(1, weight=1)
         self.v = {k: tk.BooleanVar(value=False) for k in core.Choices.FIELDS}
@@ -239,21 +316,20 @@ class App:
         # kid mode for particles on / off at once (only the ZGO folder changes; no bake needed)
         kf = ttk.Frame(what)
         kf.grid(row=row, column=1, sticky='w', padx=(PAD, 0), pady=(0, 3))
-        self.b_kid_apply = ttk.Button(kf, text='Apply now', style='Small.TButton', command=self.kidfx_apply)
-        self.b_kid_undo = ttk.Button(kf, text='Undo...', style='Small.TButton', command=self.kidfx_revert)
+        self.b_kid_apply = typeface.Button(kf, text='Apply now', style='Small.TButton', command=self.kidfx_apply)
+        self.b_kid_undo = typeface.Button(kf, text='Undo...', style='Small.TButton', command=self.kidfx_revert)
         self.b_kid_apply.pack(side='left')
         self.b_kid_undo.pack(side='left', padx=(PAD // 2, PAD))
-        self.l_kidfx = ttk.Label(kf, text='', font=self.f_small, foreground='#444444', wraplength=WRAP - 300,
-                                 justify='left')
+        self.l_kidfx = typeface.Label(kf, text='', style='Small.TLabel', wraplength=WRAP - 300, justify='left')
         self.l_kidfx.pack(side='left')
         row += 1
         # the experimental parts: folded away until asked for (or ticked last time)
         self.v_show_exp = tk.BooleanVar(value=False)
-        ttk.Checkbutton(what, text='Show the experimental parts (leave them off unless you are testing ZGO)',
+        typeface.Checkbutton(what, text='Show the experimental parts (leave them off unless you are testing Umbra Effects)',
                         variable=self.v_show_exp, command=self.show_experimental).grid(
             row=row, column=0, columnspan=2, sticky='w', pady=(PAD // 2, 0))
         row += 1
-        self.f_exp = ttk.LabelFrame(what, text='Experimental: not checked in the game yet', padding=(PAD, PAD // 2))
+        self.f_exp = self._frame(what, 'Experimental: not checked in the game yet')
         self.f_exp.grid(row=row, column=0, columnspan=2, sticky='ew', pady=(PAD // 2, 0))
         self.f_exp.columnconfigure(1, weight=1)
         erow = 0
@@ -263,19 +339,19 @@ class App:
         row += 1
         cores = ttk.Frame(what)
         cores.grid(row=row, column=0, columnspan=2, sticky='w', pady=(PAD // 2, 0))
-        ttk.Label(cores, text='CPU cores to use').pack(side='left')
+        typeface.Label(cores, text='CPU cores to use').pack(side='left')
         self.v_jobs = tk.IntVar(value=core.default_jobs())
         ttk.Spinbox(cores, from_=1, to=max(1, os.cpu_count() or 1), textvariable=self.v_jobs, width=4,
                     command=self.choices_changed).pack(side='left', padx=PAD)
-        ttk.Label(cores, text='(fewer keeps the computer responsive; each needs about 300 MB of memory)',
-                  font=self.f_small).pack(side='left')
+        typeface.Label(cores, text='(fewer keeps the computer responsive; each needs about 300 MB of memory)',
+                       style='Small.TLabel').pack(side='left')
         row += 1
-        self.l_estimate = ttk.Label(what, text='', wraplength=WRAP, justify='left', font=self.f_bold)
+        self.l_estimate = typeface.Label(what, text='', wraplength=WRAP, justify='left', style='Bold.TLabel')
         self.l_estimate.grid(row=row, column=0, columnspan=2, sticky='w', pady=(PAD // 2, 0))
         self._wrapped_for = None
         r.bind('<Configure>', lambda e: e.widget is r and self.root.after_idle(self._rewrap))
 
-        right = ttk.LabelFrame(mid, text='Models your mod list loads', padding=(PAD, PAD // 2))
+        right = self._frame(mid, 'Models your mod list loads')
         right.grid(row=0, column=1, sticky='nsew')
         right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
@@ -288,14 +364,14 @@ class App:
         sb = ttk.Scrollbar(right, orient='vertical', command=self.tree.yview)
         sb.grid(row=0, column=1, sticky='ns')
         self.tree.configure(yscrollcommand=sb.set)
-        self.tree.tag_configure('over', foreground='#b00020')
+        self.tree.tag_configure('over', foreground=BAD)
 
-        stat = ttk.LabelFrame(mid, text='Your bake', padding=(PAD, PAD // 2))
+        stat = self._frame(mid, 'Your bake')
         stat.grid(row=1, column=1, sticky='nsew', pady=(PAD, 0))
         stat.columnconfigure(0, weight=1)
-        self.l_head = ttk.Label(stat, text='', font=self.f_bold, wraplength=340, justify='left')
+        self.l_head = typeface.Label(stat, text='', style='Bold.TLabel', wraplength=340, justify='left')
         self.l_head.grid(row=0, column=0, sticky='w')
-        self.l_reasons = ttk.Label(stat, text='', wraplength=340, justify='left')
+        self.l_reasons = typeface.Label(stat, text='', wraplength=340, justify='left')
         self.l_reasons.grid(row=1, column=0, sticky='w')
         stat.bind('<Configure>', lambda e: [w.configure(wraplength=max(200, e.width - 2 * PAD - 4))
                                             for w in (self.l_head, self.l_reasons)])
@@ -303,33 +379,41 @@ class App:
         # ---- the log (its own tab)
         self.p_log.columnconfigure(0, weight=1)
         self.p_log.rowconfigure(0, weight=1)
-        self.t_log = ScrolledText(self.p_log, height=10, wrap='word', state='disabled')
+        self.t_log = ScrolledText(self.p_log, height=10, wrap='word', state='disabled', bg=PANEL, fg=BONE,
+                                  insertbackground=BONE, selectbackground=UMBER, selectforeground=PAPER,
+                                  relief='flat', borderwidth=0, highlightthickness=1, highlightbackground=LINE,
+                                  highlightcolor=LINE, padx=8, pady=6)
+        try:
+            self.t_log.vbar.configure(bg=PANEL2, troughcolor=PANEL, activebackground=LINE, highlightthickness=0,
+                                      borderwidth=0, relief='flat')
+        except (tk.TclError, AttributeError):
+            pass
         self.t_log.grid(row=0, column=0, sticky='nsew')
-        self.t_log.tag_configure('warn', foreground='#b35c00')
-        self.t_log.tag_configure('error', foreground='#b00020')
+        self.t_log.tag_configure('warn', foreground=WARN)
+        self.t_log.tag_configure('error', foreground=BAD)
         lb = ttk.Frame(self.p_log)
         lb.grid(row=1, column=0, sticky='w', pady=(PAD // 2, 0))
-        ttk.Button(lb, text='Save log...', command=self.save_log).pack(side='left')
-        ttk.Button(lb, text='Copy log', command=self.copy_log).pack(side='left', padx=PAD)
-        self.l_logpath = ttk.Label(lb, text=('Also written to %s' % self.log.path) if self.log.path else '',
-                                   font=self.f_small)
+        typeface.Button(lb, text='Save log...', command=self.save_log).pack(side='left')
+        typeface.Button(lb, text='Copy log', command=self.copy_log).pack(side='left', padx=PAD)
+        self.l_logpath = typeface.Label(lb, text=('Also written to %s' % self.log.path) if self.log.path else '',
+                                        style='Small.TLabel')
         self.l_logpath.pack(side='left')
 
         # ---- buttons + progress (always in view)
         act = ttk.Frame(r, padding=(PAD * 2, PAD, PAD * 2, PAD))
         act.grid(row=2, column=0, sticky='ew')
         act.columnconfigure(5, weight=1)
-        self.b_bake = ttk.Button(act, text='Bake', style='Primary.TButton', command=self.bake)
-        self.b_check = ttk.Button(act, text='Check if my bake is up to date', command=self.check)
-        self.b_remove = ttk.Button(act, text='Remove bake', command=self.remove)
-        self.b_cancel = ttk.Button(act, text='Cancel', command=self.cancel, state='disabled')
-        self.b_props_only = ttk.Button(act, text='Cut props only', command=self.bake_props)
+        self.b_bake = typeface.Button(act, text='Bake', style='Primary.TButton', command=self.bake)
+        self.b_check = typeface.Button(act, text='Check if my bake is up to date', command=self.check)
+        self.b_remove = typeface.Button(act, text='Remove bake', command=self.remove)
+        self.b_cancel = typeface.Button(act, text='Cancel', command=self.cancel, state='disabled')
+        self.b_props_only = typeface.Button(act, text='Cut props only', command=self.bake_props)
         for i, b in enumerate((self.b_bake, self.b_check, self.b_remove, self.b_cancel)):
             b.grid(row=0, column=i, padx=(0, PAD))
         self.b_props_only.grid(row=0, column=6, sticky='e')
         self.progress = ttk.Progressbar(act, mode='determinate', maximum=1000)
         self.progress.grid(row=1, column=0, columnspan=7, sticky='ew', pady=(PAD // 2, 0))
-        self.l_progress = ttk.Label(act, text='Ready.')
+        self.l_progress = typeface.Label(act, text='Ready.')
         self.l_progress.grid(row=2, column=0, columnspan=7, sticky='w')
 
     def _tab_changed(self, event=None):
@@ -375,20 +459,19 @@ class App:
 
     def _check(self, parent, key, row):
         """A tick box with its explanation beside it."""
-        cb = ttk.Checkbutton(parent, text=LABEL[key], variable=self.v[key],
+        cb = typeface.Checkbutton(parent, text=LABEL[key], variable=self.v[key],
                              command=lambda k=key: self.on_tick(k))
         cb.grid(row=row, column=0, sticky='nw', pady=(0, 3))
         if key == 'models':
             cb.state(['disabled'])
         self.checks[key] = cb
-        lab = ttk.Label(parent, text=EXPLAIN[key], wraplength=WRAP - 120, justify='left', font=self.f_small,
-                        foreground='#444444')
+        lab = typeface.Label(parent, text=EXPLAIN[key], wraplength=WRAP - 120, justify='left', style='Small.TLabel')
         lab.grid(row=row, column=1, sticky='nw', padx=(PAD, 0), pady=(2, 3))
         self._explain.append((lab, cb))
         return row + 1
 
-    def set_problems(self, text, colour='#b00020'):
-        self.l_problems.configure(text=text, foreground=colour)
+    def set_problems(self, text, style='Bad.TLabel'):
+        self.l_problems.configure(text=text, style=style)
         if text:
             self.l_problems.grid()
         else:
@@ -505,7 +588,7 @@ class App:
                 self.say(core.friendly(e), 'error')
         if self.tools is None:
             self.v_mod.set(mod_root or '')
-            self.set_problems('Choose the Zone Gore Overhaul folder (inside your MO2 "mods" folder) '
+            self.set_problems('Choose the Umbra Gore & Effects folder (inside your MO2 "mods" folder) '
                               'with the "Change..." button next to it.')
             self.set_buttons()
             return
@@ -570,12 +653,12 @@ class App:
             self.paths_changed()
 
     def pick_mod(self):
-        d = filedialog.askdirectory(title='Choose the Zone Gore Overhaul folder (inside MO2\'s "mods" folder)',
+        d = filedialog.askdirectory(title='Choose the Umbra Gore & Effects folder (inside MO2\'s "mods" folder)',
                                     initialdir=self.v_mod.get() or None, mustexist=True)
         if d:
             if self.tools and os.path.normcase(os.path.abspath(d)) != os.path.normcase(self.tools.mod):
-                messagebox.showinfo('ZGO Setup', 'Close ZGO Setup and start it again from that folder '
-                                                 '(tools/zgo_setup) to switch to another copy of ZGO.')
+                messagebox.showinfo('Umbra Effects Setup', 'Close Umbra Effects Setup and start it again from that folder '
+                                                 '(tools/zgo_setup) to switch to another copy of Umbra Effects.')
                 return
             self.set_mod(os.path.normpath(d))
 
@@ -584,7 +667,7 @@ class App:
             return
         bad = core.problems(self.tools, self.paths())
         warn = core.warnings(self.tools, self.paths()) if not bad else []
-        self.set_problems('\n'.join(bad + warn), '#b00020' if bad else '#b35c00')
+        self.set_problems('\n'.join(bad + warn), 'Bad.TLabel' if bad else 'Warn.TLabel')
         for w in warn:
             if w not in self._warned:
                 self._warned.add(w)
@@ -599,7 +682,7 @@ class App:
 
     def on_tick(self, key):
         if key == 'experimental_damage' and self.v[key].get():
-            if not messagebox.askyesno('ZGO Setup', 'Damage meshes make the bake about ten times larger (25-30 GB) '
+            if not messagebox.askyesno('Umbra Effects Setup', 'Damage meshes make the bake about ten times larger (25-30 GB) '
                                                     'and take about an hour. Nothing in the game uses them yet; they '
                                                     'are only for testing. Tick it anyway?', icon='warning'):
                 self.v[key].set(False)
@@ -652,7 +735,7 @@ class App:
             text += '\n' + n
         for s in core.space_problems(p):
             text += '\n' + s
-        self.l_estimate.configure(text=text, foreground='#b00020' if core.space_problems(p) else '')
+        self.l_estimate.configure(text=text, style='BoldBad.TLabel' if core.space_problems(p) else 'Bold.TLabel')
         self.refit()
         self.tree.delete(*self.tree.get_children())
         over = dict(p.overrides)
@@ -661,7 +744,7 @@ class App:
         for name, n in p.overrides:
             self.tree.insert('', 0, text='%s replaces %d baked models (load order)' % (name, n), values=(n,), tags=('over',))
         if over:
-            self.say('Load order: %s load after ZGO and replace some of its baked models. In MO2, drag ZGO below '
+            self.say('Load order: %s load after Umbra Effects and replace some of its baked models. In MO2, drag Umbra Gore & Effects below '
                      'them in the left pane.' % ', '.join('"%s"' % m for m in over), 'warn')
 
     # ------------------------------------------------------------ check
@@ -713,7 +796,7 @@ class App:
 
     def refresh_kidfx(self):
         """The kid-mode particle line beside Apply now / Undo (it needs only
-        the ZGO folder, so it shows before MO2 and the game are set)."""
+        the Umbra Effects folder, so it shows before MO2 and the game are set)."""
         if self.tools is None or core.kidfx_for(self.tools, self.paths()) is None:
             self.show_kidfx('none')
             return
@@ -731,14 +814,14 @@ class App:
         self.kid_state = state
         try:
             self.l_kidfx.configure(text=KID_STATE.get(state, ''),
-                                   foreground='#b35c00' if state == 'stale' else '#444444')
+                                   style='SmallWarn.TLabel' if state == 'stale' else 'Small.TLabel')
         except (tk.TclError, AttributeError):
             pass
 
     def show_status(self, st):
         self.refit()
         self.status = st
-        self.l_head.configure(text=st.headline, foreground=STATE_COLOUR.get(st.state, ''))
+        self.l_head.configure(text=st.headline, style=STATE_STYLE.get(st.state, 'Bold.TLabel'))
         lines = ['- ' + r for r in st.reasons[:8]]
         if len(st.reasons) > 8:
             lines.append('- ... and %d more (see the log)' % (len(st.reasons) - 8))
@@ -754,14 +837,14 @@ class App:
         paths, choices = self.paths(), self.choices()
         bad = core.problems(self.tools, paths)
         if bad:
-            messagebox.showerror('ZGO Setup', bad[0])
+            messagebox.showerror('Umbra Effects Setup', bad[0])
             return
         if self.plan:
             space = core.space_problems(self.plan)
-            if space and not messagebox.askyesno('ZGO Setup', space[0] + '\n\nBake anyway?', icon='warning'):
+            if space and not messagebox.askyesno('Umbra Effects Setup', space[0] + '\n\nBake anyway?', icon='warning'):
                 return
         exp = [LABEL[k] for k in ('experimental_caps', 'experimental_damage', 'experimental_props') if getattr(choices, k)]
-        if exp and not messagebox.askyesno('ZGO Setup', 'You ticked experimental parts:\n\n  %s\n\nThey change models '
+        if exp and not messagebox.askyesno('Umbra Effects Setup', 'You ticked experimental parts:\n\n  %s\n\nThey change models '
                                                         'every NPC or object uses and are not checked in the game yet. '
                                                         'Bake with them?' % '\n  '.join(exp), icon='warning'):
             return
@@ -775,10 +858,10 @@ class App:
     def remove(self):
         if self.busy or self.tools is None:
             return
-        if not messagebox.askyesno('ZGO Setup', 'Remove every file the bake wrote into the ZGO folder (body models, '
+        if not messagebox.askyesno('Umbra Effects Setup', 'Remove every file the bake wrote into the Umbra Effects folder (body models, '
                                                 'caps, pieces, the index, the props pieces and the copies of other '
                                                 "mods' gory particle effects)?\n\nThe game then uses the original "
-                                                'models again, and ZGO falls back to cutting without baked models. '
+                                                'models again, and Umbra Effects falls back to cutting without baked models. '
                                                 'You can bake again at any time.', icon='question'):
             return
         self.start_job('remove', self.paths(), self.choices())
@@ -793,11 +876,11 @@ class App:
         """The escape hatch: every particle effect back to the game's own shaders."""
         if self.busy or self.tools is None or core.kidfx_for(self.tools, self.paths()) is None:
             return
-        if not messagebox.askyesno('ZGO Setup', "Set every particle effect back to the game's own particle "
+        if not messagebox.askyesno('Umbra Effects Setup', "Set every particle effect back to the game's own particle "
                                                 'shaders?\n\nUse this if particles look wrong, or the game has '
-                                                'trouble starting, since you installed ZGO. Kid mode then cannot hide '
+                                                'trouble starting, since you installed Umbra Effects. Kid mode then cannot hide '
                                                 'blood and gore particles that are already flying, or the blood other '
-                                                'mods play (knife hits, anomalies). It still stops new blood from ZGO.'
+                                                'mods play (knife hits, anomalies). It still stops new blood from Umbra Effects.'
                                                 '\n\n"Apply now" (or a bake with "Kid mode for particles" ticked) '
                                                 'turns it back on. The game picks the change up the next time it '
                                                 'starts.', icon='question'):
@@ -811,7 +894,7 @@ class App:
             core.kidfx_for(self.tools, paths) is not None
         self.say({'bake': 'Baking for profile "%s"...' % paths.profile, 'remove': 'Removing the bake...',
                   'props': 'Cutting props...',
-                  'kidfx_apply': "Kid mode for particles: pointing gory effects at ZGO's particle shaders...",
+                  'kidfx_apply': "Kid mode for particles: pointing gory effects at Umbra Effects' particle shaders...",
                   'kidfx_revert': "Kid mode for particles: setting every effect back to the game's own shaders..."}[action])
         try:
             self.job = core.Job(self.tools, action, paths, choices).start()
@@ -819,7 +902,7 @@ class App:
             self.busy = None
             self.job = None
             self.say('Could not start: %s' % core.friendly(e), 'error')
-            messagebox.showerror('ZGO Setup', core.friendly(e))
+            messagebox.showerror('Umbra Effects Setup', core.friendly(e))
             self.set_buttons()
             return
         self._t_job = time.time()
@@ -877,7 +960,7 @@ class App:
                     text += '\n\nKid mode for particles was not updated for your mod list: %s' % s['kidfx_error']
                 text += '\n\nStart the game through MO2 as usual.'
                 if not self.closing:
-                    messagebox.showinfo('ZGO Setup', text)
+                    messagebox.showinfo('Umbra Effects Setup', text)
             elif action in ('kidfx_apply', 'kidfx_revert'):
                 # what a later bake does follows what was just chosen (as last_choices does)
                 self.v['kid_particles'].set(action == 'kidfx_apply')
@@ -898,7 +981,7 @@ class App:
                 if wl.strip():
                     self.log('worker output:\n' + wl, 'error')
             if not self.closing:
-                messagebox.showerror('ZGO Setup', ev.get('msg', 'The bake stopped.'))
+                messagebox.showerror('Umbra Effects Setup', ev.get('msg', 'The bake stopped.'))
         self.set_buttons()
         if self.closing:
             self.root.destroy()
@@ -918,7 +1001,7 @@ class App:
 
     # ------------------------------------------------------------ log buttons, closing
     def save_log(self):
-        p = filedialog.asksaveasfilename(title='Save the ZGO Setup log', defaultextension='.txt',
+        p = filedialog.asksaveasfilename(title='Save the Umbra Effects Setup log', defaultextension='.txt',
                                          initialfile='zgo_setup_log.txt', filetypes=[('Text', '*.txt')])
         if p:
             try:
@@ -926,7 +1009,7 @@ class App:
                     f.write(self.log.text())
                 self.say('Log saved to %s' % p)
             except OSError as e:
-                messagebox.showerror('ZGO Setup', core.friendly(e))
+                messagebox.showerror('Umbra Effects Setup', core.friendly(e))
 
     def copy_log(self):
         self.root.clipboard_clear()
@@ -935,7 +1018,7 @@ class App:
 
     def on_close(self):
         if self.job is not None:
-            if not messagebox.askyesno('ZGO Setup', 'A %s is running. Stop it and close? (If it is already '
+            if not messagebox.askyesno('Umbra Effects Setup', 'A %s is running. Stop it and close? (If it is already '
                                                     'installing, it finishes that first.)'
                                        % BUSY_TEXT.get(self.busy, self.busy)):
                 return

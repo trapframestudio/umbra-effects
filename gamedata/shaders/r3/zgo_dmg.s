@@ -1,4 +1,4 @@
--- Zone Gore Overhaul: the wound shader zgo\dmg (PLAN Phase C, zgo_wounds.script)
+-- Umbra Gore & Effects: the wound shader zgo\dmg (PLAN Phase C, zgo_wounds.script)
 --
 --   npc:set_shader(D, "zgo\\dmg", "<base>,zgo_dmg_<12 hex>[_<bump>]", false)
 --

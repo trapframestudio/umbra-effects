@@ -1,4 +1,4 @@
-// Zone Gore Overhaul: the wound shader zgo\dmg (PLAN Phase C), shared code.
+// Umbra Gore & Effects: the wound shader zgo\dmg (PLAN Phase C), shared code.
 //
 // Drawn only on a baked damage mesh D_s (bake.py --experimental-damage,
 // docs/formats/damage.md) that zgo_wounds switched on in place of its intact

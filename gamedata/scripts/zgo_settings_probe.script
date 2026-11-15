@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - options of the probe workstream (zgo_probe):
+  Umbra Gore & Effects - options of the probe workstream (zgo_probe):
   the "Diagnostics" page, shown only while General -> Debug log is ticked.
   Data only; zgo_settings merges it into the menu (format: zgo_settings.script).
 
@@ -12,8 +12,8 @@ SETTINGS = {
 		page = "diagnostics", coop = "local", show_if = "general/debug",
 		name = { "Diagnostics", "Диагностика" },
 		note = {
-			{ "Smoke tests for engine features that later versions of ZGO will rely on. Each button starts one probe as soon as you close the menu. It writes PASS, FAIL or MANUAL (judge it by eye) to the log and to appdata\\zgo_probe_report.txt, shows on screen what to look for, and puts back everything it changed. A probe that needs something near you (a body, an NPC, a loose object) says so when there is none. Send the report file along with a bug report.",
-			  "Проверки возможностей движка, на которые будут опираться следующие версии ZGO. Каждая кнопка запускает одну проверку, как только вы закроете меню. Результат PASS, FAIL или MANUAL (оценить на глаз) пишется в лог и в файл appdata\\zgo_probe_report.txt, на экране показано, на что смотреть, а всё изменённое возвращается как было. Если проверке нужно что-то рядом с вами (труп, NPC, незакреплённый предмет), а этого нет, она так и скажет. Приложите файл отчёта к сообщению об ошибке." },
+			{ "Smoke tests for engine features that later versions of Umbra Effects will rely on. Each button starts one probe as soon as you close the menu. It writes PASS, FAIL or MANUAL (judge it by eye) to the log and to appdata\\zgo_probe_report.txt, shows on screen what to look for, and puts back everything it changed. A probe that needs something near you (a body, an NPC, a loose object) says so when there is none. Send the report file along with a bug report.",
+			  "Проверки возможностей движка, на которые будут опираться следующие версии Umbra Effects. Каждая кнопка запускает одну проверку, как только вы закроете меню. Результат PASS, FAIL или MANUAL (оценить на глаз) пишется в лог и в файл appdata\\zgo_probe_report.txt, на экране показано, на что смотреть, а всё изменённое возвращается как было. Если проверке нужно что-то рядом с вами (труп, NPC, незакреплённый предмет), а этого нет, она так и скажет. Приложите файл отчёта к сообщению об ошибке." },
 		},
 		items = {
 			{ id = "hold", type = "track", min = 2, max = 30, step = 1, def = 6,
@@ -22,8 +22,8 @@ SETTINGS = {
 			           "Сколько секунд проверки, меняющие что-то на экране (шейдер, модель, детский режим), держат изменение, прежде чем вернуть всё как было, чтобы вы успели рассмотреть." } },
 			{ id = "experimental", type = "check", def = false,
 			  name = { "Allow the experimental probes (experimental)", "Разрешить экспериментальные проверки (экспериментально)" },
-			  desc = { "Probes 1, 2, 3 and 7 put ZGO's own shaders on bodies or swap a loose object's model: engine paths nobody has checked in the game yet. If one of the shaders does not compile, the game closes, so save first. Tick this, press Accept and open the menu again to see their buttons.",
-			           "Проверки 1, 2, 3 и 7 ставят на тела собственные шейдеры ZGO или подменяют модель незакреплённого предмета: эти пути движка в игре ещё никто не проверял. Если шейдер не скомпилируется, игра закроется, поэтому сначала сохранитесь. Отметьте, нажмите «Принять» и откройте меню заново, чтобы увидеть их кнопки." } },
+			  desc = { "Probes 1, 2, 3 and 7 put Umbra Effects' own shaders on bodies or swap a loose object's model: engine paths nobody has checked in the game yet. If one of the shaders does not compile, the game closes, so save first. Tick this, press Accept and open the menu again to see their buttons.",
+			           "Проверки 1, 2, 3 и 7 ставят на тела собственные шейдеры Umbra Effects или подменяют модель незакреплённого предмета: эти пути движка в игре ещё никто не проверял. Если шейдер не скомпилируется, игра закроется, поэтому сначала сохранитесь. Отметьте, нажмите «Принять» и откройте меню заново, чтобы увидеть их кнопки." } },
 			{ id = "run_all", type = "button", action = "zgo_probe.run_all",
 			  name = { "Run all safe probes", "Запустить все безопасные проверки" },
 			  desc = { "Runs probes 9, 4, 8 and 6 one after another (baked models, FFI, kid mode lane, co-op), then writes a summary. None of them leaves anything changed; probe 8 hides blood for a few seconds.",
@@ -34,8 +34,8 @@ SETTINGS = {
 			           "Встаньте в 3-10 м от живого NPC и трупа. На несколько секунд ставит шейдер zgo\\off на одну часть (обычно голову) каждого: часть и её тень должны чисто исчезнуть, без растянутой кожи, и вернуться. В детском режиме вместо этого исчезает всё тело." } },
 			{ id = "dmg_shader", type = "button", action = "zgo_probe.run_dmg_shader", show_if = "diagnostics/experimental",
 			  name = { "2. Pass-through shader (experimental, save first)", "2. Сквозной шейдер (экспериментально, сначала сохранитесь)" },
-			  desc = { "Stand near several different NPCs or mutants (a base is ideal). For a few seconds their bodies are drawn with ZGO's copy of the game's skinned-model shader, chosen so all four skinning formats are covered: they must look exactly as before, shadows and motion included. The game closes if the shader does not compile.",
-			           "Встаньте рядом с несколькими разными NPC или мутантами (лучше всего на базе). На несколько секунд их тела рисуются копией шейдера моделей игры от ZGO, подобранной так, чтобы покрыть все четыре формата скиннинга: они должны выглядеть точно как раньше, включая тени и движение. Если шейдер не скомпилируется, игра закроется." } },
+			  desc = { "Stand near several different NPCs or mutants (a base is ideal). For a few seconds their bodies are drawn with Umbra Effects' copy of the game's skinned-model shader, chosen so all four skinning formats are covered: they must look exactly as before, shadows and motion included. The game closes if the shader does not compile.",
+			           "Встаньте рядом с несколькими разными NPC или мутантами (лучше всего на базе). На несколько секунд их тела рисуются копией шейдера моделей игры от Umbra Effects, подобранной так, чтобы покрыть все четыре формата скиннинга: они должны выглядеть точно как раньше, включая тени и движение. Если шейдер не скомпилируется, игра закроется." } },
 			{ id = "digits", type = "button", action = "zgo_probe.run_digits", show_if = "diagnostics/experimental",
 			  name = { "3. Digit textures (experimental, save first)", "3. Текстуры-цифры (экспериментально, сначала сохранитесь)" },
 			  desc = { "Stand near two or three NPCs. For a few seconds each one gets its own number through the shader's textures: their torsos turn red, green and blue. Magenta or a missing torso means the numbers did not arrive. The game closes if the shader does not compile.",
@@ -50,8 +50,8 @@ SETTINGS = {
 			           "Встаньте рядом с телами с отрезанными частями. Нажмите, закройте меню, сохраните игру, загрузите это сохранение и подождите 8 секунд: проверка убедится, что каждое записанное тело вернулось с теми же недостающими частями и на том же месте." } },
 			{ id = "coop", type = "button", action = "zgo_probe.run_coop",
 			  name = { "6. Co-op: compare machines", "6. Кооператив: сравнить компьютеры" },
-			  desc = { "In co-op, stand near some bodies (cut up is best). The host compares what every player's game shows of them (missing parts, ZGO shaders, gib and decal counts) and reports a match or mismatch per player. On a client the button asks the host. In single player it shows this machine's numbers only.",
-			           "В кооперативе встаньте рядом с телами (лучше разрезанными). Хост сравнивает, что показывает игра каждого игрока (недостающие части, шейдеры ZGO, число ошмётков и следов), и сообщает совпадение или расхождение по каждому. На клиенте кнопка просит хоста. В одиночной игре показывает только данные этого компьютера." } },
+			  desc = { "In co-op, stand near some bodies (cut up is best). The host compares what every player's game shows of them (missing parts, Umbra Effects shaders, gib and decal counts) and reports a match or mismatch per player. On a client the button asks the host. In single player it shows this machine's numbers only.",
+			           "В кооперативе встаньте рядом с телами (лучше разрезанными). Хост сравнивает, что показывает игра каждого игрока (недостающие части, шейдеры Umbra Effects, число ошмётков и следов), и сообщает совпадение или расхождение по каждому. На клиенте кнопка просит хоста. В одиночной игре показывает только данные этого компьютера." } },
 			{ id = "props", type = "button", action = "zgo_probe.run_props", show_if = "diagnostics/experimental",
 			  name = { "7. Props: swap a model (experimental)", "7. Предметы: подмена модели (экспериментально)" },
 			  desc = { "Single player. Stand next to a small loose object (bottle, can, small box). Swaps its model for another small one for a few seconds, then back: push it meanwhile, the new model must move with it. A save made meanwhile is put right when it is loaded.",
@@ -62,8 +62,8 @@ SETTINGS = {
 			           "На несколько секунд включает детский режим только для шейдеров крови и проверяет, что канал zgo_view шины шейдеров меняется 0, 1, 0: кровь на стенах и телах должна исчезнуть и вернуться. Больше ничего не меняется. Пропускается, пока детский режим включён." } },
 			{ id = "baked", type = "button", action = "zgo_probe.run_baked",
 			  name = { "9. Baked models in use", "9. Используются ли запечённые модели" },
-			  desc = { "Stand near a few NPCs. Compares the number of parts their models have in the game with ZGO's bake: finds models another mod overrides (fix: ZGO higher in MO2, or bake again) and models the game loaded before the bake (fix: restart the game). Changes nothing.",
-			           "Встаньте рядом с несколькими NPC. Сравнивает число частей их моделей в игре с запеканием ZGO: находит модели, которые перекрывает другой мод (исправить: ZGO выше в MO2 или запечь заново), и модели, загруженные игрой до запекания (исправить: перезапустить игру). Ничего не меняет." } },
+			  desc = { "Stand near a few NPCs. Compares the number of parts their models have in the game with Umbra Effects' bake: finds models another mod overrides (fix: Umbra Gore & Effects higher in MO2, or bake again) and models the game loaded before the bake (fix: restart the game). Changes nothing.",
+			           "Встаньте рядом с несколькими NPC. Сравнивает число частей их моделей в игре с запеканием Umbra Effects: находит модели, которые перекрывает другой мод (исправить: Umbra Gore & Effects выше в MO2 или запечь заново), и модели, загруженные игрой до запекания (исправить: перезапустить игру). Ничего не меняет." } },
 			{ id = "mark_ok", type = "button", action = "zgo_probe.mark_ok",
 			  name = { "The last probe looked right", "Последняя проверка выглядела правильно" },
 			  desc = { "For the probes you judge by eye: adds a line to the report saying the last one looked as described.",

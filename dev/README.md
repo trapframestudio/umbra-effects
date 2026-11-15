@@ -17,7 +17,7 @@ for the mesh baker, LuaJIT for the tests, Wine to run Windows builds).
 |---|---|
 | `test-all.sh` | every test suite in both model modes over several seeds (`SEEDS="2 9" dev/test-all.sh` to choose) |
 | `gen_mcm_text.lua` | writes the MCM string tables (eng, rus) from `zgo_settings.script`; `--check` tells whether they are current (the settings test runs it) |
-| `package.py` | builds `~/Desktop/Zone Gore Overhaul <version>.zip` without dev tooling, tests, docs or baked models |
+| `package.py` | builds `~/Desktop/Umbra Gore & Effects <version>.zip` without dev tooling, tests, docs or baked models |
 
 ## Rules for new features
 

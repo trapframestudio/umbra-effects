@@ -102,7 +102,7 @@ All the files below are new.
 @@ -520,6 +520,10 @@
  	local reg = b.try_register or b.register
  	local ok, err = false, "no register function"
- 	if reg then ok, err = pcall(reg, LANE, "Zone Gore Overhaul", "x = 1: kid mode, the blood shaders draw nothing") end
+ 	if reg then ok, err = pcall(reg, LANE, "Umbra Gore & Effects", "x = 1: kid mode, the blood shaders draw nothing") end
 +	-- register/try_register return the write token (nil: another owner holds the id)
 +	if ok then
 +		if err ~= nil and err ~= false then lane_token = err else ok, err = false, "the id belongs to " .. tostring(b.owner_of and select(2, pcall(b.owner_of, LANE))) end
@@ -258,7 +258,7 @@ This is a script for the user. Allow about 20 minutes. Probes 2 and 3 can close 
 
 **Setup**
 1. Start the game with ZGO enabled and load a save at a base with several stalkers. Cordon's village or the Rookie Village works well.
-2. Open MCM → Zone Gore Overhaul → General, tick **Debug log**, press **Accept** and close the menu. Reopen MCM: a **Diagnostics** page is now there.
+2. Open MCM → Umbra Gore & Effects → General, tick **Debug log**, press **Accept** and close the menu. Reopen MCM: a **Diagnostics** page is now there.
 3. Expected file: `appdata\zgo_probe_report.txt` in the Anomaly folder. Under Mod Organizer it may land in MO2's `overwrite\appdata\` instead; the summary line of "Run all" prints the full path. Every probe also writes `[ZGO probe]` lines to `appdata\logs\xray_<user>.log`.
 
 **Safe probes**

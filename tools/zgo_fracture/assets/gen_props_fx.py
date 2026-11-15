@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Writes the props particle effects (gamedata/particles/zgo/props/*.pe) as
-tuned copies of effects ZGO already ships (srbd debris, sparks and dust
-clouds, ZGO's droplet jet): colour, count, size, speed and lifetime change;
+tuned copies of effects Umbra Effects already ships (srbd debris, sparks and dust
+clouds, Umbra Effects' droplet jet): colour, count, size, speed and lifetime change;
 textures and shaders stay the templates' own (the kid-mode workstream owns
 shader lines; these effects are environmental and never need its swap).
 

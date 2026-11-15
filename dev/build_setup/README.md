@@ -1,6 +1,6 @@
-# Building and testing ZGO Setup
+# Building and testing Umbra Effects Setup
 
-ZGO Setup is `tools/zgo_setup` (`zgo_setup.py` entry point, `setup_core.py`
+Umbra Effects Setup is `tools/zgo_setup` (`zgo_setup.py` entry point, `setup_core.py`
 logic, `setup_gui.py` window). It runs from source with Python 3.8+, numpy and
 tkinter; the ready-made programs bundle Python, numpy and tkinter only. They
 always run the `.py` files of the ZGO folder they sit in (the spec leaves
@@ -8,6 +8,22 @@ ZGO's own modules out of the bundle), so a ZGO update that changes the baker or
 the window needs **no** rebuild; rebuild only for a new Python, numpy or
 PyInstaller, or when the tools start using a standard-library module the
 bundle lacks (`--selftest` imports every module and says so).
+
+## Umbra's look
+
+The window wears Umbra's look: its colours, its icon, and its typefaces (Tektur
+Narrow for headings and buttons, Play for text; SIL OFL, licences beside them).
+`umbra_assets.py` copies them from the Umbra repo (`$UMBRA_REPO`, else a folder
+named `umbra` next to this repo) into `tools/zgo_setup`: `assets/` (icon PNGs,
+fonts) and the font code `typeface.py` and `ttf.py` (Umbra's, with the import
+and the font folder adjusted). The Linux program's Tk (python-build-standalone)
+has no Xft and draws only X's core bitmap fonts, so `typeface.py` draws the
+labels', buttons' and tick boxes' text from the font files into images; on
+Windows the fonts are registered privately for the program. `build.sh` runs
+`umbra_assets.py --if-found` first; without the Umbra repo it builds from the
+committed copies. Change these files in Umbra, never here; `umbra_assets.py
+--check` says whether the copies still match. The Windows program gets the icon
+and version information (product "Umbra Gore & Effects") from the spec.
 
 ## Tests
 
@@ -23,7 +39,7 @@ bundle lacks (`--selftest` imports every module and says so).
 | `TestLauncher` | `zgo-setup.sh`: program, python3 fallback, message |
 | `TestWindow` | the window driven by `gui_driver.py` on a 1366x768 virtual display (needs tkinter and `xvfb-run`) |
 | `FrozenLinux` | the same end-to-end tests against `tools/zgo_setup/zgo-setup-linux` (or `ZGO_SETUP_BIN`) |
-| `WindowsUnderWine` | `ZGO Setup.exe --selftest` and a bake under Wine (`ZGO_TEST_WINE=1`) |
+| `WindowsUnderWine` | `Umbra Effects Setup.exe --selftest` and a bake under Wine (`ZGO_TEST_WINE=1`) |
 
 The host Python on the dev machine has no tkinter: run the window tests in the
 container (`dev/run.sh python3 -m unittest discover -s dev/build_setup -p 'test_*.py'`).
@@ -32,7 +48,7 @@ container (`dev/run.sh python3 -m unittest discover -s dev/build_setup -p 'test_
 ## Building
 
     dev/build_setup/build.sh linux      # tools/zgo_setup/zgo-setup-linux
-    dev/build_setup/build.sh windows    # tools/zgo_setup/ZGO Setup.exe (under Wine)
+    dev/build_setup/build.sh windows    # tools/zgo_setup/Umbra Effects Setup.exe (under Wine)
     dev/build_setup/build.sh local      # quick test build with this machine's python3
 
 | Input | Pin |
@@ -75,4 +91,4 @@ On Windows without Wine: install Python 3.12.10 (64-bit, with tcl/tk), then
     py -3.12 -m venv venv
     venv\Scripts\python -m pip install --require-hashes --only-binary :all: -r dev\build_setup\requirements.txt
     venv\Scripts\python -m PyInstaller --noconfirm --clean dev\build_setup\zgo_setup.spec
-    copy "dist\ZGO Setup.exe" tools\zgo_setup\
+    copy "dist\Umbra Effects Setup.exe" tools\zgo_setup\

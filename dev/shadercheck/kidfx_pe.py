@@ -334,7 +334,7 @@ def kid_ps(src, stock_name, provider, sha1):
     b = text.index('{', m.end())
     text = text[:b + 1] + nl + KID_TEST + text[b + 1:]
     head = nl.join([
-        '// Zone Gore Overhaul, kid mode for particles: r3\\%s from %s (sha1 %s)' % (stock_name, provider, sha1),
+        '// Umbra Gore & Effects, kid mode for particles: r3\\%s from %s (sha1 %s)' % (stock_name, provider, sha1),
         '// with two lines added, both marked "ZGO kid mode": the shader bus uniform bus_zgo_view and a',
         '// discard while x (kid mode) is on and w = 1 (the experimental option is on). With the lane at 0',
         '// or never set the shader does exactly what the stock one does.',
@@ -371,7 +371,7 @@ def kid_s(blender_name, params, xr_provider):
     shadow = sc_blenders.PARTICLE_SHADOW[params['blend']]
     ps_map = {'particle': 'zgo_particle_kid', 'deffer_particle': 'zgo_particle_kid_deffer'}
     normal = dict(mode, clamp=params['clamp'])
-    head = ['-- Zone Gore Overhaul, kid mode for particles: %s for gory effects.' % blender_name,
+    head = ['-- Umbra Gore & Effects, kid mode for particles: %s for gory effects.' % blender_name,
             '-- The C++ particle blender\'s R4 elements (xray-monolith Blender_Particle.cpp) with this',
             '-- mod list\'s shaders.xr settings for %s (from %s): priority %d, strict sorting %s,' % (
                 blender_name, xr_provider, params['priority'], 'on' if params['strict'] else 'off'),

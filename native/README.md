@@ -1,6 +1,6 @@
 # zgo_native.dll: the native add-on (experimental)
 
-Optional engine add-on for Zone Gore Overhaul on the xrRazom game
+Optional engine add-on for Umbra Gore & Effects on the xrRazom game
 executables. The Lua side, `gamedata/scripts/zgo_native.script`, loads it
 through LuaJIT FFI only while MCM -> "Native extensions (experimental)" is on.
 That switch is off by default. The DLL needs no per-user setup or bake: it

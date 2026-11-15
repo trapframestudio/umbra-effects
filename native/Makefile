@@ -1,4 +1,4 @@
-# Zone Gore Overhaul - zgo_native.dll (mingw-w64, x86_64)
+# Umbra Gore & Effects - zgo_native.dll (mingw-w64, x86_64)
 #
 #   dev/run.sh make -C native              build ../bin/zgo_native.dll
 #   dev/run.sh make -C native test         + build and run the tests under Wine

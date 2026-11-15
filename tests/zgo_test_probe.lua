@@ -1,4 +1,4 @@
--- In-game probes (zgo_probe, MCM -> Diagnostics) for Zone Gore Overhaul.
+-- In-game probes (zgo_probe, MCM -> Diagnostics) for Umbra Gore & Effects.
 --   luajit zgo_test_probe.lua [seed]             single player, then itself as a
 --                                                co-op host and a co-op client
 --   luajit zgo_test_probe.lua host|client seed   one co-op role
@@ -474,7 +474,7 @@ else
 	CB.load_state(data)
 	settle(20000)
 	r = P.results()[#P.results()]
-	assert(r.status == "FAIL" and r.details:find("bip01_l_calf missing from ZGO's state"))
+	assert(r.status == "FAIL" and r.details:find("bip01_l_calf missing from Umbra Effects' state"))
 	restored("5 save and reload")
 	assert(SAVE_GAME().zgo_probe == nil, "a later save records nothing")
 end
@@ -594,7 +594,7 @@ P.mark_bad()
 local h = assert(io.open(PROBE_TMP .. "/zgo_probe_report.txt"), "the report file")
 local rep = h:read("*a")
 h:close()
-assert(rep:find("==== Zone Gore Overhaul [%d%.]+ probes, ") and rep:find(role == "sp" and "single player" or ("co-op " .. role)))
+assert(rep:find("==== Umbra Gore & Effects [%d%.]+ probes, ") and rep:find(role == "sp" and "single player" or ("co-op " .. role)))
 for id = 1, 9 do
 	assert(results[id], "probe " .. id .. " ran")
 	assert(rep:find("[ZGO probe] " .. results[id].name .. ": " .. results[id].status, 1, true), "report line for probe " .. id)

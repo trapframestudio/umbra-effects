@@ -1,5 +1,5 @@
 """
-X-Ray OGF (skinned model) reader / writer for the ZGO mesh baker.
+X-Ray OGF (skinned model) reader / writer for the Umbra Effects mesh baker.
 
 Layouts follow xray-monolith (src/xrEngine/Fmesh.h, bone.h, Layers/xrRender
 SkeletonX.cpp, SkeletonCustom.cpp). Chunks the baker does not touch are kept

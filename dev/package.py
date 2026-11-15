@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build the release zip: ~/Desktop/"Zone Gore Overhaul <version>.zip".
+Build the release zip: ~/Desktop/"Umbra Gore & Effects <version>.zip".
 
   python3 dev/package.py [--out DIR]          build the zip
   python3 dev/package.py --dry-run [--list]   only say what would go in (and what not)
@@ -11,7 +11,7 @@ Leaves out what players don't need or must make themselves:
   * developer-only generators: tools/zgo_world_assets, tools/zgo_wounds,
     tools/zgo_fracture/assets (their output ships, the generators don't)
   * everything a bake wrote on this machine, built per mod list on each
-    player's machine by ZGO Setup:
+    player's machine by Umbra Effects Setup:
       - the body bake (tools/zgo_baker): files listed in zgo_bake_report.json,
         and in any case gamedata/meshes/actors/, monsters/, zgo/baked/ and
         every generated gamedata/scripts/zgo_bake_*.script (zgo_bake.script,
@@ -20,12 +20,12 @@ Leaves out what players don't need or must make themselves:
         zgo_fracture_report.json, gamedata/meshes/zgo/props/fracture/ and
         zgo_props_fracture_index.script
       - kid mode particle copies of other mods' effects (tools/zgo_kidfx,
-        kidfx_copies.json): ZGO Setup makes them from the player's own mods
+        kidfx_copies.json): Umbra Effects Setup makes them from the player's own mods
 """
-import argparse, json, os, re, sys, zipfile
+import argparse, hashlib, json, os, re, sys, zipfile
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-NAME = 'Zone Gore Overhaul'  # the zip's name and its top folder, whatever the repo folder is called
+NAME = 'Umbra Gore & Effects'  # the zip's name and its top folder, whatever the repo folder is called
 SKIP_DIRS = {'dev', 'tests', 'docs', 'native', '.git', '__pycache__'}
 SKIP_TREES = ('tools/zgo_world_assets/', 'tools/zgo_wounds/', 'tools/zgo_fracture/assets/')
 REPORTS = ('zgo_bake_report.json', 'zgo_fracture_report.json')
@@ -35,14 +35,52 @@ BAKED = ('gamedata/meshes/actors/', 'gamedata/meshes/monsters/', 'gamedata/meshe
 FRACTURE_INDEX = 'gamedata/scripts/zgo_props_fracture_index.script'
 KIDFX_COPIES = 'tools/zgo_kidfx/kidfx_copies.json'
 DEV_NOTES = ('CLAUDE.md',)  # notes for agents working in the repo
+# the ready-made setup programs (dev/build_setup/build.sh linux|windows); they must be built
+# and match SHA256SUMS.txt before a release
+SETUP_DIR = 'tools/zgo_setup/'
+SETUP_PROGRAMS = ('Umbra Effects Setup.exe', 'zgo-setup-linux')
+OLD_SETUP = ('tools/zgo_setup/ZGO Setup.exe',)  # the Windows program's name before 1.8.0
 
 
 def version():
-    with open(os.path.join(ROOT, 'meta.ini'), encoding='utf-8', errors='replace') as f:
-        m = re.search(r'^version=(\S+)', f.read(), re.M)
+    """VERSION in zgo_main.script (MO2 writes a date stamp into meta.ini, so not that)."""
+    with open(os.path.join(ROOT, 'gamedata', 'scripts', 'zgo_main.script'), encoding='utf-8') as f:
+        m = re.search(r'^VERSION\s*=\s*"([^"]+)"', f.read(), re.M)
     if not m:
-        sys.exit('no version= in meta.ini')
+        sys.exit('no VERSION in gamedata/scripts/zgo_main.script')
     return m.group(1)
+
+
+def setup_problems():
+    """Why the setup programs aren't fit to ship ([] when they are)."""
+    sums_path = os.path.join(ROOT, SETUP_DIR, 'SHA256SUMS.txt')
+    try:
+        sums = {}
+        with open(sums_path, encoding='utf-8') as f:
+            for line in f:
+                # sha256sum's format: the hash, a space, ' ' or '*', then the name (which may hold spaces)
+                m = re.match(r'([0-9a-fA-F]{64}) [ *](.+)$', line.rstrip('\r\n'))
+                if m:
+                    sums[m.group(2)] = m.group(1).lower()
+    except OSError:
+        return ['%sSHA256SUMS.txt is missing: build with dev/build_setup/build.sh linux and windows' % SETUP_DIR]
+    out = []
+    for name in SETUP_PROGRAMS:
+        p = os.path.join(ROOT, SETUP_DIR, name)
+        if not os.path.isfile(p):
+            out.append('%s%s is missing: build it with dev/build_setup/build.sh' % (SETUP_DIR, name))
+        elif name not in sums:
+            out.append('%s%s is not in SHA256SUMS.txt' % (SETUP_DIR, name))
+        else:
+            h = hashlib.sha256()
+            with open(p, 'rb') as f:
+                for b in iter(lambda: f.read(1 << 20), b''):
+                    h.update(b)
+            if h.hexdigest() != sums[name]:
+                out.append('%s%s does not match SHA256SUMS.txt (rebuild it)' % (SETUP_DIR, name))
+    for name in sorted(set(sums) - set(SETUP_PROGRAMS)):
+        out.append('SHA256SUMS.txt lists %s, which is not shipped (rebuild with build.sh)' % name)
+    return out
 
 
 def generated():
@@ -83,7 +121,9 @@ def why_not(rel, fn, gen, copies):
     if rel == FRACTURE_INDEX:
         return 'baked on this machine'
     if rel in copies:
-        return "copy of another mod's file (made by ZGO Setup)"
+        return "copy of another mod's file (made by Umbra Effects Setup)"
+    if rel in OLD_SETUP:
+        return 'setup program under its old name'
     return None
 
 
@@ -124,7 +164,10 @@ def main():
     ap.add_argument('--list', action='store_true', help='with --dry-run: every file that goes in')
     a = ap.parse_args()
     kept, out = walk()
+    problems = setup_problems()
     if a.dry_run:
+        for p in problems:
+            print('NOT READY: ' + p)
         tops = {}
         for rel, size in kept:
             parts = rel.split('/')
@@ -146,6 +189,8 @@ def main():
             if len(items) > 6:
                 print('      ... %d more' % (len(items) - 6))
         return
+    if problems:
+        sys.exit('package: ' + '; '.join(problems))
     os.makedirs(a.out, exist_ok=True)
     dst = os.path.join(a.out, '%s %s.zip' % (NAME, version()))
     tmp = dst + '.part'

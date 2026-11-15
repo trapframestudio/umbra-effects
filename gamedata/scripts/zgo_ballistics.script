@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - hit profiles
+  Umbra Gore & Effects - hit profiles
 
   Turns "what hit this body" into a small profile the effect code scales by:
     kind     bullet | buck | slug | blast | melee | other

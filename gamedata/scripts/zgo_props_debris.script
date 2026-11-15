@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - pieces of broken objects (zgo_props)
+  Umbra Gore & Effects - pieces of broken objects (zgo_props)
 
   A broken object becomes a "debris rig": a few one-bone piece models (parts
   the game already ships, fitted into the object's box, or fracture pieces

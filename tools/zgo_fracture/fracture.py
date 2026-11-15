@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ZGO fracture baker: cuts the physics props the player's mod list actually
+Umbra Effects fracture baker: cuts the physics props the player's mod list actually
 loads (MO2 priority, then the game's archives) into pieces that zgo_props
 throws when one of them breaks (Phase E3).
 
@@ -316,7 +316,7 @@ def bake(options=None, progress=None, cancel=None):
 
     out = os.path.abspath(opts.out)
     if not os.path.isdir(os.path.join(out, 'gamedata')):
-        raise FractureError('%s is not the Zone Gore Overhaul folder (no gamedata/)' % out)
+        raise FractureError('%s is not the Umbra Gore & Effects folder (no gamedata/)' % out)
     say('prepare', 0, 1, 'reading the last report')
     prev = set(previous_files(out))
     wanted = {v: s for v, s in TARGETS.items() if not opts.only or opts.only.lower() in v}
@@ -414,7 +414,7 @@ def bake(options=None, progress=None, cancel=None):
 
 def main(argv=None):
     o = default_options()
-    ap = argparse.ArgumentParser(description='Cut ZGO prop pieces for this MO2 mod list.')
+    ap = argparse.ArgumentParser(description='Cut Umbra Effects prop pieces for this MO2 mod list.')
     ap.add_argument('--mo2', default=o.mo2, help='MO2 folder (default: the one this mod is installed in)')
     ap.add_argument('--profile', default=o.profile, help="MO2 profile (default: MO2's selected profile)")
     ap.add_argument('--anomaly', default=o.anomaly, help="the game's folder (default: MO2's game path)")

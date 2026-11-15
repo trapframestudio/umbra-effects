@@ -6,7 +6,7 @@ puddle_<liquid>_<n>.dds, DXT5 with mipmaps) and their wallmark sections
 
 A puddle is a soft, noisy blob: colour = the liquid, alpha = how much it
 covers (water only darkens, oil nearly hides the floor). Drawn with the
-engine's wallmark shader like every other ZGO decal.
+engine's wallmark shader like every other Umbra Effects decal.
 
   python3 gen_props_textures.py      (developer tool; needs numpy, Pillow, ImageMagick)
 """
@@ -82,7 +82,7 @@ def to_dds(img, path):
 
 def main():
     os.makedirs(TEX, exist_ok=True)
-    lines = ['; Zone Gore Overhaul - props: puddles under leaking containers (zgo_props).',
+    lines = ['; Umbra Gore & Effects - props: puddles under leaking containers (zgo_props).',
              '; Written by tools/zgo_fracture/assets/gen_props_textures.py.', '']
     seed = 7100
     for liquid in sorted(LIQUIDS):

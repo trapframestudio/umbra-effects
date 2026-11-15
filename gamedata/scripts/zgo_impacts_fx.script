@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - particle player for world impacts and craters
+  Umbra Gore & Effects - particle player for world impacts and craters
 
   The engine destroys a script particle as soon as its Lua object is garbage
   collected (CScriptParticles::~CScriptParticles -> PSI_destroy), so every

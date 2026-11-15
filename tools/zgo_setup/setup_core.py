@@ -1,8 +1,8 @@
 """
-ZGO Setup, the logic layer: everything the window does, without the window.
+Umbra Effects Setup, the logic layer: everything the window does, without the window.
 
-  * where things are: the ZGO folder (this file sits in <ZGO>/tools/zgo_setup),
-    the MO2 instance (<MO2>/mods/<ZGO>), its profiles, the game folder;
+  * where things are: the Umbra Effects folder (this file sits in <Umbra Effects>/tools/zgo_setup),
+    the MO2 instance (<MO2>/mods/<Umbra Effects>), its profiles, the game folder;
   * what a bake would make: the models the mod list loads, per source mod,
     and an estimate of time and disk use;
   * "is my bake up to date?": the bake's recorded inputs against the mod list
@@ -29,7 +29,7 @@ import time
 import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-APP = 'ZGO Setup'
+APP = 'Umbra Effects Setup'
 ZGO_MAIN = ('gamedata', 'scripts', 'zgo_main.script')
 BAKER = ('tools', 'zgo_baker', 'bake.py')
 FRACTURE = ('tools', 'zgo_fracture', 'fracture.py')
@@ -38,7 +38,7 @@ KIDFX = ('tools', 'zgo_kidfx', 'kidfx_pe.py')
 # Bake stages (bake.STAGES) and how much of the progress bar each one fills
 STAGE_WEIGHT = {'prepare': 1, 'unpack': 6, 'resolve': 3, 'bake': 70, 'scripts': 4, 'install': 16, 'done': 0}
 STAGE_TEXT = {'prepare': 'Getting ready', 'unpack': "Reading the game's own models", 'resolve': 'Reading your mod list',
-              'bake': 'Baking models', 'scripts': 'Writing the index', 'install': 'Installing into the ZGO folder',
+              'bake': 'Baking models', 'scripts': 'Writing the index', 'install': 'Installing into the Umbra Effects folder',
               'done': 'Done', 'cut': 'Cutting props', 'particles': 'Kid mode for particles'}
 
 # Per-model averages from the full G.A.M.M.A bake (docs/integration/baker2.md):
@@ -71,7 +71,7 @@ def is_mod_root(path):
 
 
 def find_mod_root(start=None):
-    """The ZGO folder: two levels above tools/zgo_setup, or any folder above
+    """The Umbra Effects folder: two levels above tools/zgo_setup, or any folder above
     start that looks like it (gamedata/scripts/zgo_main.script + the baker)."""
     start = os.path.abspath(start or HERE)
     d = start
@@ -95,8 +95,8 @@ def _same_dir(a, b):
 
 def load_kidfx(mod_root):
     """Kid mode for particles (tools/zgo_kidfx/kidfx_pe.py and its helpers
-    sc_tree, sc_blenders) of this ZGO folder: (kidfx_pe, None), (None, why it
-    cannot be used) or (None, None) when this ZGO does not have it. Its
+    sc_tree, sc_blenders) of this Umbra Effects folder: (kidfx_pe, None), (None, why it
+    cannot be used) or (None, None) when this version of Umbra Effects does not have it. Its
     functions change files in the folder it is loaded from, so it must be
     this folder's own copy."""
     kdir = os.path.join(mod_root, *KIDFX[:-1])
@@ -125,13 +125,13 @@ def load_kidfx(mod_root):
 
 class Tools:
     """The baker (and the props fracture tool and kid mode for particles when
-    they are installed), imported from the ZGO folder itself, so this program
+    they are installed), imported from the Umbra Effects folder itself, so this program
     always runs the baker that came with the mod."""
 
     def __init__(self, mod_root):
         if not is_mod_root(mod_root):
-            raise SetupError('%s is not the Zone Gore Overhaul folder (it needs gamedata/scripts/zgo_main.script '
-                             'and tools/zgo_baker/bake.py). Choose the ZGO folder inside your MO2 "mods" folder.'
+            raise SetupError('%s is not the Umbra Gore & Effects folder (it needs gamedata/scripts/zgo_main.script '
+                             'and tools/zgo_baker/bake.py). Choose the Umbra Effects folder inside your MO2 "mods" folder.'
                              % mod_root)
         self.mod = os.path.abspath(mod_root)
         baker_dir = os.path.join(self.mod, 'tools', 'zgo_baker')
@@ -142,14 +142,14 @@ class Tools:
         except ImportError:
             raise SetupError('Python is missing numpy, which the baker needs. Install it with '
                              '"python3 -m pip install numpy" (or your system\'s python3-numpy package), '
-                             'or use the ready-made ZGO Setup program in tools/zgo_setup.')
+                             'or use the ready-made Umbra Effects Setup program in tools/zgo_setup.')
         try:
             import bake
         except Exception as e:  # noqa: BLE001
-            raise SetupError("The baker in %s could not be loaded (%s: %s). Reinstall Zone Gore Overhaul."
+            raise SetupError("The baker in %s could not be loaded (%s: %s). Reinstall Umbra Gore & Effects."
                              % (baker_dir, type(e).__name__, e))
         if os.path.normcase(os.path.abspath(bake.MOD_ROOT)) != os.path.normcase(self.mod):
-            raise SetupError('Another copy of the baker is already loaded (%s); start ZGO Setup again.' % bake.MOD_ROOT)
+            raise SetupError('Another copy of the baker is already loaded (%s); start Umbra Effects Setup again.' % bake.MOD_ROOT)
         self.bake = bake
         import limbs
         import resolve
@@ -191,7 +191,7 @@ def looks_like_game(path):
 
 class Paths:
     """Where the bake reads from and writes to. Any of them may be None.
-    out is where the bake goes: the ZGO folder itself (tests use another)."""
+    out is where the bake goes: the Umbra Effects folder itself (tests use another)."""
 
     def __init__(self, mod, mo2=None, profile=None, game=None, out=None, cache=None):
         self.mod, self.mo2, self.profile, self.game = mod, mo2, profile, game
@@ -207,8 +207,8 @@ class Paths:
 
 
 def detect(tools):
-    """MO2 folder, profile and game folder for this ZGO folder, the way the
-    baker finds them: <MO2>/mods/<ZGO>, MO2's selected profile and game path
+    """MO2 folder, profile and game folder for this Umbra Effects folder, the way the
+    baker finds them: <MO2>/mods/<Umbra Effects>, MO2's selected profile and game path
     from ModOrganizer.ini (a Wine Z:\\ path becomes a Linux path)."""
     mo2, profile, game = tools.bake.mo2_defaults(tools.mod)
     if not looks_like_mo2(mo2):
@@ -226,7 +226,7 @@ def problems(tools, paths):
     out = []
     if not looks_like_mo2(paths.mo2):
         out.append("Mod Organizer 2's folder is not set. Choose the folder that holds MO2's \"mods\" and \"profiles\" "
-                   "folders (normally the one ZGO is installed in, two levels above the ZGO folder).")
+                   "folders (normally the one Umbra Effects is installed in, two levels above the Umbra Effects folder).")
     elif not paths.profile or paths.profile not in profiles(paths.mo2):
         out.append('Choose the MO2 profile you play with (for G.A.M.M.A. it is usually "G.A.M.M.A").')
     if not looks_like_game(paths.game):
@@ -236,12 +236,12 @@ def problems(tools, paths):
 
 
 def zgo_folder(tools, paths):
-    """The folder the bake goes into: the ZGO folder (tests bake elsewhere)."""
+    """The folder the bake goes into: the Umbra Effects folder (tests bake elsewhere)."""
     return os.path.normpath(paths.out or tools.mod)
 
 
 def other_zgo_copies(tools, paths):
-    """Enabled mods that are another copy of ZGO (a release kept as a
+    """Enabled mods that are another copy of Umbra Effects (a release kept as a
     fallback, say). The baker never reads their models."""
     if not hasattr(tools.bake, 'other_zgo_mods'):
         return []
@@ -263,10 +263,10 @@ def warnings(tools, paths):
         os.path.normcase(os.path.normpath(os.path.join(paths.mo2, 'mods')))
     if inside and zgo not in enabled:
         out.append('"%s" is not enabled in the MO2 profile "%s". You can bake now, but the game only uses the '
-                   'bake once this ZGO is ticked in MO2.' % (zgo, paths.profile))
+                   'bake once Umbra Gore & Effects is ticked in MO2.' % (zgo, paths.profile))
     others = other_zgo_copies(tools, paths)
     if others:
-        out.append('Another copy of Zone Gore Overhaul is enabled in this profile (%s). Enable only one copy of ZGO; '
+        out.append('Another copy of Umbra Gore & Effects is enabled in this profile (%s). Enable only one copy of Umbra Effects; '
                    'the bake never uses models from the other copy.' % ', '.join('"%s"' % m for m in others))
     return out
 
@@ -360,7 +360,7 @@ def fracture_options(tools, paths, choices):
 
 def kidfx_for(tools, paths):
     """The kid-mode particle tool when it may act for these paths, else None.
-    It changes files in the ZGO folder it came with (gamedata/particles,
+    It changes files in the Umbra Effects folder it came with (gamedata/particles,
     gamedata/shaders, its own list of copies), so only when the bake goes into
     that folder too; a bake into another folder (the tests, the self-test)
     leaves it alone."""
@@ -376,10 +376,10 @@ def kidfx_unavailable(tools, paths):
     """Why kidfx_for() is None, in plain words."""
     if getattr(tools, 'kidfx', None) is None:
         if getattr(tools, 'kidfx_problem', None):
-            return ('Kid mode for particles (tools/zgo_kidfx) could not be loaded (%s). Reinstall Zone Gore Overhaul.'
+            return ('Kid mode for particles (tools/zgo_kidfx) could not be loaded (%s). Reinstall Umbra Gore & Effects.'
                     % tools.kidfx_problem)
-        return 'Kid mode for particles (tools/zgo_kidfx) is not installed with this ZGO.'
-    return ('Kid mode for particles changes the ZGO folder it came with (%s), and this run writes into %s, '
+        return 'Kid mode for particles (tools/zgo_kidfx) is not installed with this version of Umbra Effects.'
+    return ('Kid mode for particles changes the Umbra Effects folder it came with (%s), and this run writes into %s, '
             'so it was left alone.' % (tools.kidfx.MOD_ROOT, paths.out))
 
 
@@ -390,7 +390,7 @@ def kidfx_paths(tools, paths):
 
 
 def kidfx_copy_count(k):
-    """How many effects of other mods kidfx has copied into ZGO (its kidfx_copies.json)."""
+    """How many effects of other mods kidfx has copied into Umbra Effects (its kidfx_copies.json)."""
     try:
         with open(k.COPIES, encoding='utf-8') as f:
             return len(json.load(f).get('copies') or {})
@@ -426,7 +426,7 @@ def check_kidfx(tools, paths):
     """A short line about kid mode for particles: (state, text). state:
     'none' (no tool, or a bake elsewhere), 'ok' (on), 'off' (the game's own
     particle shaders: the undo button), 'stale' (only partly on). Reads only
-    the ZGO folder (about 0.1 s)."""
+    the Umbra Effects folder (about 0.1 s)."""
     k = kidfx_for(tools, paths)
     if k is None:
         return 'none', ''
@@ -443,7 +443,7 @@ def check_kidfx(tools, paths):
         return 'stale', ('Kid mode for particles: only partly on (%d effect%s %s the wrong shader). Press "Apply now" '
                          'or bake again.' % (len(wrong), '' if len(wrong) == 1 else 's', 'uses' if len(wrong) == 1 else 'use'))
     n = kidfx_copy_count(k)
-    return 'ok', ("Kid mode for particles: on (%d gory effects use ZGO's particle shaders%s)."
+    return 'ok', ("Kid mode for particles: on (%d gory effects use Umbra Effects' particle shaders%s)."
                   % (on, (', %d of them copied from your other mods' % n) if n else ''))
 
 
@@ -490,8 +490,8 @@ class Plan:
 
 
 def _skip_names(tools, paths=None):
-    """Mods whose models are never bake sources: ZGO itself, the 1.4 bake
-    folder and other enabled copies of ZGO (the baker skips the same)."""
+    """Mods whose models are never bake sources: Umbra Effects itself, the 1.4 bake
+    folder and other enabled copies of Umbra Effects (the baker skips the same)."""
     b = tools.bake
     out = (b.OLD_OUT_NAME, os.path.basename(os.path.normpath(tools.mod)))
     if paths is not None and paths.out:
@@ -537,8 +537,8 @@ def source_name(tools, paths, src):
 
 
 def overriding_mods(tools, paths, keys):
-    """[(mod, count)]: enabled mods with a HIGHER priority than ZGO that ship
-    some of these models; the game loads theirs instead of ZGO's baked copy."""
+    """[(mod, count)]: enabled mods with a HIGHER priority than Umbra Effects that ship
+    some of these models; the game loads theirs instead of Umbra Effects' baked copy."""
     zgo = os.path.basename(zgo_folder(tools, paths))
     try:
         enabled = tools.resolve.enabled_mods(paths.mo2, paths.profile)
@@ -771,18 +771,18 @@ def check(tools, paths, progress=None, cancel=None, deep=False):
     rep_version = rep.get('version', 1)
     baker = inputs.get('baker') or (1 if rep_version < 2 else 2)
     if baker < b.BAKER_VERSION:
-        reasons.append('This bake was made by an older Zone Gore Overhaul (baker version %d; this ZGO needs %d).'
+        reasons.append('This bake was made by an older Umbra Gore & Effects (baker version %d; this version needs %d).'
                        % (baker, b.BAKER_VERSION))
     elif baker > b.BAKER_VERSION:
-        reasons.append('This bake was made by a newer Zone Gore Overhaul than the one installed (baker version %d, '
+        reasons.append('This bake was made by a newer Umbra Gore & Effects than the one installed (baker version %d, '
                        'installed %d).' % (baker, b.BAKER_VERSION))
     try:
         tables_now = tools.limbs.canonical(tools.limbs.load(tools.mod))
     except Exception as e:  # noqa: BLE001
         tables_now = None
-        info.append("ZGO's body-part tables could not be read (%s)" % e)
+        info.append("Umbra Effects' body-part tables could not be read (%s)" % e)
     if inputs.get('tables') and tables_now and inputs['tables'] != tables_now:
-        reasons.append("ZGO's body-part tables changed since this bake (an update of ZGO).")
+        reasons.append("Umbra Effects' body-part tables changed since this bake (an update of Umbra Effects).")
     if rep.get('profile') and paths.profile and rep['profile'] != paths.profile:
         reasons.append('This bake was made for the MO2 profile "%s"; you chose "%s".' % (rep['profile'], paths.profile))
     arch = inputs.get('archives') or {}
@@ -855,7 +855,7 @@ def check(tools, paths, progress=None, cancel=None, deep=False):
     over = overriding_mods(tools, paths, baked_keys)
     zgo = os.path.basename(zgo_folder(tools, paths))
     if recorded and not any(r.get('src_md5') for r in recorded.values()):
-        info.append('This bake was made before ZGO Setup recorded what each model was baked from, so a mod that '
+        info.append('This bake was made before Umbra Effects Setup recorded what each model was baked from, so a mod that '
                     'was updated in place cannot be noticed; bake once more to fix that')
     if rep.get('errors'):
         info.append('%d model%s could not be baked last time; the game uses %s unchanged.'
@@ -875,7 +875,7 @@ def check(tools, paths, progress=None, cancel=None, deep=False):
         st.headline = 'Your bake is up to date.'
     if over:
         names = ', '.join('"%s" (%d models)' % mc for mc in over)
-        line = ('%s load%s after Zone Gore Overhaul and replace%s baked models, so the game shows the unbaked ones. '
+        line = ('%s load%s after Umbra Gore & Effects and replace%s baked models, so the game shows the unbaked ones. '
                 'In MO2, drag "%s" below %s in the left pane (lower = wins), then start the game; '
                 'no new bake is needed for that.' % (names, 's' if len(over) == 1 else '', 's' if len(over) == 1 else '',
                                                      zgo, 'it' if len(over) == 1 else 'them'))
@@ -939,7 +939,7 @@ def friendly(exc, where=None):
         if exc.errno == errno.ENOSPC:
             return 'The disk is full while writing %s. Free some space and try again.' % target
         if isinstance(exc, PermissionError) or exc.errno in (errno.EACCES, errno.EPERM):
-            return ('ZGO Setup is not allowed to change %s. Close the game (and MO2 if it is running a program), '
+            return ('Umbra Effects Setup is not allowed to change %s. Close the game (and MO2 if it is running a program), '
                     'make sure the folder is not read-only, and try again.' % target)
         if isinstance(exc, FileNotFoundError):
             return 'A file or folder is missing: %s. Check the folders at the top and try again.' % target
@@ -953,10 +953,10 @@ def _baker_text(msg):
     clearer hint here."""
     low = msg.lower()
     if 'another bake into this folder is running' in low:
-        return msg + '. Wait for it to finish (or close the other ZGO Setup window) and try again.'
+        return msg + '. Wait for it to finish (or close the other Umbra Effects Setup window) and try again.'
     if 'refusing to overwrite' in low:
-        return ('The ZGO folder already has a file the baker did not make (%s). This happens when a model mod was '
-                'installed into the ZGO folder by mistake. Move that file out, or reinstall ZGO, then bake again.'
+        return ('The Umbra Effects folder already has a file the baker did not make (%s). This happens when a model mod was '
+                'installed into the Umbra Effects folder by mistake. Move that file out, or reinstall Umbra Effects, then bake again.'
                 % msg.split('e.g.', 1)[-1].strip())
     if "can't read the game's model archives" in low:
         return msg + ". Check that the game folder is right (it holds db\\meshes\\meshes_actors.db0)."
@@ -995,7 +995,7 @@ class Job:
     """One action in a worker process: bake (models, then props and kid mode
     for particles when ticked), remove, props (cut the props only),
     kidfx_apply / kidfx_revert (kid mode for particles on / the game's own
-    particle shaders; only the ZGO folder changes, in about a second).
+    particle shaders; only the Umbra Effects folder changes, in about a second).
 
         job = Job(tools, 'bake', paths, choices)
         job.start()
@@ -1190,7 +1190,7 @@ def _work(job, emit):
                 emit(t='log', level='warn', msg='Not baked: %s (%s); the game uses it unchanged.' % (key, why))
         if job['action'] == 'props' or (job['action'] == 'bake' and choices.props and tools.fracture):
             if not tools.fracture:
-                raise SetupError('The props tool (tools/zgo_fracture) is not installed with this ZGO.')
+                raise SetupError('The props tool (tools/zgo_fracture) is not installed with this version of Umbra Effects.')
             step = 'props'
             if stop():
                 raise tools.bake.Cancelled('cancelled before the props')
@@ -1231,7 +1231,7 @@ def _work(job, emit):
             elif models_done:
                 msg = 'Cancelled before the props: the body models are baked and installed; the props were not changed.'
             else:
-                msg = 'Cancelled. Nothing in the ZGO folder was changed.'
+                msg = 'Cancelled. Nothing in the Umbra Effects folder was changed.'
             emit(t='done', ok=False, cancelled=True, msg=msg, summary=summary)
             return 3
         emit(t='done', ok=False, kind='bake' if type(e).__name__ in ('BakeError', 'FractureError') else 'crash',
@@ -1242,7 +1242,7 @@ def _work(job, emit):
 def _bake_kidfx(k, tools, paths, emit, summary):
     """The bake's last step: kid mode for particles for this mod list. A
     failure is a warning in the summary (kidfx_error): the models are in."""
-    emit(t='log', msg="Kid mode for particles: rebuilding ZGO's particle shaders from your mod list and copying "
+    emit(t='log', msg="Kid mode for particles: rebuilding Umbra Effects' particle shaders from your mod list and copying "
                       'the gory effects other mods play')
     emit(t='progress', task='particles', stage='particles', done=0, total=1, msg='particle shaders and effects')
     try:
@@ -1258,21 +1258,21 @@ def _bake_kidfx(k, tools, paths, emit, summary):
     parts = ['%d particle shaders rebuilt for your mod list' % w if w == n else
              '%d of %d particle shaders rebuilt (the others were already right)' % (w, n) if w else
              'the particle shaders were already right for your mod list']
-    parts.append(('%d gory effect%s other mods play copied into ZGO (%d new)'
+    parts.append(('%d gory effect%s other mods play copied into Umbra Effects (%d new)'
                   % (s['copies'], '' if s['copies'] == 1 else 's', s['copied'])) if s['copies'] else
                  'no gory effects from other mods to copy')
     if s['applied']:
-        parts.append("%d more effect%s switched to ZGO's particle shaders" % (s['applied'], '' if s['applied'] == 1 else 's'))
+        parts.append("%d more effect%s switched to Umbra Effects' particle shaders" % (s['applied'], '' if s['applied'] == 1 else 's'))
     emit(t='log', msg='Kid mode for particles: %s.' % '; '.join(parts))
     if s['problems']:
-        emit(t='log', msg="%d gory effect%s use%s a particle shader ZGO has no kid-mode copy of; kid mode cannot "
+        emit(t='log', msg="%d gory effect%s use%s a particle shader Umbra Effects has no kid-mode copy of; kid mode cannot "
                           'hide %s.' % (s['problems'], '' if s['problems'] == 1 else 's',
                                         's' if s['problems'] == 1 else '', 'it' if s['problems'] == 1 else 'them'))
 
 
 def _remove_kidfx_copies(tools, paths, emit):
     """Remove: the copies of other mods' effects kidfx made (only those; the
-    shader lines ZGO ships stay). (removed, error text or None)"""
+    shader lines Umbra Effects ships stay). (removed, error text or None)"""
     k = kidfx_for(tools, paths)
     if k is None:
         return 0, None
@@ -1290,19 +1290,19 @@ def _remove_kidfx_copies(tools, paths, emit):
 
 
 def _work_kidfx(action, tools, paths, emit, t0):
-    """kidfx_apply / kidfx_revert: only the ZGO folder changes."""
+    """kidfx_apply / kidfx_revert: only the Umbra Effects folder changes."""
     k = kidfx_for(tools, paths)
     if k is None:
         raise SetupError(kidfx_unavailable(tools, paths))
     if action == 'kidfx_apply':
-        emit(t='log', msg="Pointing the gory particle effects at ZGO's particle shaders")
+        emit(t='log', msg="Pointing the gory particle effects at Umbra Effects' particle shaders")
         r = k.apply()
     else:
         emit(t='log', msg="Setting every particle effect back to the game's own particle shaders")
         r = k.revert()
     n = len(r.get('changed') or [])
     if action == 'kidfx_apply' and n:
-        msg = ("Kid mode for particles is on: %d effect%s now use%s ZGO's particle shaders again."
+        msg = ("Kid mode for particles is on: %d effect%s now use%s Umbra Effects' particle shaders again."
                % (n, '' if n == 1 else 's', 's' if n == 1 else ''))
     elif action == 'kidfx_apply':
         msg = 'Kid mode for particles was already on; nothing needed changing.'
@@ -1377,7 +1377,7 @@ def environment_lines(tools=None):
     if under_wine():
         lines.append('Running under Wine / Proton')
     if tools:
-        lines.append('ZGO folder: %s (version %s, baker %d)' % (tools.mod, tools.bake.zgo_version(tools.mod),
+        lines.append('Umbra Effects folder: %s (version %s, baker %d)' % (tools.mod, tools.bake.zgo_version(tools.mod),
                                                                 tools.bake.BAKER_VERSION))
         if tools.fracture:
             lines.append('Props tool: found')

@@ -1,4 +1,4 @@
-// Zone Gore Overhaul: probe 3 (per-NPC digit textures), vertex shader.
+// Umbra Gore & Effects: probe 3 (per-NPC digit textures), vertex shader.
 // The stock flat skinned model vertex shader, wrapped (see zgo_probe_dmg_bump.vs).
 // zgo_probe_digits.s binds four 1x1 "digit" textures (zgo\probe\d00..d15, value
 // = digit / 15 in red) to the vertex-shader slots below, chosen from the second

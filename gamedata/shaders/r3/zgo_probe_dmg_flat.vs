@@ -1,4 +1,4 @@
-// Zone Gore Overhaul: probe 2, pass-through deferred (flat) vertex shader.
+// Umbra Gore & Effects: probe 2, pass-through deferred (flat) vertex shader.
 // The stock deffer_model_flat.vs (whichever mod's copy wins) under a ZGO name, with its
 // entry point wrapped once per skinning variant (SKIN_NONE, SKIN_0 = RM_SINGLE,
 // SKIN_1..4 = 1W..4W; the engine defines one of them per compile).

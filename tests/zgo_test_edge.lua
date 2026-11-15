@@ -1,4 +1,4 @@
--- Edge cases for Zone Gore Overhaul (run: luajit zgo_test_edge.lua [seed])
+-- Edge cases for Umbra Gore & Effects (run: luajit zgo_test_edge.lua [seed])
 -- S: this folder (scratch files are written here); the mod scripts are in ../gamedata/scripts
 local S = (debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or ".")
 local seed = tonumber(arg and arg[1]) or 3

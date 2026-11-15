@@ -1,4 +1,4 @@
-// Zone Gore Overhaul: wound shader zgo\dmg, deferred (bump) vertex shader.
+// Umbra Gore & Effects: wound shader zgo\dmg, deferred (bump) vertex shader.
 // The stock deffer_model_bump.vs (whichever mod's copy wins: SSS, Atmospherics...) under a
 // ZGO name, its entry point wrapped once per skinning variant (SKIN_NONE,
 // SKIN_0 = RM_SINGLE, SKIN_1..4 = 1W..4W; the engine defines one per compile).

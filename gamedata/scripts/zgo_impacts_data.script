@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - world impact tables (used by zgo_impacts, zgo_impacts_crater)
+  Umbra Gore & Effects - world impact tables (used by zgo_impacts, zgo_impacts_crater)
 
   Data only. Every name here must exist in the mod:
     * wallmark sections: configs/mod_system_zgo_impacts.ltx

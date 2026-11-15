@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - entry point
+  Umbra Gore & Effects - entry point
   Version 1.7.1
 
   A blood / gore overhaul for S.T.A.L.K.E.R. Anomaly (GAMMA), single player
@@ -21,7 +21,7 @@
                                  body in zgo_blast, corpses included
 ]]
 
-VERSION = "1.7.1"
+VERSION = "1.8.0"
 
 local U = zgo_util
 local B = zgo_ballistics
@@ -348,7 +348,7 @@ local function on_first_update()
 	local c = find_conflict()
 	if c then
 		paused, pause_reason = true, c
-		U.hud_msg(string.format("Zone Gore Overhaul is paused: disable \"%s\" (they do the same job).", c))
+		U.hud_msg(string.format("Umbra Gore & Effects is paused: disable \"%s\" (they do the same job).", c))
 		return
 	end
 	local okp, errp = pcall(patch_friendly_fire)
@@ -377,7 +377,7 @@ local function on_first_update()
 		zgo_dismember.register_sync()
 	end
 	zgo_debris.gib_model_list()
-	U.log("Zone Gore Overhaul %s running (%s)", VERSION,
+	U.log("Umbra Gore & Effects %s running (%s)", VERSION,
 		U.in_session() and (U.is_client() and "co-op client" or "co-op host") or "single player")
 end
 

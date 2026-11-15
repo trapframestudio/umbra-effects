@@ -1,4 +1,4 @@
-# ZGO fracture baker
+# Umbra Effects fracture baker
 
 Cuts the physics props your mod list actually loads into pieces. When one of
 these props breaks in the game (zgo_props, "Objects break apart"), it comes

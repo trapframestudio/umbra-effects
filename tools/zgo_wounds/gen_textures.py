@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Zone Gore Overhaul - textures for the wound shaders (zgo\\dmg, PLAN Phase C).
+"""Umbra Gore & Effects - textures for the wound shaders (zgo\\dmg, PLAN Phase C).
 
     python3 tools/zgo_wounds/gen_textures.py            write them
     python3 tools/zgo_wounds/gen_textures.py --check    exit 1 if the files on disk differ

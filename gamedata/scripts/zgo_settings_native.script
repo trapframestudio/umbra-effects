@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - options of the native workstream (zgo_native):
+  Umbra Gore & Effects - options of the native workstream (zgo_native):
   bin/zgo_native.dll, an optional add-on that changes engine code in memory
   while the game runs. Data only; zgo_settings merges it into the menu
   (format: zgo_settings.script).

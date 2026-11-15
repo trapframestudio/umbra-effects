@@ -1,4 +1,4 @@
-# Zone Gore Overhaul tests
+# Umbra Gore & Effects tests
 
 LuaJIT suites that run the real mod scripts (`../gamedata/scripts`) against a
 mock of the X-Ray engine API (`zgo_harness.lua`). The mock follows the engine

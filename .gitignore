@@ -16,11 +16,12 @@ __pycache__/
 *.pyc
 *.part
 # Kid mode copies of other mods' particles (tools/zgo_kidfx/kidfx_pe.py, listed in
-# kidfx_copies.json); ZGO Setup makes them per mod list. ZGO ships nothing in these folders.
+# kidfx_copies.json); Umbra Effects Setup makes them per mod list. The mod ships nothing in these folders.
 /gamedata/particles/anomaly2/
 /gamedata/particles/hit_fx/effects/
-# ZGO Setup programs: build output of dev/build_setup/build.sh linux|windows (23 MB + 77 MB);
+# Umbra Effects Setup programs (ZGO Setup before 1.8.0): build output of dev/build_setup/build.sh linux|windows (23 MB + 77 MB);
 # dev/package.py needs them built before it zips
+/tools/zgo_setup/Umbra Effects Setup.exe
 /tools/zgo_setup/ZGO Setup.exe
 /tools/zgo_setup/zgo-setup-linux
 /tools/zgo_setup/SHA256SUMS.txt

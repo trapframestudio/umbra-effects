@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - baked models (runtime side)
+  Umbra Gore & Effects - baked models (runtime side)
 
   The ZGO mesh baker (tools/zgo_baker) rewrites NPC / mutant models so that
   every severable section (head, upper arm, forearm, thigh, calf) is its own

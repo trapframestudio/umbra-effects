@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - blood decals
+  Umbra Gore & Effects - blood decals
 
   * Trajectory painting: every hit throws a few blood "streams" out of the
     wound. Each one flies under gravity and is ray-cast step by step; where

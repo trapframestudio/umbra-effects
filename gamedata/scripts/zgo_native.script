@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - native add-on bootstrap (bin/zgo_native.dll)
+  Umbra Gore & Effects - native add-on bootstrap (bin/zgo_native.dll)
 
   Optional and experimental. With "Native extensions" off in MCM (the
   default) this script never loads the DLL and every native feature reports
@@ -259,7 +259,7 @@ local function load_lib()
 		if ok and lib then
 			local oka, abi = pcall(function() return tonumber(lib.zgo_abi()) end)
 			if not oka then
-				errs[#errs + 1] = path .. ": not the ZGO DLL (" .. tostring(abi) .. ")"
+				errs[#errs + 1] = path .. ": not the Umbra Effects DLL (" .. tostring(abi) .. ")"
 			elseif abi ~= ABI then
 				errs[#errs + 1] = string.format("%s: ABI %s, this script needs %s (old or new DLL; reinstall the mod)", path, tostring(abi), ABI)
 			else
@@ -1099,7 +1099,7 @@ function log_report()
 		for who, p in pairs(X.peers) do U.log("native: player %s: %s (round %s)", who, caps_text(p.caps), p.round) end
 	end
 	drain_log()
-	U.hud_msg(string.format("Zone Gore Overhaul native: %s; hooks %s; session %s (details in the log)",
+	U.hud_msg(string.format("Umbra Gore & Effects native: %s; hooks %s; session %s (details in the log)",
 		r.loaded and (S.init == 0 and "supported exe" or "unsupported exe") or "not loaded", tostring(r.hooks or "none"), r.session_caps))
 end
 

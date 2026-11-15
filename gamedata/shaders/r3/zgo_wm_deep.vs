@@ -1,5 +1,5 @@
 /**
- * Zone Gore Overhaul - "Deep impact marks" (experimental), vertex shader.
+ * Umbra Gore & Effects - "Deep impact marks" (experimental), vertex shader.
  *
  * Used only for wallmarks whose texture is under zgo\impacts\deep\ (the
  * world/deep_marks option), through the effects_wallmark.s dispatcher the

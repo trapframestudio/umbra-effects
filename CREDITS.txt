@@ -1,5 +1,7 @@
-ZONE GORE OVERHAUL - CREDITS AND NOTICES
-========================================
+UMBRA GORE & EFFECTS - CREDITS AND NOTICES
+==========================================
+
+Umbra Gore & Effects was called Zone Gore Overhaul up to version 1.7.1.
 
 This mod is built on, and redistributes parts of, PAINTER OF THE ZONE.
 
@@ -25,6 +27,11 @@ This mod is built on, and redistributes parts of, PAINTER OF THE ZONE.
 
   Armour feedback reads the visual tables of Wepl's Hit Effects
   (configs\plugins\wepl_hit_effect_visuals.ltx) like Painter does.
+
+  Umbra Effects Setup uses Umbra's icon and two typefaces, both under the
+  SIL Open Font License 1.1 (texts in tools\zgo_setup\assets\fonts):
+    - Tektur (Tektur Narrow SemiBold), The Tektur Project Authors
+    - Play, Jonas Hecksher, Playtypes, e-types AS
 
 Thank you all.
 

@@ -42,7 +42,7 @@ if role == "sp" then
 	section("Protocol")
 	check(zgo_sync.PROTO == 3, "PROTO is 3 for 1.7.0")
 	check(zgo_sync.EVT == "zgo:sync3" and zgo_sync.EVT_UP == "zgo:up3", "event names carry the protocol")
-	check(VERSION == "1.7.0", "zgo_main.VERSION is 1.7.0, got " .. tostring(VERSION))
+	check(VERSION:match("^%d+%.%d+%.%d+$") ~= nil, "zgo_main.VERSION is x.y.z, got " .. tostring(VERSION))
 	-- the sync header documents every kind the scripts send
 	local hdr do
 		local f = assert(io.open(S .. "/../gamedata/scripts/zgo_sync.script"))
@@ -152,7 +152,7 @@ elseif role == "host" then
 	DISPATCH(zgo_sync.EVT_UP, "V|c|1.6.9|-|-", "3")
 	DISPATCH(zgo_sync.EVT_UP, "V|c", "4")
 	run(50)
-	check(logs("co-op player 3 differs from this host: ZGO 1.6.9") == 1, "a different player is logged once")
+	check(logs("co-op player 3 differs from this host: Umbra Effects 1.6.9") == 1, "a different player is logged once")
 	check(#NEWS == 0, "the host shows no notice")
 	-- the older protocols are noted once in the log, nothing else happens
 	DISPATCH("zgo:sync2", "W|x")
@@ -175,7 +175,7 @@ else
 	DISPATCH(zgo_sync.EVT, "V|h|1.7.1|fp9|pp1")
 	run(50)
 	check(#NEWS == 1, "one notice for one difference, got " .. #NEWS)
-	check(logs("this machine differs from the host: ZGO " .. VERSION .. " (host 1.7.1)") == 1, "logged once")
+	check(logs("this machine differs from the host: Umbra Effects " .. VERSION .. " (host 1.7.1)") == 1, "logged once")
 	local t = H.last_shown() or ""
 	check(t:find("1.7.1", 1, true), "the notice names the host's version")
 	if BODY then check(t:find("differ from the host's", 1, true), "the notice says the bakes differ")

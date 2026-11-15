@@ -1,4 +1,4 @@
--- Zone Gore Overhaul, kid mode for particles: particles\blend for gory effects.
+-- Umbra Gore & Effects, kid mode for particles: particles\blend for gory effects.
 -- The C++ particle blender's R4 elements (xray-monolith Blender_Particle.cpp) with this
 -- mod list's shaders.xr settings for particles\blend (from base:files.db0): priority 3, strict sorting on,
 -- blending BLEND, texture clamp on. Only the pixel shader differs: zgo_particle_kid*.ps is the

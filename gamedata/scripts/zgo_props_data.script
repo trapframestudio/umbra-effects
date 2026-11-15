@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - data for props (zgo_props): materials, liquids, and
+  Umbra Gore & Effects - data for props (zgo_props): materials, liquids, and
   the sets of pieces objects break into. Plain tables, no engine calls.
 
   Sizes and engine materials of the base game's prop models are generated

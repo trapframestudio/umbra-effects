@@ -1,4 +1,4 @@
--- Progressive wounds (zgo_wounds) and the wound shader's data for Zone Gore Overhaul.
+-- Progressive wounds (zgo_wounds) and the wound shader's data for Umbra Gore & Effects.
 --   luajit zgo_test_wounds.lua [seed]             single player, then runs itself as
 --                                                 a co-op host and a co-op client
 --   luajit zgo_test_wounds.lua host|client seed   one co-op role (ZGO_WOUNDS_WIRE: the

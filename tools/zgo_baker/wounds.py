@@ -1,5 +1,5 @@
 """
-Wound sites for the ZGO mesh baker (PLAN Phase C; docs/formats/wounds.md).
+Wound sites for the Umbra Effects mesh baker (PLAN Phase C; docs/formats/wounds.md).
 
 Per model and section, a small set of points on the surface where damage
 gathers: the runtime maps a hit to the nearest site and grows a wound there.

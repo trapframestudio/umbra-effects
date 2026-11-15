@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - options of the cuts workstream (zgo_dismember,
+  Umbra Gore & Effects - options of the cuts workstream (zgo_dismember,
   zgo_debris): how a cut is drawn with the 1.7 bake.
   Data only; zgo_settings merges it (format in the header of zgo_settings.script).
 

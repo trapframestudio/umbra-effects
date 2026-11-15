@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - shared helpers
+  Umbra Gore & Effects - shared helpers
   (settings, logging, vector / ray maths, session state, main-thread queue)
 
   Builds on ideas and data from Painter of the Zone by sunn (Apache 2.0).

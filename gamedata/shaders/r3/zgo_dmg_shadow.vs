@@ -1,4 +1,4 @@
-// Zone Gore Overhaul: wound shader zgo\dmg, shadow-map vertex shader.
+// Umbra Gore & Effects: wound shader zgo\dmg, shadow-map vertex shader.
 // The stock shadow_direct_model.vs (whichever mod's copy wins) under a ZGO
 // name, its entry point wrapped once per skinning variant. The vertex moves
 // into the wounds exactly as in zgo_dmg_bump.vs / zgo_dmg_flat.vs (zgo_dent,

@@ -24,14 +24,14 @@ path). Send the log and the report file with any finding.
    before the first start (ZGO 1.7 adds shaders).
 4. Make a save at a base with several stalkers (Cordon village or Rookie
    Village), with open ground, a concrete wall, crates and barrels nearby.
-5. MCM -> Zone Gore Overhaul -> General: tick **Debug log**, Accept. Leave it
+5. MCM -> Umbra Gore & Effects -> General: tick **Debug log**, Accept. Leave it
    on for the whole list.
 
 ## 1. Safest: nothing changed, just look
 
 | # | Do | Look for | Passes when |
 |---|---|---|---|
-| 1.1 | Start the game, load the save, wait 10 s. | The game starts and loads as with 1.6. | Log: `[ZGO] Zone Gore Overhaul 1.7.0 running (single player)` and `[ZGO] shader bus lane zgo_view: registered`. No `error` in any `[ZGO]` line, no `Shader 'zgo\particle_...' not found in library`, no `stub_default` for `zgo\` names, no `Shader compilation failed`, no missing texture or particle names starting with `zgo`. |
+| 1.1 | Start the game, load the save, wait 10 s. | The game starts and loads as with 1.6. | Log: `[ZGO] Umbra Gore & Effects 1.7.0 running (single player)` and `[ZGO] shader bus lane zgo_view: registered`. No `error` in any `[ZGO]` line, no `Shader 'zgo\particle_...' not found in library`, no `stub_default` for `zgo\` names, no `Shader compilation failed`, no missing texture or particle names starting with `zgo`. |
 | 1.2 | Same load. | No message on screen about the bake. | Log: `[ZGO] bake check: Your baked models are up to date (4790 models checked).` (the number is your bake's). If it says `file sizes not compared (the index reads as X bytes, the bake wrote Y)`, write down X and Y. |
 | 1.3 | Note the load time against 1.6. | At most a fraction of a second more (the bake scripts are 6.5 MB). | No visible stall; no `is from another bake` in the log. |
 | 1.4 | Kid mode off. Shoot a stalker in the chest and head. | Blood puffs, mist and debris look exactly as in 1.6 (colour, brightness, sorting against smoke, fog), and fade into walls (soft particles). | Nothing looks different. If something does, see 4.1's undo. |
@@ -90,8 +90,8 @@ path). Send the log and the report file with any finding.
 | # | Do | Look for | Passes when |
 |---|---|---|---|
 | 5.1 | Both machines with the same mod list and a bake from it; the client joins the host. | No ZGO notice on either screen. | Host log has no `co-op player ... differs from this host`; with Debug log on the client logs `co-op handshake: same ZGO 1.7.0 and the same bakes as the host`. |
-| 5.2 | Client removes its bake (ZGO Setup -> Remove bake) and joins again. | The client gets one news message "Zone Gore Overhaul (co-op)": the host has baked body models and you don't ... Play goes on as usual. It does not repeat while the session lasts (the host re-announces every 30 s). | Client log: `co-op handshake: this machine differs from the host: ZGO 1.7.0 (host 1.7.0), body bake - (host <fingerprint>), ...; play goes on`. Host log once: `co-op player <id> differs from this host: ...`. In Russian the notice is readable Cyrillic. The client bakes again afterwards. |
-| 5.3 | (Optional) a client on ZGO 1.6.x joins a 1.7.0 host. | Neither sees the other's ZGO effects; nothing crashes. | Host log once: `a co-op peer runs an older Zone Gore Overhaul (sync protocol 2, this is 3)`. |
+| 5.2 | Client removes its bake (ZGO Setup -> Remove bake) and joins again. | The client gets one news message "Umbra Gore & Effects (co-op)": the host has baked body models and you don't ... Play goes on as usual. It does not repeat while the session lasts (the host re-announces every 30 s). | Client log: `co-op handshake: this machine differs from the host: ZGO 1.7.0 (host 1.7.0), body bake - (host <fingerprint>), ...; play goes on`. Host log once: `co-op player <id> differs from this host: ...`. In Russian the notice is readable Cyrillic. The client bakes again afterwards. |
+| 5.3 | (Optional) a client on ZGO 1.6.x joins a 1.7.0 host. | Neither sees the other's ZGO effects; nothing crashes. | Host log once: `a co-op peer runs an older Umbra Gore & Effects (sync protocol 2, this is 3)`. |
 | 5.4 | Stand together near a few cut-up bodies. On the host press Diagnostics -> **6. Co-op: compare machines**; then press it on the client. | - | Host: PASS "1 of 1 player(s) answered ... player N: match"; the client's log and report get "the host compared player N: match". A host with "Cut with the off shader" and a client without it (or the other way round) still match. |
 | 5.5 | Host shoots one NPC's chest 4 times with a 7.62x54R. | The client sees the chunk bursts at the same moments and the same torn marks; the client's own shots do nothing until the host processes them. | No `wound chunks failed` in either log. |
 | 5.6 | The client shoots a wall; an NPC fires at a wall near the client; the host throws a grenade (rubble on for the second run). | The client sees dust at once; the same marks on both screens; the same crater; clods land in the same places. | - |

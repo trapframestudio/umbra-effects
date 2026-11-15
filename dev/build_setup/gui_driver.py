@@ -1,5 +1,5 @@
 """
-Drives the ZGO Setup window like a player would, on a fake install (run on
+Drives the Umbra Effects Setup window like a player would, on a fake install (run on
 a virtual display; test_setup.TestWindow does that):
 
     xvfb-run -a python3 dev/build_setup/gui_driver.py <fake ZGO folder> [screenshot.png]
@@ -79,9 +79,10 @@ for k in ('caps', 'pieces', 'wounds', 'props'):
     assert app.v[k].get(), k
 assert text(app.l_problems) == '', text(app.l_problems)
 assert app.status.state == 'none' and text(app.l_head) == 'Not baked yet.', text(app.l_head)
-rows = [(app.tree.item(i, 'text'), app.tree.item(i, 'values')) for i in app.tree.get_children()]
-assert rows == [('Synth Models', (3,))], rows
-assert text(app.l_estimate).startswith('3 models from 1 sources. About '), text(app.l_estimate)
+# Tk 9 hands a Treeview's values back as strings, Tk 8.6 as numbers
+rows = [(app.tree.item(i, 'text'), tuple(str(v) for v in app.tree.item(i, 'values'))) for i in app.tree.get_children()]
+assert rows == [('Synth Models', ('3',))], rows
+assert text(app.l_estimate).startswith('3 models from 1 source. About '), text(app.l_estimate)
 assert 'b' not in app.b_remove.state() and 'disabled' in app.b_remove.state(), 'nothing to remove yet'
 assert 'disabled' not in app.b_bake.state()
 print('found MO2, profile P and the game; experimental off; 3 models listed')

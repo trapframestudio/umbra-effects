@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - explosion craters (used by zgo_impacts)
+  Umbra Gore & Effects - explosion craters (used by zgo_impacts)
 
   The zgo_util "explosion" event (authority only: single player or the co-op
   host) gives where an explosive went off. The host works out the surface

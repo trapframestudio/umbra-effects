@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build the ready-made ZGO Setup programs (see README.md here).
+# Build the ready-made Umbra Effects Setup programs (see README.md here).
 #
 #   dev/build_setup/build.sh linux       tools/zgo_setup/zgo-setup-linux   (python-build-standalone 3.12.10:
 #                                         glibc 2.17+, runs on any x86_64 Linux from 2014 on)
-#   dev/build_setup/build.sh windows     "tools/zgo_setup/ZGO Setup.exe"   (python.org 3.12.10 inside a Wine
+#   dev/build_setup/build.sh windows     "tools/zgo_setup/Umbra Effects Setup.exe"   (python.org 3.12.10 inside a Wine
 #                                         prefix; no Windows machine needed)
 #   dev/build_setup/build.sh all
 #   dev/build_setup/build.sh local       a quick build with this machine's python3 for testing the frozen
@@ -84,8 +84,6 @@ linux() {
 	say "self-test"
 	env -u DISPLAY -u WAYLAND_DISPLAY "$out/zgo-setup-linux" --selftest
 	say "setup tests against the program"
-	( cd "$mod" && ZGO_SETUP_BIN="$out/zgo-setup-linux" python3 -m unittest -v test_setup.FrozenLinux \
-		2>&1 | tail -n 15 ) || true
 	( cd "$here" && ZGO_SETUP_BIN="$out/zgo-setup-linux" python3 -m unittest test_setup.FrozenLinux )
 }
 
@@ -149,17 +147,23 @@ windows() {
 	local wpy="$venv\\Scripts\\python.exe"
 	wine "$wpy" -m pip install --disable-pip-version-check --no-input --require-hashes --only-binary :all: \
 		-r "$(winepath -w "$here/requirements.txt")"
-	say "building ZGO Setup.exe"
+	say "building Umbra Effects Setup.exe"
 	mkdir -p "$cache/windows"
 	wine "$wpy" -m PyInstaller --noconfirm --clean --log-level WARN \
 		--distpath "$(winepath -w "$cache/windows/dist")" --workpath "$(winepath -w "$cache/windows/work")" \
 		"$(winepath -w "$here/zgo_setup.spec")"
 	wineserver -w
-	cp "$cache/windows/dist/ZGO Setup.exe" "$out/ZGO Setup.exe"
-	record "$out/ZGO Setup.exe"
+	cp "$cache/windows/dist/Umbra Effects Setup.exe" "$out/Umbra Effects Setup.exe"
+	record "$out/Umbra Effects Setup.exe"
 	say "self-test under Wine"
 	( cd "$here" && ZGO_TEST_WINE=1 python3 -m unittest -v test_setup.WindowsUnderWine )
 }
+
+# Umbra's look (icon, typefaces, the font code) comes from the Umbra repo when it is next to
+# this one (or at $UMBRA_REPO); otherwise the copies committed in tools/zgo_setup are used
+case "${1:-}" in
+	linux|windows|all|local) say "Umbra's assets"; python3 "$here/umbra_assets.py" --if-found ;;
+esac
 
 case "${1:-}" in
 	linux) linux ;;

@@ -1,5 +1,5 @@
 --[[
-  Zone Gore Overhaul - options of the world impact layer (zgo_impacts*)
+  Umbra Gore & Effects - options of the world impact layer (zgo_impacts*)
   Data only; zgo_settings merges it (format in the header of zgo_settings.script).
 
   "World impacts" page: what the host decides for everyone (which impacts

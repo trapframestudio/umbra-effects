@@ -1,24 +1,30 @@
-ZONE GORE OVERHAUL  1.7.0
-=========================
+UMBRA GORE & EFFECTS  1.8.0
+===========================
 
-Blood and gore overhaul for S.T.A.L.K.E.R. Anomaly / GAMMA, single player and
-xrRazom co-op. Built on Painter of the Zone by sunn - see CREDITS.txt.
+Blood, gore and effects overhaul for S.T.A.L.K.E.R. Anomaly / GAMMA, single
+player and xrRazom co-op. Umbra Effects for short; up to 1.7.1 it was called
+Zone Gore Overhaul (ZGO). Built on Painter of the Zone by sunn - see
+CREDITS.txt.
 
 INSTALL
   1. Disable "Painter of the Zone" and "Painter of the Zone - xrRazom Patch"
      in Mod Organizer. (If either is left on, this mod pauses itself and says
      so on screen; they would paint everything twice.)
-  2. Enable "Zone Gore Overhaul". In MO2's left pane a mod lower in the list
-     wins over the ones above it. Keep ZGO above Screen Space Shaders, and
-     below every mod that ships character models (that part only matters
-     for baked models; ZGO Setup names such mods).
-  3. Recommended: run ZGO Setup once (see BAKED MODELS). It rebuilds the
-     body models of your mod list so limbs come off corpses too, and wounds
-     have somewhere to open. A few minutes; run it again after changing
-     mods with character models (the game reminds you).
-  4. Co-op: every player needs the same mod list and the same ZGO version.
-     ZGO tells a client once when the host runs another version or a
-     different bake; play goes on either way.
+     Coming from Zone Gore Overhaul? Disable or remove it too: this is the
+     same mod under its new name, and MO2 installs it as a new mod. Your
+     MCM settings carry over; your old bake stays in the old folder, so run
+     Umbra Effects Setup again (step 3).
+  2. Enable "Umbra Gore & Effects". In MO2's left pane a mod lower in the
+     list wins over the ones above it. Keep Umbra Effects above Screen Space
+     Shaders, and below every mod that ships character models (that part
+     only matters for baked models; Umbra Effects Setup names such mods).
+  3. Recommended: run Umbra Effects Setup once (see BAKED MODELS). It
+     rebuilds the body models of your mod list so limbs come off corpses
+     too, and wounds have somewhere to open. A few minutes; run it again
+     after changing mods with character models (the game reminds you).
+  4. Co-op: every player needs the same mod list and the same Umbra Effects
+     version. Umbra Effects tells a client once when the host runs another
+     version or a different bake; play goes on either way.
 
 WHAT IT DOES
   Hit profiles
@@ -162,11 +168,11 @@ WHAT IT DOES
     Small crates, chairs, stools, bottles and jars that the game can't
     break wear down under fire, knife hits and explosions and come apart
     into pieces (the game's own crate and bottle parts). Barrels and milk
-    cans break too once ZGO Setup's "Breakable props" step has cut pieces
-    from the models your mod list uses (about 5 seconds; run it again after
-    changing mods that replace prop models). Explosions shatter glass
-    nearby. Quest items, stashes, doors, explosive barrels and anything
-    with its own script never break.
+    cans break too once Umbra Effects Setup's "Breakable props" step has
+    cut pieces from the models your mod list uses (about 5 seconds; run it
+    again after changing mods that replace prop models). Explosions shatter
+    glass nearby. Quest items, stashes, doors, explosive barrels and
+    anything with its own script never break.
     MCM -> Props and destruction; how many effects, pieces and leaks, their
     lifetime and range are on the Performance page. Not gore: kid mode
     leaves all of it alone.
@@ -224,24 +230,25 @@ CHANGES TO G.A.M.M.A. EXPLOSIONS (opinionated; MCM -> Explosions)
     severed limbs. Flying limbs and gibs use a seeded fixed-step simulation,
     so they land in the same place on every machine.
     Clients forward their own bullet impacts so the host knows their ammo.
-    The host also tells every client which ZGO version it runs and what it
-    baked. When a client differs (another version, no bake, a bake from a
-    different mod list or with other options), that player gets one notice
-    in English or Russian and the log says what differs; nothing is
-    refused, the client just draws some things the simpler way.
+    The host also tells every client which Umbra Effects version it runs
+    and what it baked. When a client differs (another version, no bake, a
+    bake from a different mod list or with other options), that player gets
+    one notice in English or Russian and the log says what differs; nothing
+    is refused, the client just draws some things the simpler way.
 
 BAKED MODELS (optional, recommended)
-  ZGO Setup rebuilds every character and mutant model your mod list uses so
-  that each part that can come off (head, upper arm, forearm, hand, thigh,
-  calf, foot) is its own sub-mesh, with a fitted stump cap for every cut,
-  light severed-limb models, wound sites and body gibs (the pieces a blast
-  tears out of a body, cut from that body's own model). The game drops a sub-mesh once
-  its bones are hidden, ragdoll or not, so with baked models limbs come off
-  corpses too, and blasts that arrive after death still take parts.
-  Start it from the ZGO folder (close the game first):
-    Windows                      tools\zgo_setup\ZGO Setup.exe
-    Linux (MO2 under Proton)     tools/zgo_setup/zgo-setup.sh
-                                 (or "ZGO Setup.exe" with Wine/Proton)
+  Umbra Effects Setup rebuilds every character and mutant model your mod
+  list uses so that each part that can come off (head, upper arm, forearm,
+  hand, thigh, calf, foot) is its own sub-mesh, with a fitted stump cap for
+  every cut, light severed-limb models, wound sites and body gibs (the
+  pieces a blast tears out of a body, cut from that body's own model). The
+  game drops a sub-mesh once its bones are hidden, ragdoll or not, so with
+  baked models limbs come off corpses too, and blasts that arrive after
+  death still take parts.
+  Start it from the Umbra Gore & Effects folder (close the game first):
+    Windows                      tools\zgo_setup\Umbra Effects Setup.exe
+    Linux (MO2 under Proton)     tools/zgo_setup/zgo-setup.sh, or
+                                 Umbra Effects Setup.exe with Wine/Proton
     any system with Python 3, numpy and tkinter
                                  python3 tools/zgo_setup/zgo_setup.py
   It finds MO2, your profile and the game by itself (you can change them),
@@ -252,19 +259,20 @@ BAKED MODELS (optional, recommended)
   out), 650 MB of body gibs ("Body gibs"; without them explosions throw
   meat models) and 250 MB of stump caps. "Breakable props" also cuts barrels,
   crates and stools for "Objects break apart", and "Kid mode for particles"
-  fits ZGO's particle shaders to your mod list (see SETTINGS, Kid mode).
-  The experimental parts stay off unless you tick them.
+  fits Umbra Effects' particle shaders to your mod list (see SETTINGS, Kid
+  mode). The experimental parts stay off unless you tick them.
   Everything is written into this mod's own folder and listed in
   zgo_bake_report.json; "Remove bake" deletes exactly those files.
   Bake again when you add, remove or update a mod with character models:
   "Check if my bake is up to date" tells you whether you need to, and the
   game tells you too when a save loads (MCM -> Baked models). In MO2's left
-  pane keep Zone Gore Overhaul BELOW every mod that ships character models
-  (lower in the list wins), or the game shows their unbaked models; ZGO Setup
-  names such mods. MCM -> Dismemberment -> Use baked models turns the bake off
-  without deleting it.
+  pane keep Umbra Gore & Effects BELOW every mod that ships character models
+  (lower in the list wins), or the game shows their unbaked models;
+  Umbra Effects Setup names such mods. MCM -> Dismemberment -> Use baked
+  models turns the bake off without deleting it.
   Co-op: every player bakes for their own mod list; a player without a bake
-  just sees fewer cuts on corpses (ZGO tells them so when they join).
+  just sees fewer cuts on corpses (Umbra Effects tells them so when they
+  join).
   Cost: about 4.5 times as many sub-meshes per NPC (draw calls; roughly 15
   extra per stalker), and distant NPCs lose the models' built-in level of
   detail. In testing there was no noticeable FPS loss in a crowded base.
@@ -272,10 +280,10 @@ BAKED MODELS (optional, recommended)
   can be tried on the Dismemberment page (each player's own, all off by
   default; save first, and run probe 1 on the Diagnostics page before the
   first one):
-    Cut with the off shader   a part is switched off by ZGO's own shader
-                              instead of hiding its bones: it goes at once,
-                              before the body has fallen, and the joint
-                              above it never pinches
+    Cut with the off shader   a part is switched off by Umbra Effects'
+                              own shader instead of hiding its bones: it
+                              goes at once, before the body has fallen,
+                              and the joint above it never pinches
     Stump cap shape           the bake's cap for that cut (flesh and a bone
                               stub shaped like the wound) instead of a meat
                               disk; or the caps inside the model (bake with
@@ -284,13 +292,13 @@ BAKED MODELS (optional, recommended)
                               part that came off, with a closed end)
   Bodies whose model another mod replaced, or a bake from before 1.7, are
   drawn the old way.
-  Without a window: ZGO Setup --check / --bake / --remove (see
+  Without a window: Umbra Effects Setup --check / --bake / --remove (see
   tools/zgo_setup/README.md). The baker also runs on its own:
   python3 tools/zgo_baker/bake.py (needs Python 3 with numpy; "--no-pieces"
   leaves the limb pieces out, "--remove" deletes the bake).
 
 SETTINGS
-  Everything is in MCM -> Zone Gore Overhaul; hover over an option for what
+  Everything is in MCM -> Umbra Gore & Effects; hover over an option for what
   it does. Pages:
     General         on/off, kid mode (and hiding particles already flying,
                     experimental), NPC-vs-NPC blood, explosion log, debug log
@@ -345,11 +353,12 @@ SETTINGS
   particle shader off on your screen. Needs DirectX 10 or 11 and the xrRazom
   game exe; it has not been tested in game yet. Sparks, dust, smoke and
   armour hits always stay visible. The effects other mods play are only
-  covered after ZGO Setup's "Kid mode for particles" step.
-  If anything about particles looks wrong after installing ZGO, ZGO Setup's
-  "Undo..." button next to "Kid mode for particles" undoes ZGO's particle
-  shader change completely, and "Apply now" puts it back (close the game
-  first; only files in the ZGO folder change). Without the window:
+  covered after Umbra Effects Setup's "Kid mode for particles" step.
+  If anything about particles looks wrong after installing Umbra Effects,
+  press "Undo..." next to "Kid mode for particles" in Umbra Effects Setup:
+  it undoes Umbra Effects' particle shader change completely, and "Apply
+  now" puts it back (close the game first; only files in this mod's folder
+  change). Without the window:
       python3 tools/zgo_kidfx/kidfx_pe.py revert   (and ... apply)
 
   Diagnostics (shown while General -> Debug log is ticked): smoke tests
@@ -368,9 +377,9 @@ SETTINGS
                           bodies nearby (a client's button asks the host)
     Experimental probes (tick "Allow the experimental probes", Accept,
     reopen; save first: if a shader fails to compile the game closes):
-    1 Off shader, 2 Pass-through shader, 3 Digit textures (ZGO shaders
-    on NPCs for a few seconds), 7 Props (single player: a loose object's
-    model is swapped and back).
+    1 Off shader, 2 Pass-through shader, 3 Digit textures (Umbra Effects
+    shaders on NPCs for a few seconds), 7 Props (single player: a loose
+    object's model is swapped and back).
 
   Co-op: the Blood, Particles, Dismemberment and Explosions pages (and NPC-
   vs-NPC blood) change what happens in the world, so the host's values
@@ -435,9 +444,9 @@ LIMITS
   * The "Breakable props" pieces are made from your own game files and
     are not in the download. In co-op, a player without them sees the
     game's own parts instead.
-  * Experimental: "Game breaks crates and stools itself" (ZGO Setup)
-    replaces those crate and stool models with copies that the game
-    breaks on its own. Untested in co-op; leave it off there.
+  * Experimental: "Game breaks crates and stools itself" (in Umbra Effects
+    Setup) replaces those crate and stool models with copies that the
+    game breaks on its own. Untested in co-op; leave it off there.
   * Native extensions are experimental and off by default. They only work
     on the xrRazom executables they recognise (all eight of xrRazom 1.4
     and of xrRazom 1.5); after an xrRazom update they may switch themselves
@@ -448,16 +457,25 @@ LIMITS
   * The Diagnostics probes need something near you (NPCs, bodies, cut
     bodies, a small loose object); they say so when there is none. The
     probes you judge by eye can only tell you what to look for.
-  * Co-op needs every player on ZGO 1.7: older versions use another sync
-    protocol and the two simply don't see each other's effects (the log
-    says so).
+  * Co-op needs every player on 1.7 or newer: older versions use another
+    sync protocol and the two simply don't see each other's effects (the
+    log says so).
 
 CHANGES
+  1.8.0  New name: Zone Gore Overhaul (ZGO) is now Umbra Gore & Effects,
+         Umbra Effects for short, and ZGO Setup is now Umbra Effects Setup.
+         Nothing else changed: same options (your MCM settings carry
+         over), same bake, same co-op protocol (1.7 and 1.8 players still
+         see each other's effects; the host's notice says the versions
+         differ). MO2 installs it as a new mod: disable or remove the old
+         "Zone Gore Overhaul" and run Umbra Effects Setup again (the old
+         bake stays in the old folder).
   1.7.1  Body gibs: explosions and head bursts throw pieces torn out of the
          body itself (its clothes, skin or fur outside, raw flesh inside),
          each from the spot it came from, nearest the blast first, instead
-         of G.A.M.M.A.'s mutant meat items. ZGO Setup cuts them from every
-         model (about 11 per body, 650 MB); run it again after updating.
+         of G.A.M.M.A.'s mutant meat items. Umbra Effects Setup cuts them
+         from every model (about 11 per body, 650 MB); run it again after
+         updating.
          MCM -> Dismemberment -> Gib look switches back to meat models.
          Co-op: every machine throws the same pieces.
          Fixes from in-game testing: metal sparks were metres long (now
@@ -465,26 +483,26 @@ CHANGES
          smoke flickered through its frames (now still puffs) and dust
          loops played up to three times per puff; grenades no longer throw
          gibs or chunks out of someone they didn't kill.
-  1.7.0  ZGO Setup (tools/zgo_setup): a window for Windows and Linux that
-         bakes the models for your mod list, shows what and how much,
-         checks whether the bake is still up to date and names the mod that
-         changed, and removes it. The game checks the bake when a save
-         loads and tells you when to run ZGO Setup (MCM -> Baked models).
-         The baker no longer needs LuaJIT.
+  1.7.0  ZGO Setup, now Umbra Effects Setup (tools/zgo_setup): a window for
+         Windows and Linux that bakes the models for your mod list, shows
+         what and how much, checks whether the bake is still up to date and
+         names the mod that changed, and removes it. The game checks the
+         bake when a save loads and tells you when to run it (MCM -> Baked
+         models). The baker no longer needs LuaJIT.
          Baker: fitted stump caps (the cut surface of each body, flesh and
-         bone, made for every model and cut, with ZGO's own stump texture),
-         lighter severed-limb models with a closed end, and wound sites
-         for every body; bake.py is now a library for the setup tool, with
-         progress and cancel. Default baked models are unchanged;
+         bone, made for every model and cut, with the mod's own stump
+         texture), lighter severed-limb models with a closed end, and wound
+         sites for every body; bake.py is now a library for the setup tool,
+         with progress and cancel. Default baked models are unchanged;
          experimental in-model caps and damage meshes are off.
          Progressive wounds on baked bodies: bruise, open wound, crater,
          bone, destroyed; chunks fly from deep wounds, destroyed parts come
          off dead bodies. Experimental wound craters in the body itself.
-         Experimental, off by default: cuts drawn with ZGO's off shader
-         (no pinched joints, no waiting for the ragdoll), stump caps fitted
-         to the cut from the bake, caps inside the model, light severed
-         limbs from the bake's pieces. Both thighs now keep their stump
-         caps. Co-op: bodies resync with one line per body.
+         Experimental, off by default: cuts drawn with the mod's own off
+         shader (no pinched joints, no waiting for the ragdoll), stump caps
+         fitted to the cut from the bake, caps inside the model, light
+         severed limbs from the bake's pieces. Both thighs now keep their
+         stump caps. Co-op: bodies resync with one line per body.
          World impacts: calibre-sized bullet marks with dust, chips and
          sparks per material, damage that builds up per spot (chip ->
          crack -> gouge -> breach), explosion craters with fragment pocks,
@@ -495,7 +513,7 @@ CHANGES
          leaking barrels and canisters with puddles, shattering and
          flickering lamps, bursts on the game's breakables; small crates,
          chairs, stools, bottles and jars break apart under fire, knife
-         and explosions, barrels and cans too after ZGO Setup's
+         and explosions, barrels and cans too after Umbra Effects Setup's
          "Breakable props" step. Host-decided in co-op, the pieces land
          in the same places for everyone.
          Kid mode can also hide blood particles already flying
@@ -507,8 +525,8 @@ CHANGES
          Diagnostics page (with Debug log on): nine engine probes for
          bug reports, written to appdata\zgo_probe_report.txt.
          Co-op: sync protocol 3 (every player needs 1.7). The host tells
-         each client its ZGO version and bakes; a client that differs gets
-         one notice and play goes on.
+         each client its version and bakes; a client that differs gets one
+         notice and play goes on.
   1.6.0  Settings rework: every option explained (English and Russian) and
          grouped by concern; new Performance page with quality presets
          (Potato, Low, Medium, High, Ultra) and new sliders for things that
@@ -536,7 +554,7 @@ CHANGES
   1.4.1  Log fix: console commands from other mods (e.g. Laser Settings
          writing shader_param_6) no longer show up in engine warnings as
          coming from zgo_main.script.
-  1.4.0  ZGO mesh baker (tools/zgo_baker) and support for its baked models:
+  1.4.0  Mesh baker (tools/zgo_baker) and support for its baked models:
          cuts on corpses and late blast cuts on every body with a baked
          model, no pinched joints (cuts wait for the ragdoll), saved
          corpses keep their pose and cuts. Without baked models nothing

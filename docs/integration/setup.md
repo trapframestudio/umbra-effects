@@ -288,7 +288,7 @@ BAKED MODELS (optional, recommended)
   Bake again when you add, remove or update a mod with character models:
   "Check if my bake is up to date" tells you whether you need to, and the
   game tells you too when a save loads (MCM -> Baked models). In MO2's left
-  pane keep Zone Gore Overhaul BELOW every mod that ships character models
+  pane keep Umbra Gore & Effects BELOW every mod that ships character models
   (lower in the list wins), or the game shows their unbaked models; ZGO Setup
   names such mods. MCM -> Dismemberment -> Use baked models turns the bake off
   without deleting it.

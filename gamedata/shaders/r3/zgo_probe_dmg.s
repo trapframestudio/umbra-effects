@@ -1,4 +1,4 @@
--- Zone Gore Overhaul: probe 2, the pass-through "damage" shader
+-- Umbra Gore & Effects: probe 2, the pass-through "damage" shader
 -- (set_shader(child, "zgo\\probe_dmg", "<base>[,<bump>]") from zgo_probe)
 --
 -- The shape Phase C's zgo_dmg will take, doing nothing yet: the stock skinned

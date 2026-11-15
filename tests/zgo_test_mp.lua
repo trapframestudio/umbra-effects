@@ -97,7 +97,7 @@ else
 		DISPATCH("zgo:sync", "F|zgo\\no_such_effect|0|1|0|0|0|1|1", "host")
 		run(100)
 		local warned = 0
-		for _, l in ipairs(LOG) do if l:find("older Zone Gore Overhaul", 1, true) then warned = warned + 1 end end
+		for _, l in ipairs(LOG) do if l:find("older Umbra Gore & Effects", 1, true) then warned = warned + 1 end end
 		print(("old-protocol host: %d effects replayed, warned %d time(s)"):format(#FX - before, warned))
 		assert(#FX == before and warned == 1)
 	end

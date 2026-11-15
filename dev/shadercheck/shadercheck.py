@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-shadercheck: compile Zone Gore Overhaul's DX11 shaders the way the game does,
+shadercheck: compile Umbra Gore & Effects' DX11 shaders the way the game does,
 against this machine's mod list, before anyone starts the game.
 
     dev/run.sh dev/shadercheck/check.sh                  every ZGO shader
