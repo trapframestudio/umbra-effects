@@ -556,6 +556,30 @@ class TestBakeAndCheck(FakeInstallCase):
         st = self.check()
         self.assertTrue(any("model archives changed" in r for r in st.reasons), st.reasons)
 
+    @unittest.skipUnless(hasattr(os, 'symlink') and os.name != 'nt', 'needs symlinks')
+    def test_props_same_file_another_path(self):
+        # a props bake that recorded its sources through a symlinked folder (/home -> /var/home)
+        # is up to date when Setup finds the same files by the real path
+        if not self.tools.fracture:
+            self.skipTest('no props tool')
+        key = 'dynamics\\balon\\bidon'
+        fakezgo.write_model(self.inst.mo2, 'Synth Models', key, b'a prop')
+        link = os.path.join(self.tmp, 'linked')
+        os.symlink(self.tmp, link)
+        src = os.path.join(link, os.path.relpath(self.inst.model('Synth Models', key), self.tmp))
+        rep = {'options': {}, 'files': [], 'results': [{'visual': key, 'status': 'ok', 'source': src}]}
+        with open(os.path.join(self.inst.mod, 'zgo_fracture_report.json'), 'w') as f:
+            json.dump(rep, f)
+        state, text = core.check_props(self.tools, self.paths)
+        self.assertEqual(state, 'ok', text)
+        # baked from another file than the one that wins now: out of date
+        rep['results'][0]['source'] = fakezgo.write_model(self.inst.mo2, 'Elsewhere', key, b'a prop')
+        with open(os.path.join(self.inst.mod, 'zgo_fracture_report.json'), 'w') as f:
+            json.dump(rep, f)
+        state, text = core.check_props(self.tools, self.paths)
+        self.assertEqual(state, 'stale', text)
+        self.assertIn('1 prop model changed', text)
+
     def test_load_order(self):
         """A mod above ZGO that has baked models: fix the order, no new bake."""
         fakezgo.write_model(self.inst.mo2, 'Hider', 'actors\\synth\\synth_a')

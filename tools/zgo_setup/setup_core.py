@@ -699,6 +699,16 @@ def _norm(p):
     return os.path.normcase(os.path.normpath(p)) if p else p
 
 
+def _same_file(a, b):
+    """The same file, also when reached another way (a symlinked folder: /home and /var/home)."""
+    if _norm(a) == _norm(b):
+        return True
+    try:
+        return os.path.samefile(a, b)
+    except (OSError, ValueError):
+        return False
+
+
 def _md5(path, cancel=None):
     import hashlib
     h = hashlib.md5()
@@ -941,7 +951,7 @@ def check_props(tools, paths):
             continue
         now = w.get(v)
         was_file = bool(src) and ':' not in os.path.basename(src) and os.path.isabs(src)
-        if now and (not was_file or _norm(now) != _norm(src)):
+        if now and (not was_file or not _same_file(now, src)):
             changed.append(v)
         elif not now and was_file:
             changed.append(v)
