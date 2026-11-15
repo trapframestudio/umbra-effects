@@ -9,7 +9,8 @@ still up to date, and removes it. It finds MO2 and the profile by itself: it liv
   python3 zgo_setup.py               the same with your own Python (3.8+, numpy, tkinter)
 
 Without a window (any of these):
-  --check      is the bake up to date? (exit 0 = yes)
+  --check      is the bake up to date? (exit 0 = yes; the last line is "RESULT body=.. props=.. kid=..")
+  --match DIR  would the prebaked bake whose report is in DIR fit this mod list? (exit 0 = yes)
   --plan       what a bake would make, and its size
   --bake       bake in this terminal          --props   cut the props only
   --remove     remove the bake                --selftest  check that this program works
@@ -102,6 +103,9 @@ def parse(argv):
         ap.add_argument('--experimental-' + name, action='store_true')
     g = ap.add_mutually_exclusive_group()
     g.add_argument('--check', action='store_true', help='is the bake up to date? exit 0 = yes')
+    g.add_argument('--match', metavar='DIR',
+                   help='would the prebaked bake whose report (zgo_bake_report.json) is in DIR fit this mod list, '
+                        'before its files are here? exit 0 = yes (Umbra Setup asks this before downloading one)')
     g.add_argument('--plan', action='store_true', help='what a bake would make')
     g.add_argument('--bake', action='store_true', help='bake without the window')
     g.add_argument('--props', action='store_true', help='cut the props only')
@@ -230,7 +234,22 @@ def cli(a, mod_root, say):
         kstate, ktext = core.check_kidfx(tools, paths)
         if ktext:
             say(ktext)
+        # for programs that run this one (Umbra Setup): one line, always last
+        say('RESULT body=%s props=%s kid=%s' % (st.state, pstate, kstate))
         return 0 if st.state == 'ok' and pstate in ('ok', 'none') and kstate in ('ok', 'off', 'none') else 1
+    if a.match:
+        rep = tools.bake.read_report(os.path.abspath(a.match))
+        if rep is None:
+            say('Umbra Effects Setup: no bake report (%s) in %s' % (tools.bake.REPORT, a.match))
+            return 2
+        st = core.check(tools, paths, deep=a.deep, report=rep, prebaked=True)
+        say(st.text())
+        for d in st.details[:200]:
+            say('  ' + d)
+        fits = st.state in ('ok', 'order')
+        say('RESULT match=%s fingerprint=%s' % ('yes' if fits else 'no',
+                                                (rep.get('inputs') or {}).get('fingerprint') or '-'))
+        return 0 if fits else 1
     action = ('bake' if a.bake else 'props' if a.props else 'kidfx_apply' if a.kid_particles_apply else
               'kidfx_revert' if a.kid_particles_revert else 'remove')
     if kid_action and core.kidfx_for(tools, paths) is None:
@@ -451,7 +470,8 @@ def main(argv=None):
         return 0
     if a.selftest:
         return selftest(a, mod_root, say)
-    if a.check or a.plan or a.bake or a.props or a.remove or a.kid_particles_apply or a.kid_particles_revert:
+    if a.check or a.match or a.plan or a.bake or a.props or a.remove or a.kid_particles_apply or \
+            a.kid_particles_revert:
         if not mod_root:
             say('Umbra Effects Setup: run it from the Umbra Gore & Effects folder (tools/zgo_setup), or pass --mod DIR.')
             return 2

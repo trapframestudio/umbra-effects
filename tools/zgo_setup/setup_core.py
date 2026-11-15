@@ -733,13 +733,17 @@ def _who(m):
     return 'The game itself' if not m else 'Mod "%s"' % m
 
 
-def check(tools, paths, progress=None, cancel=None, deep=False):
+def check(tools, paths, progress=None, cancel=None, deep=False, report=None, prebaked=False):
     """Compare the last bake's recorded inputs with the mod list now.
     progress(done, total, message); deep=True hashes every source file even
-    when its size and date match."""
+    when its size and date match.
+    prebaked=True: report is a bake made on another machine (Umbra Setup's prebaked
+    bakes) whose files are not here yet: would it fit this mod list? Its files and
+    profile name are not checked, the game's archives only by size, and a model
+    whose source file has another date must have the recorded md5."""
     say = progress or (lambda *a: None)
     b = tools.bake
-    rep = b.read_report(paths.out)
+    rep = report if (report is not None or prebaked) else b.read_report(paths.out)
     st = Status()
     st.report = rep
     if rep is None:
@@ -752,7 +756,7 @@ def check(tools, paths, progress=None, cancel=None, deep=False):
         return st
     reasons, info = [], []
     # ---- the baked files are all there
-    files = rep.get('files') or []
+    files = [] if prebaked else (rep.get('files') or [])
     missing = []
     for i, rel in enumerate(files):
         if not os.path.isfile(os.path.join(paths.out, *rel.split('/'))):
@@ -783,12 +787,14 @@ def check(tools, paths, progress=None, cancel=None, deep=False):
         info.append("Umbra Effects' body-part tables could not be read (%s)" % e)
     if inputs.get('tables') and tables_now and inputs['tables'] != tables_now:
         reasons.append("Umbra Effects' body-part tables changed since this bake (an update of Umbra Effects).")
-    if rep.get('profile') and paths.profile and rep['profile'] != paths.profile:
+    if not prebaked and rep.get('profile') and paths.profile and rep['profile'] != paths.profile:
         reasons.append('This bake was made for the MO2 profile "%s"; you chose "%s".' % (rep['profile'], paths.profile))
     arch = inputs.get('archives') or {}
     if arch and paths.game:
         now = b.archives_info(paths.game)
-        changed = [a for a, v in arch.items() if v and now.get(a) and list(now[a]) != list(v)]
+        # [size, mtime]; another machine's archives have their own dates
+        n = 1 if prebaked else 2
+        changed = [a for a, v in arch.items() if v and now.get(a) and list(now[a])[:n] != list(v)[:n]]
         if changed:
             reasons.append("The game's own model archives changed since this bake (%s)." % _group(changed))
     # ---- model by model: which mod wins now, and is it the same file
@@ -835,6 +841,8 @@ def check(tools, paths, progress=None, cancel=None, deep=False):
         if (deep or not same_time) and r.get('src_md5'):
             if _md5(src, cancel) != r['src_md5']:
                 changed.setdefault(source_name(tools, paths, src), []).append(k)
+        elif prebaked and not same_time:
+            changed.setdefault(source_name(tools, paths, src), []).append(k)    # nothing to compare it with
     for m, ks in sorted(added.items()):
         reasons.append('%s adds %d model%s the bake does not have (e.g. %s).'
                        % (_who(m), len(ks), 's' if len(ks) != 1 else '', ks[0]))
@@ -863,6 +871,16 @@ def check(tools, paths, progress=None, cancel=None, deep=False):
     if rep.get('time'):
         info.append('Baked %s, %d models, %s.' % (rep['time'], rep.get('baked', 0), human_bytes(rep.get('bytes', 0))))
     st.reasons, st.info = reasons, info
+    if prebaked:
+        st.state = 'stale' if reasons else ('order' if over else 'ok')
+        st.headline = ('The prebaked bake does not fit your mod list.' if reasons else
+                       'The prebaked bake fits your mod list.')
+        st.advice = 'Bake for your own mod list instead.' if reasons else ''
+        if over:
+            st.info.append('Once it is in, %s load%s after Umbra Gore & Effects and hide%s some of it'
+                           % (', '.join('"%s"' % m for m, _ in over), 's' if len(over) == 1 else '',
+                              's' if len(over) == 1 else ''))
+        return st
     if reasons:
         st.state = 'stale'
         st.headline = 'Your bake is out of date.'

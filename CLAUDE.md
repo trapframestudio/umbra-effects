@@ -54,9 +54,9 @@ the engine research.
   repo. Old names a tool must still recognise (the 1.4 "Zone Gore Overhaul - Baked Models"
   folder) stay too. In XML text write `&amp;`.
 - **Shelved, don't re-propose:** DX12, frame generation, upscaling, bodycam, PiP scopes.
-- **Commit only when asked. Nothing goes public without the maintainer's go.** Some
-  textures inherited from Painter of the Zone look taken from commercial games
-  (`CREDITS.txt`); they must be checked before any public upload.
+- **Commit only when asked. Nothing goes public without the maintainer's go.** The
+  textures inherited from Painter of the Zone are not a release blocker (maintainer's call);
+  `CREDITS.txt` keeps their provenance notes, so don't raise them again.
 
 ## Tests
 

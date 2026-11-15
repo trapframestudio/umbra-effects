@@ -946,10 +946,36 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("Kid mode for particles is on: 4 effects now use Umbra Effects' particle shaders again.", out)
         with open(spray, 'rb') as f:
             self.assertEqual(f.read(), shipped)
+        code, out = self.cmd('--check')
+        self.assertIn('RESULT body=ok ', out.strip().splitlines()[-1])
+        # a prebaked bake (Umbra Setup): only its report is here, its files are not
+        pre = os.path.join(self.tmp, 'prebaked')
+        os.makedirs(pre, exist_ok=True)
+        with open(os.path.join(self.inst.mod, bake.REPORT)) as f:
+            rep = json.load(f)
+        rep['profile'] = rep['inputs']['profile'] = 'Another profile'   # made on another machine
+        for r in rep['results']:
+            if r.get('src_mtime'):
+                r['src_mtime'] -= 3600                                   # files from another download
+        with open(os.path.join(pre, bake.REPORT), 'w') as f:
+            json.dump(rep, f)
+        code, out = self.cmd('--match', pre)
+        self.assertEqual(code, 0, out)
+        self.assertIn('The prebaked bake fits your mod list.', out)
+        self.assertIn('RESULT match=yes fingerprint=%s' % rep['inputs']['fingerprint'], out)
+        code, out = self.cmd('--match', self.tmp)
+        self.assertEqual(code, 2, out)
+        self.assertIn('no bake report', out)
         fakezgo.write_model(self.inst.mo2, 'Synth Models', 'actors\\synth\\synth_b', b'not a model any more')
         code, out = self.cmd('--check')
         self.assertEqual(code, 1, out)
         self.assertIn('Mod "Synth Models" changed 1 model', out)
+        self.assertIn('RESULT body=stale ', out)
+        code, out = self.cmd('--match', pre)
+        self.assertEqual(code, 1, out)
+        self.assertIn('The prebaked bake does not fit your mod list.', out)
+        self.assertIn('Mod "Synth Models" changed 1 model', out)
+        self.assertIn('RESULT match=no ', out)
         code, out = self.cmd('--bake', '--yes', '--no-props', '--no-kid-particles')
         self.assertEqual(code, 0, out)
         self.assertIn('1 could not be baked', out)
