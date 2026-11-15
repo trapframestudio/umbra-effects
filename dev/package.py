@@ -25,7 +25,7 @@ Leaves out what players don't need or must make themselves:
 import argparse, json, os, re, sys, zipfile
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-NAME = os.path.basename(ROOT)
+NAME = 'Zone Gore Overhaul'  # the zip's name and its top folder, whatever the repo folder is called
 SKIP_DIRS = {'dev', 'tests', 'docs', 'native', '.git', '__pycache__'}
 SKIP_TREES = ('tools/zgo_world_assets/', 'tools/zgo_wounds/', 'tools/zgo_fracture/assets/')
 REPORTS = ('zgo_bake_report.json', 'zgo_fracture_report.json')

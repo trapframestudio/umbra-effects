@@ -42,6 +42,9 @@ ROOT = package.ROOT
 DEFAULT_TO = os.path.join('~', 'gamma', 'gamma', 'mods', 'Zone Gore Overhaul')
 MARKER = 'gamedata/scripts/zgo_main.script'
 KIDFX_STATE = ('tools/zgo_kidfx/kidfx_copies.json', 'tools/zgo_kidfx/kidfx_snapshot.txt')
+# ZGO Setup programs: build output (dev/build_setup/build.sh), not in a fresh checkout,
+# so their absence from the repo doesn't make the mod folder's copies stale
+SETUP_BUILDS = ('tools/zgo_setup/ZGO Setup.exe', 'tools/zgo_setup/zgo-setup-linux', 'tools/zgo_setup/SHA256SUMS.txt')
 MO2_OWNED = ('meta.ini',)
 BUSY = re.compile(r'anomalydx[0-9a-z]*\.exe|xrengine\.exe|zgo_baker[/\\]bake\.py|zgo_fracture'
                   r'|kidfx_pe\.py|zgo[-_ ]setup', re.I)
@@ -121,7 +124,8 @@ def plan(dst):
         dns[:] = [d for d in dns if d != '__pycache__']
         for fn in fns:
             rel = os.path.relpath(os.path.join(dp, fn), dst).replace(os.sep, '/')
-            if rel not in ours and not is_protected(rel, prot) and not fn.endswith(('.pyc', '.part')):
+            if (rel not in ours and rel not in SETUP_BUILDS and not is_protected(rel, prot)
+                    and not fn.endswith(('.pyc', '.part'))):
                 extra.append(rel)
     return new, changed, same, kept_live, sorted(extra)
 
