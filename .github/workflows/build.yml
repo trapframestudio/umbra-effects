@@ -96,9 +96,11 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo mkdir -pm755 /etc/apt/keyrings
-          curl -fsSL https://dl.winehq.org/wine-builds/winehq.key -o winehq.key
-          echo "$WINEHQ_KEY_SHA256  winehq.key" | sha256sum -c -
-          sudo install -m644 winehq.key /etc/apt/keyrings/winehq-archive.key
+          # (outside the checkout: package.py packs whatever is in it)
+          key="$RUNNER_TEMP/winehq.key"
+          curl -fsSL https://dl.winehq.org/wine-builds/winehq.key -o "$key"
+          echo "$WINEHQ_KEY_SHA256  $key" | sha256sum -c -
+          sudo install -m644 "$key" /etc/apt/keyrings/winehq-archive.key
           printf '%s\n' 'Types: deb' 'URIs: https://dl.winehq.org/wine-builds/ubuntu' 'Suites: noble' \
             'Components: main' 'Architectures: amd64 i386' 'Signed-By: /etc/apt/keyrings/winehq-archive.key' |
             sudo tee /etc/apt/sources.list.d/winehq-noble.sources >/dev/null
@@ -118,6 +120,17 @@ jobs:
       - name: Release zip
         run: |
           python3 dev/package.py --out dist
+          # the zip holds exactly what git has (plus the two programs), nothing a CI step left behind
+          python3 - <<'PY'
+          import glob, subprocess, sys, zipfile
+          tracked = set(subprocess.run(['git', 'ls-files', '-z'], capture_output=True, check=True).stdout.decode().split('\0'))
+          z = zipfile.ZipFile(glob.glob('dist/*.zip')[0])
+          extra = [n.split('/', 1)[1] for n in z.namelist() if not n.endswith('/') and n.split('/', 1)[1] not in tracked]
+          extra = [n for n in extra if n not in ('tools/zgo_setup/zgo-setup-linux', 'tools/zgo_setup/Umbra Effects Setup.exe',
+                                                 'tools/zgo_setup/SHA256SUMS.txt')]
+          print('files in the zip that git does not have:', extra or 'none')
+          sys.exit(1 if extra else 0)
+          PY
           cp tools/zgo_setup/zgo-setup-linux "tools/zgo_setup/Umbra Effects Setup.exe" tools/zgo_setup/SHA256SUMS.txt dist/
           ls -la dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
