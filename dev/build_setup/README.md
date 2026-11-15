@@ -55,8 +55,11 @@ every push and pull request:
 
 1. **Tests:** `dev/ci_tests.py` (with LuaJIT and Xvfb, so the window test runs) and
    Umbra's secrets check (from a pinned Umbra commit; key patterns only there).
-2. **Build:** `build.sh all` on Ubuntu 24.04 (Ubuntu's Wine with `wine32:i386` runs the
-   32-bit Python installer), then `dev/package.py`. The zip and both programs are the
+2. **Build:** `build.sh all` on Ubuntu 24.04 with WineHQ's Wine 11 (pinned, with its
+   signing key checked by sha256), then `dev/package.py`. Ubuntu's own Wine 9.0 won't do:
+   it lacks ucrtbase's `crealf`, which numpy calls while PyInstaller builds the Windows
+   program, and Wine then waits in its debugger until the job times out. To try a CI change
+   first, the same steps run in a `podman run ubuntu:24.04` container. The zip and both programs are the
    run's `umbra-effects` artifact (kept 14 days).
 3. **Windows:** the zip unpacked on a real Windows, its Umbra Effects Setup run with
    `--version` and `--selftest`.

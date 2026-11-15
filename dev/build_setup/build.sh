@@ -97,8 +97,8 @@ local_build() {
 wow64() {   # wow64 WINE: can this Wine run 32-bit programs? (the Python installer is one)
 	local p="$cache/wow64-probe"
 	rm -rf "$p"
-	WINEPREFIX="$p" "$1" wineboot -i >/dev/null 2>&1 || true
-	WINEPREFIX="$p" "$1" 'C:\windows\syswow64\cmd.exe' /c ver >/dev/null 2>&1
+	WINEPREFIX="$p" timeout 600 "$1" wineboot -i >/dev/null 2>&1 || true
+	WINEPREFIX="$p" timeout 300 "$1" 'C:\windows\syswow64\cmd.exe' /c ver >/dev/null 2>&1
 	local ok=$?
 	WINEPREFIX="$p" "$(dirname "$1")/wineserver" -k >/dev/null 2>&1 || WINEPREFIX="$p" wineserver -k >/dev/null 2>&1 || true
 	rm -rf "$p"
@@ -130,11 +130,19 @@ pick_wine() {   # WINE (and WINESERVER): one that runs 32-bit programs
 windows() {
 	fetch "$WINPY_FILE" "$WINPY_URL" "$WINPY_SHA"
 	export WINEPREFIX="${WINEPREFIX:-$HOME/.cache/zgo-wine-setup}" WINEDEBUG="${WINEDEBUG:--all}"
+	# no Mono or Gecko: the build needs neither, and some Wines offer to install them in a
+	# dialog on a new prefix; no winemenubuilder: the setup tests must not put entries in this
+	# machine's menus (as Umbra's build does)
+	export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree=;mshtml=;winemenubuilder.exe=d}"
 	pick_wine
 	wine() { "$WINE" "$@"; }
 	wineserver() { "$WINESERVER" "$@"; }
 	winepath() { "$WINE" winepath "$@"; }
-	[ -d "$WINEPREFIX/drive_c" ] || { say "making the Wine prefix $WINEPREFIX"; wine wineboot -i >/dev/null 2>&1; }
+	if [ ! -d "$WINEPREFIX/drive_c" ]; then
+		say "making the Wine prefix $WINEPREFIX"
+		timeout 600 "$WINE" wineboot -i >/dev/null 2>&1 || true
+		wineserver -w
+	fi
 	local pydir="$WINEPREFIX/drive_c/zgo-py312"
 	if [ ! -f "$pydir/python.exe" ]; then
 		say "installing Python 3.12.10 into the Wine prefix"
@@ -149,7 +157,8 @@ windows() {
 		-r "$(winepath -w "$here/requirements.txt")"
 	say "building Umbra Effects Setup.exe"
 	mkdir -p "$cache/windows"
-	wine "$wpy" -m PyInstaller --noconfirm --clean --log-level WARN \
+	# (a crash under Wine starts its debugger, which waits forever without a terminal: time-limited)
+	timeout 1800 "$WINE" "$wpy" -m PyInstaller --noconfirm --clean --log-level WARN \
 		--distpath "$(winepath -w "$cache/windows/dist")" --workpath "$(winepath -w "$cache/windows/work")" \
 		"$(winepath -w "$here/zgo_setup.spec")"
 	wineserver -w
