@@ -3,8 +3,7 @@
 Umbra Gore & Effects ("Umbra Effects" for short) overhauls blood, gore, dismemberment,
 explosions and bullet impacts in S.T.A.L.K.E.R. G.A.M.M.A. (Anomaly), in single player and in
 xrRazom co-op. Every hit is classified from the round that caused it, and the blood, wounds,
-severed limbs, craters and debris follow from that. It is built on Painter of the Zone by sunn.
-Up to version 1.7.1 it was called Zone Gore Overhaul (ZGO).
+severed limbs, craters and debris follow from that. It is based on Painter of the Zone by sunn, with large amounts of additions and updates.
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
@@ -15,8 +14,7 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 - Painter of the Zone and its xrRazom patch switched off: Umbra Effects does their job.
 - For co-op: xrRazom, with the same mod list and the same Umbra Effects version on every
   machine.
-- Recommended: a bake from Umbra Effects Setup (see "Baked models" below). For G.A.M.M.A. it
-  takes about 7.2 GB of disk space; the window shows the figure for your mod list before it
+- About 7.2 GB of disk space. Standard GAMMA installs just download from our mirror, nonstandard must bake the extra assets. The window shows the figure for your mod list before it
   starts. The program runs on Windows and Linux and needs nothing else installed.
 - Some experimental options need the DirectX 10 or 11 renderer, and the native extensions need
   the xrRazom game executables.
