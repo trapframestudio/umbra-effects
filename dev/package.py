@@ -5,6 +5,9 @@ Build the release zip: ~/Desktop/"Umbra Gore & Effects <version>.zip".
   python3 dev/package.py [--out DIR]          build the zip
   python3 dev/package.py --dry-run [--list]   only say what would go in (and what not)
 
+Ships the player's guide and notices at the top (README.md, CHANGELOG.md, CREDITS.txt,
+LICENSE-PainterOfTheZone.txt) and refuses without them.
+
 Leaves out what players don't need or must make themselves:
   * dev/ (dev tooling), tests/, docs/, native/ (the add-on's sources; players
     get bin/zgo_native.dll), CLAUDE.md, dotfiles (.git, .gitignore), __pycache__
@@ -35,6 +38,7 @@ BAKED = ('gamedata/meshes/actors/', 'gamedata/meshes/monsters/', 'gamedata/meshe
 FRACTURE_INDEX = 'gamedata/scripts/zgo_props_fracture_index.script'
 KIDFX_COPIES = 'tools/zgo_kidfx/kidfx_copies.json'
 DEV_NOTES = ('CLAUDE.md',)  # notes for agents working in the repo
+PLAYER_DOCS = ('README.md', 'CHANGELOG.md', 'CREDITS.txt', 'LICENSE-PainterOfTheZone.txt')
 # the ready-made setup programs (dev/build_setup/build.sh linux|windows); they must be built
 # and match SHA256SUMS.txt before a release
 SETUP_DIR = 'tools/zgo_setup/'
@@ -165,6 +169,8 @@ def main():
     a = ap.parse_args()
     kept, out = walk()
     problems = setup_problems()
+    shipped = {rel for rel, _ in kept}
+    problems += ['%s is missing (the zip must hold it)' % d for d in PLAYER_DOCS if d not in shipped]
     if a.dry_run:
         for p in problems:
             print('NOT READY: ' + p)

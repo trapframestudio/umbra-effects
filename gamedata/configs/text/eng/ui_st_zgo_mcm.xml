@@ -202,7 +202,7 @@
 	<string id="ui_mcm_zgo_props_lamps"><text>Lamps shatter and flicker</text></string>
 	<string id="ui_mcm_zgo_props_lamps_desc"><text>Shooting a hanging lamp throws glass and sparks; a lamp that survives a hit may flicker for a moment, a lamp that goes out showers shards.</text></string>
 	<string id="ui_mcm_zgo_props_breaking"><text>Objects break apart</text></string>
-	<string id="ui_mcm_zgo_props_breaking_desc"><text>Small crates, chairs, stools, bottles and jars that the game can't break wear down under fire and explosions and come apart into pieces; barrels and milk cans too, once the setup tool has cut their pieces (its Breakable objects step). Only objects with a matching set of pieces break (see README, PROPS); quest items, stashes, doors and anything with its own script never do. A broken object stays gone after a reload.</text></string>
+	<string id="ui_mcm_zgo_props_breaking_desc"><text>Small crates, chairs, stools, bottles and jars that the game can't break wear down under fire and explosions and come apart into pieces; barrels and milk cans too, once Umbra Effects Setup has cut their pieces (its Breakable props box). Only objects with a matching set of pieces break (see README, PROPS); quest items, stashes, doors and anything with its own script never do. A broken object stays gone after a reload.</text></string>
 	<string id="ui_mcm_zgo_props_toughness"><text>Toughness of objects</text></string>
 	<string id="ui_mcm_zgo_props_toughness_desc"><text>Multiplies how much damage it takes to break an object. 2 = twice as many hits; 0.5 = half.</text></string>
 	<string id="ui_mcm_zgo_props_melee_breaks"><text>Melee breaks objects</text></string>

@@ -32,7 +32,9 @@ stdlib = ['argparse', 'array', 'bisect', 'collections', 'contextlib', 'copy', 'c
           'platform', 'pickle', 'queue', 'random', 're', 'shutil', 'signal', 'stat', 'string', 'struct',
           'subprocess', 'tempfile', 'textwrap', 'threading', 'time', 'traceback', 'types', 'typing', 'unittest',
           'unittest.mock', 'uuid', 'warnings', 'zlib', 'tkinter', 'tkinter.ttk', 'tkinter.font',
-          'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.scrolledtext']
+          'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.scrolledtext',
+          # prebaked.py: the ready-made bake's download
+          'ssl', 'urllib', 'urllib.error', 'urllib.parse', 'urllib.request', 'http', 'http.client', 'zipfile']
 
 # Umbra's look (dev/build_setup/umbra_assets.py copies it from the Umbra repo into
 # tools/zgo_setup): the window loads the icon and the typefaces from the mod folder like

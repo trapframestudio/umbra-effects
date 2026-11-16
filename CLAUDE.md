@@ -3,8 +3,8 @@
 A blood, gore, dismemberment and explosion overhaul for S.T.A.L.K.E.R. G.A.M.M.A. (Anomaly),
 built on Painter of the Zone. It must work in single player and in xrRazom co-op.
 It was called Zone Gore Overhaul (ZGO) up to 1.7.1; the code still uses the `zgo` prefix.
-`README.txt` is the player's guide; `docs/PLAN.md` is the roadmap; `docs/discovery/` holds
-the engine research.
+`README.md` is the player's guide and `CHANGELOG.md` the version history (both ship in the
+zip); `docs/PLAN.md` is the roadmap; `docs/discovery/` holds the engine research.
 
 ## Layout
 
@@ -43,9 +43,9 @@ the engine research.
 - **Never in git:** the bake outputs, kid mode copies and setup program builds (see
   `.gitignore`), xrRazom's or the game's files, keys, or personal ids and paths. The
   pre-commit hook runs a secrets check.
-- **Encodings:** `README.txt` and `zgo_mcm.script` are CRLF; the `ui_st` xml files are
-  cp1251. `.gitattributes` has `* -text` so git leaves them alone; keep them that way when
-  editing.
+- **Encodings:** `README.md`, `CHANGELOG.md` and `zgo_mcm.script` are CRLF; the `ui_st` xml
+  files are cp1251. `.gitattributes` has `* -text` so git leaves them alone; keep them that
+  way when editing (write the CRLF bytes yourself).
 - **Naming (since 1.8.0):** players read "Umbra Gore & Effects" in full and "Umbra Effects"
   for short ("Umbra Effects Setup", "the Umbra Effects folder"); in MO2 instructions use the
   full name, which is the mod's folder name. Internal names keep the `zgo` prefix and must not
@@ -98,4 +98,4 @@ By hand: build the setup programs first (`dev/build_setup/build.sh linux|windows
 `python3 dev/package.py --dry-run`, then `python3 dev/package.py`. It writes
 `~/Desktop/Umbra Gore & Effects <VERSION>.zip` and refuses while a setup program is missing or
 doesn't match `tools/zgo_setup/SHA256SUMS.txt`. Bump `VERSION` and `meta.ini`'s `version=`
-together, and add the README's CHANGES entry.
+together, and add the version's entry at the top of `CHANGELOG.md` (`## X.Y.Z`, newest first).

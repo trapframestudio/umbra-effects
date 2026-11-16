@@ -205,7 +205,7 @@ jobs:
           {
             echo "Umbra Gore & Effects $VERSION: blood, gore, dismemberment and explosions for S.T.A.L.K.E.R. G.A.M.M.A. (Anomaly), in single player and xrRazom co-op."
             echo
-            echo "Install \`Umbra-Gore-and-Effects-$VERSION.zip\` with Mod Organizer 2 as a mod named \"Umbra Gore & Effects\", then run Umbra Effects Setup from its folder (\`tools/zgo_setup\`) to bake the body models for your mod list. README.txt in the zip has the details."
+            echo "Install \`Umbra-Gore-and-Effects-$VERSION.zip\` with Mod Organizer 2 as a mod named \"Umbra Gore & Effects\", then run Umbra Effects Setup from its folder (\`tools/zgo_setup\`) to bake the body models for your mod list. README.md in the zip has the details; CHANGELOG.md lists what changed."
             echo
             echo "Checksums (\`SHA256SUMS.txt\`):"
             echo

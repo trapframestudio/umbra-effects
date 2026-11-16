@@ -39,7 +39,11 @@ KIDFX = ('tools', 'zgo_kidfx', 'kidfx_pe.py')
 STAGE_WEIGHT = {'prepare': 1, 'unpack': 6, 'resolve': 3, 'bake': 70, 'scripts': 4, 'install': 16, 'done': 0}
 STAGE_TEXT = {'prepare': 'Getting ready', 'unpack': "Reading the game's own models", 'resolve': 'Reading your mod list',
               'bake': 'Baking models', 'scripts': 'Writing the index', 'install': 'Installing into the Umbra Effects folder',
-              'done': 'Done', 'cut': 'Cutting props', 'particles': 'Kid mode for particles'}
+              'done': 'Done', 'cut': 'Cutting props', 'particles': 'Kid mode for particles',
+              'match': 'Looking for a ready-made bake', 'download': 'Downloading the ready-made bake',
+              'place': 'Unpacking the ready-made bake'}
+# a ready-made bake (task 'download'): each stage's share of the models' part of the bar
+DOWNLOAD_SHARE = {'match': (0.0, 0.05), 'download': (0.05, 0.85), 'place': (0.85, 0.95), 'install': (0.95, 1.0)}
 
 # Per-model averages from the full G.A.M.M.A bake (docs/integration/baker2.md):
 # 4790 models, 3.12 GB of sources -> 2.97 GB baked; caps 250 MB; pieces 3.2 GB;
@@ -276,16 +280,18 @@ def warnings(tools, paths):
 class Choices:
     """What the player ticked. Defaults: the baker's defaults (models, caps,
     pieces, wound sites, body gibs, props), kid mode for particles on, every
-    experimental part off. (A report from before 1.7.1 has no 'gibs': ticked.)"""
+    experimental part off, a ready-made bake downloaded when one fits (download).
+    (A report from before 1.7.1 has no 'gibs': ticked.)"""
     FIELDS = ('caps', 'pieces', 'wounds', 'gibs', 'experimental_caps', 'experimental_damage', 'props',
-              'experimental_props', 'kid_particles')
+              'experimental_props', 'kid_particles', 'download')
 
     def __init__(self, caps=True, pieces=True, wounds=True, experimental_caps=False, experimental_damage=False,
-                 props=True, experimental_props=False, jobs=None, kid_particles=True, gibs=True):
+                 props=True, experimental_props=False, jobs=None, kid_particles=True, gibs=True, download=True):
         self.caps, self.pieces, self.wounds, self.gibs = caps, pieces, wounds, gibs
         self.experimental_caps, self.experimental_damage = experimental_caps, experimental_damage
         self.props, self.experimental_props = props, experimental_props
         self.kid_particles = kid_particles
+        self.download = download
         self.jobs = jobs or default_jobs()
 
     def as_dict(self):
@@ -750,7 +756,8 @@ PREBAKE_SETTINGS = (('caps', 'Stump caps'), ('pieces', 'Limb pieces'), ('wounds'
                     ('experimental_props', 'Game breaks crates and stools itself (experimental)'))
 
 
-def check(tools, paths, progress=None, cancel=None, deep=False, report=None, prebaked=False, props_report=None):
+def check(tools, paths, progress=None, cancel=None, deep=False, report=None, prebaked=False, props_report=None,
+          choices=None):
     """Compare the last bake's recorded inputs with the mod list now.
     progress(done, total, message); deep=True hashes every source file even
     when its size and date match.
@@ -758,8 +765,8 @@ def check(tools, paths, progress=None, cancel=None, deep=False, report=None, pre
     bakes) whose files are not here yet: would it fit this mod list? Its files and
     profile name are not checked, the game's archives only by size, and a model
     whose source file has another date must have the recorded md5. It must also
-    have been made with the player's settings: those of their last bake here (the
-    defaults without one); props_report is its props report, if it has one."""
+    have been made with the player's settings: choices, else those of their last bake
+    here (the defaults without one); props_report is its props report, if it has one."""
     say = progress or (lambda *a: None)
     b = tools.bake
     rep = report if (report is not None or prebaked) else b.read_report(paths.out)
@@ -807,7 +814,7 @@ def check(tools, paths, progress=None, cancel=None, deep=False, report=None, pre
     if inputs.get('tables') and tables_now and inputs['tables'] != tables_now:
         reasons.append("Umbra Effects' body-part tables changed since this bake (an update of Umbra Effects).")
     if prebaked:
-        want = last_choices(tools, paths.out)
+        want = choices if choices is not None else last_choices(tools, paths.out)
         got = Choices.from_dict(rep.get('options') or {})        # (a report without 'gibs' had them)
         got.experimental_props = (bool((props_report.get('options') or {}).get('experimental_native'))
                                   if props_report else want.experimental_props)
@@ -1025,6 +1032,9 @@ def overall_fraction(task, stage, done, total, with_props, with_particles=False)
     end = 1.0 - tail                                    # the props end here
     share = (0.94 if with_props else 1.0) - tail        # the models end here
     f = min(1.0, (done / float(total)) if total else 0.0)
+    if task == 'download':                              # a ready-made bake in place of the models' part
+        lo, hi = DOWNLOAD_SHARE.get(stage, (0.0, 0.0))
+        return share * (lo + (hi - lo) * f)
     if task == 'particles':
         return end + tail * f
     if task == 'props':
@@ -1219,22 +1229,33 @@ def _work(job, emit):
             bad = problems(tools, paths)
             if bad:
                 raise SetupError(bad[0])
-            o = bake_options(tools, paths, choices)
-            emit(t='log', msg='Baking with %r' % o)
+            got = get_prebaked(tools, paths, choices, emit, stop) if choices.download else None
+            if got:
+                models_done = True
+                summary = got
+            else:
+                o = bake_options(tools, paths, choices)
+                emit(t='log', msg='Baking with %r' % o)
 
-            def progress(stage, done, total, msg):
-                emit(t='progress', task='models', stage=stage, done=done, total=total, msg=msg)
-            rep = tools.bake.bake(o, progress=progress, cancel=stop)
-            models_done = True
-            summary = {'baked': rep['baked'], 'skipped': rep['skipped'], 'errors': rep['errors'],
-                       'bytes': rep['bytes'], 'seconds': rep['seconds'], 'files': rep['counts']['files'],
-                       'error_models': [[r['key'], r.get('why', '')] for r in rep['results'] if r['status'] == 'error'][:50],
-                       'fingerprint': (rep.get('inputs') or {}).get('fingerprint')}
-            emit(t='log', msg='Baked %d models (%d skipped, %d could not be baked), %s, in %s.' % (
-                rep['baked'], rep['skipped'], rep['errors'], human_bytes(rep['bytes']), human_seconds(rep['seconds'])))
-            for key, why in summary['error_models'][:20]:
-                emit(t='log', level='warn', msg='Not baked: %s (%s); the game uses it unchanged.' % (key, why))
-        if job['action'] == 'props' or (job['action'] == 'bake' and choices.props and tools.fracture):
+                def progress(stage, done, total, msg):
+                    emit(t='progress', task='models', stage=stage, done=done, total=total, msg=msg)
+                rep = tools.bake.bake(o, progress=progress, cancel=stop)
+                models_done = True
+                summary = {'baked': rep['baked'], 'skipped': rep['skipped'], 'errors': rep['errors'],
+                           'bytes': rep['bytes'], 'seconds': rep['seconds'], 'files': rep['counts']['files'],
+                           'error_models': [[r['key'], r.get('why', '')] for r in rep['results']
+                                            if r['status'] == 'error'][:50],
+                           'fingerprint': (rep.get('inputs') or {}).get('fingerprint')}
+                emit(t='log', msg='Baked %d models (%d skipped, %d could not be baked), %s, in %s.' % (
+                    rep['baked'], rep['skipped'], rep['errors'], human_bytes(rep['bytes']),
+                    human_seconds(rep['seconds'])))
+                for key, why in summary['error_models'][:20]:
+                    emit(t='log', level='warn', msg='Not baked: %s (%s); the game uses it unchanged.' % (key, why))
+        do_props = job['action'] == 'props' or (job['action'] == 'bake' and choices.props and tools.fracture)
+        if do_props and job['action'] == 'bake' and summary.get('prebaked') and check_props(tools, paths)[0] == 'ok':
+            do_props = False                    # the ready-made bake's props fit this mod list
+            emit(t='log', msg="Props: the ready-made bake's cut props fit your mod list.")
+        if do_props:
             if not tools.fracture:
                 raise SetupError('The props tool (tools/zgo_fracture) is not installed with this version of Umbra Effects.')
             step = 'props'
@@ -1283,6 +1304,161 @@ def _work(job, emit):
         emit(t='done', ok=False, kind='bake' if type(e).__name__ in ('BakeError', 'FractureError') else 'crash',
              msg=friendly(e), trace=traceback.format_exc(), summary=summary, models_done=models_done)
         return 2
+
+
+# ---------------------------------------------------------------- ready-made bakes (prebaked.py)
+
+def get_prebaked(tools, paths, choices, emit, stop):
+    """Umbra's ready-made bake, downloaded and put in place when one fits this mod list and
+    these settings. Returns a summary (as a bake's, with prebaked=True), or None when none
+    fits or it could not be used: the reason is logged and the caller bakes here instead.
+    The Umbra Effects folder only changes once everything is downloaded and unpacked."""
+    try:
+        import prebaked as pb
+    except ImportError as e:             # a ready-made program without the modules it needs
+        emit(t='log', level='warn', msg='Ready-made bakes cannot be downloaded by this program (%s); baking here.' % e)
+        return None
+    src = pb.source()
+    if src is None:
+        return None
+    t0 = time.time()
+    out = zgo_folder(tools, paths)
+    tmp = os.path.join(out, pb.TMP)
+    cache = os.path.join(cache_dir(tools, paths), 'prebaked')
+    b, fr = tools.bake, tools.fracture
+
+    def prog(stage, done, total, msg=''):
+        emit(t='progress', task='download', stage=stage, done=done, total=total, msg=msg)
+
+    def fresh_tmp():
+        shutil.rmtree(tmp, ignore_errors=True)
+        os.makedirs(tmp)
+
+    installing = False
+    try:
+        prog('match', 0, 1, 'asking %s' % (src if pb.is_url(src) else 'the folder given'))
+        entries = pb.read_index(pb.get_small(src, pb.INDEX, 1 << 20, stop=stop))
+        usable = [e for e in entries if e.get('baker') == b.BAKER_VERSION]
+        if not usable:
+            emit(t='log', msg='No ready-made bake for this version of Umbra Gore & Effects (%d listed); baking here.'
+                 % len(entries))
+            return None
+        toks = pb.tokens(paths.mo2, paths.game, cache_dir(tools, paths), paths.profile, os.path.basename(out))
+        man = None
+        for e in usable[:pb.CANDIDATES]:
+            m = pb.read_manifest(pb.get_small(src, e['path'], 4 << 20, e['sha256'], e['size'], stop), e)
+            fcache = os.path.join(cache, m['fingerprint'])
+            rz = pb.download(src, m['report'], os.path.join(fcache, os.path.basename(m['report']['path'])), stop=stop)
+            fresh_tmp()
+            names = pb.unpack(tools, [rz], tmp, stop=stop)
+            if b.REPORT not in names:
+                raise pb.Unavailable('its report is missing')
+            pb.relocate(tmp, [r for r in m.get('relocate', []) if r in names], toks)
+            rep = b.read_report(tmp)
+            prep = fr.read_report(tmp) if fr else None
+            st = check(tools, paths, progress=lambda d, n, msg: prog('match', d, n, msg), cancel=stop, report=rep,
+                       prebaked=True, props_report=prep, choices=choices)
+            if st.state in ('ok', 'order'):
+                man = m
+                break
+            emit(t='log', msg="The ready-made bake made %s (%d models) doesn't fit: %s" % (
+                m.get('made', '?'), m.get('models', 0), ' '.join(st.reasons[:3]) or st.headline))
+        if man is None:
+            emit(t='log', msg='No ready-made bake fits your mod list and settings; baking here.')
+            return None
+        here, theirs = b.read_report(out) or {}, b.read_report(tmp) or {}
+        if here.get('bake_id') and here.get('bake_id') == theirs.get('bake_id') and \
+                check(tools, paths, cancel=stop).state in ('ok', 'order'):
+            shutil.rmtree(tmp, ignore_errors=True)
+            emit(t='log', msg='The ready-made bake for your mod list is already in place (made %s).' % man.get('made', '?'))
+            return {'prebaked': True, 'baked': here.get('baked', 0), 'skipped': here.get('skipped', 0),
+                    'errors': here.get('errors', 0), 'bytes': man.get('bytes', 0), 'download': 0,
+                    'seconds': round(time.time() - t0, 1), 'files': len(here.get('files') or []), 'error_models': [],
+                    'fingerprint': man['fingerprint'], 'made': man.get('made', '')}
+        vols = man['volumes']
+        fcache = os.path.join(cache, man['fingerprint'])
+        total = sum(v['size'] for v in vols)
+        left = sum(v['size'] for v in vols if not os.path.isfile(os.path.join(fcache, os.path.basename(v['path']))))
+        need_out = man.get('bytes', 0)
+        if pb.same_drive(fcache, out):
+            need = {out: left + need_out}
+        else:
+            need = {fcache: left, out: need_out}
+        for where, n in need.items():
+            free = pb.free_bytes(where)
+            if free is not None and free < n + (200 << 20):
+                raise pb.Unavailable('%s free on the drive of %s, %s needed' % (pb.human(free), where, pb.human(n)))
+        emit(t='log', msg='A ready-made bake fits your mod list (made %s, %d models): downloading %s instead of baking.'
+             % (man.get('made', '?'), man.get('models', 0), pb.human(total)))
+        got = [0]
+        last = [0.0, time.time(), 0]
+
+        def on_bytes(n):
+            got[0] += n
+            now = time.time()
+            if now - last[0] >= 0.5 or got[0] >= total:
+                rate = (got[0] - last[2]) / max(now - last[1], 1e-3) if now - last[1] > 3 else 0
+                if now - last[1] > 10:
+                    last[1], last[2] = now, got[0]
+                msg = '%s of %s' % (pb.human(got[0]), pb.human(total))
+                if rate > 0:
+                    msg += ', %s/s, about %s left' % (pb.human(rate), human_seconds((total - got[0]) / rate))
+                last[0] = now
+                prog('download', got[0], total, msg)
+        prog('download', 0, total, '0 of %s' % pb.human(total))
+        zips = [pb.download(src, man['report'], os.path.join(fcache, os.path.basename(man['report']['path'])), stop=stop)]
+        for v in vols:
+            zips.append(pb.download(src, v, os.path.join(fcache, os.path.basename(v['path'])), on_bytes, stop))
+        fresh_tmp()
+        nfiles = man.get('files') or 1
+        names = pb.unpack(tools, zips, tmp, lambda i, rel: (i % 500 == 0) and prog('place', i, nfiles, rel), stop)
+        if b.REPORT not in names:
+            raise pb.Unavailable('its report is missing')
+        pb.relocate(tmp, [r for r in man.get('relocate', []) if r in names], toks)
+        if stop():
+            raise b.Cancelled('cancelled before installing')
+        # from here on the Umbra Effects folder changes: no cancelling
+        installing = True
+        prog('install', 0, len(names), 'removing the last bake')
+        b.remove(out)
+        if fr:
+            fr.remove(out)
+        reports = [r for r in (fr.REPORT if fr else None, b.REPORT) if r in names]
+        for i, rel in enumerate([n for n in names if n not in reports] + reports):
+            dst = os.path.join(out, *rel.split('/'))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            os.replace(os.path.join(tmp, *rel.split('/')), dst)
+            if (i + 1) % 2000 == 0:
+                prog('install', i + 1, len(names), 'moving the files in')
+        pb.adopt_dates(out, b.REPORT, paths.game, b.archives_info)
+        prog('install', len(names), len(names), 'done')
+        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(fcache, ignore_errors=True)
+        st = check(tools, paths)
+        if st.state not in ('ok', 'order'):
+            emit(t='log', level='warn', msg="The ready-made bake is in place but doesn't check out (%s); baking here "
+                 'instead.' % (' '.join(st.reasons[:2]) or st.headline))
+            return None
+        rep = b.read_report(out) or {}
+        emit(t='log', msg='Put the ready-made bake in place: %d models, %s (downloaded %s in %s).' % (
+            man.get('models', 0), human_bytes(man.get('bytes', 0)), pb.human(total), human_seconds(time.time() - t0)))
+        return {'prebaked': True, 'baked': rep.get('baked', man.get('models', 0)), 'skipped': rep.get('skipped', 0),
+                'errors': rep.get('errors', 0), 'bytes': man.get('bytes', 0), 'download': total,
+                'seconds': round(time.time() - t0, 1), 'files': len(names), 'error_models': [],
+                'fingerprint': man['fingerprint'], 'made': man.get('made', '')}
+    except (pb.Cancelled, Cancelled):
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise b.Cancelled('cancelled')
+    except Exception as e:  # noqa: BLE001  (Unavailable, a damaged zip, the network, the disk)
+        if type(e).__name__ == 'Cancelled':
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+        why = str(e) if isinstance(e, pb.Unavailable) else friendly(e)
+        emit(t='log', level='warn' if installing else 'info',
+             msg='The ready-made bake could not be used (%s); baking here instead.' % why,
+             trace=traceback.format_exc() if not isinstance(e, pb.Unavailable) else None)
+        shutil.rmtree(tmp, ignore_errors=True)
+        return None
 
 
 def _bake_kidfx(k, tools, paths, emit, summary):

@@ -25,6 +25,9 @@ BONE, MUTED, PAPER = '#d9cca6', '#9a907a', '#cdbf99'
 UMBER, UMBER_HI, OK, BAD, WARN = '#5e4532', '#71533c', '#8fa66b', '#d0614a', '#d39b4a'
 
 EXPLAIN = {
+    'download': 'Umbra publishes a bake made for G.A.M.M.A. as it ships. When it fits your mod list and these '
+                'ticks, it is downloaded (about 4.7 GB) instead of baked here, which saves the minutes of baking. '
+                'When it does not fit, or the download fails, it is baked here as usual.',
     'models': "Every character and mutant model your mod list loads, rebuilt so each body part can be cut off "
               "cleanly. They look exactly the same as the originals.",
     'caps': 'A fitted flesh-and-bone cap for every cut, made from the model itself. About 250 MB.',
@@ -47,6 +50,7 @@ EXPLAIN = {
                           'explosions). Not checked in co-op yet. Only for testing.',
 }
 LABEL = {
+    'download': 'Download a ready-made bake when one fits',
     'models': 'Body models (always)', 'caps': 'Stump caps', 'pieces': 'Limb pieces', 'wounds': 'Wound sites',
     'gibs': 'Body gibs',
     'props': 'Breakable props', 'kid_particles': 'Kid mode for particles',
@@ -311,7 +315,7 @@ class App:
         self.checks = {}
         self._explain = []
         row = 0
-        for k in ('models', 'caps', 'pieces', 'wounds', 'gibs', 'props', 'kid_particles'):
+        for k in ('download', 'models', 'caps', 'pieces', 'wounds', 'gibs', 'props', 'kid_particles'):
             row = self._check(what, k, row)
         # kid mode for particles on / off at once (only the ZGO folder changes; no bake needed)
         kf = ttk.Frame(what)
@@ -926,6 +930,8 @@ class App:
                 if f > 0.08 and ev.get('stage') == 'bake':
                     left = ', about %s left' % core.human_seconds(elapsed * (1 - f) / f)
                 count = (' %d / %d' % (ev['done'], ev['total'])) if ev.get('total', 0) > 1 else ''
+                if ev.get('task') == 'download' and ev.get('stage') == 'download':
+                    count = ''                  # bytes: the message says them
                 self.l_progress.configure(text='%s%s (%s)%s' % (stage, count, ev.get('msg', ''), left))
                 if ev.get('stage') == 'install' and ev.get('done', 0) == 0:
                     self.say('Installing: this step cannot be cancelled.')
@@ -950,8 +956,12 @@ class App:
             self.say(ev.get('msg', 'Done.'))
             s = ev.get('summary') or {}
             if action == 'bake':
-                text = 'Baked %d models (%s) in %s.' % (s.get('baked', 0), core.human_bytes(s.get('bytes', 0)),
-                                                          core.human_seconds(s.get('seconds', 0)))
+                if s.get('prebaked'):
+                    text = 'Downloaded the ready-made bake for your mod list: %d models (%s) in %s.' % (
+                        s.get('baked', 0), core.human_bytes(s.get('bytes', 0)), core.human_seconds(s.get('seconds', 0)))
+                else:
+                    text = 'Baked %d models (%s) in %s.' % (s.get('baked', 0), core.human_bytes(s.get('bytes', 0)),
+                                                              core.human_seconds(s.get('seconds', 0)))
                 if s.get('errors'):
                     text += ' %d models could not be baked; the game uses them unchanged (see the log).' % s['errors']
                 if s.get('props_error'):

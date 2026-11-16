@@ -246,6 +246,109 @@ def add_kidfx(inst, zgo_dir=None):
     return kd
 
 
+# ---------------------------------------------------------------- a ready-made bake's bucket
+
+def _path_forms(path):
+    """How a path of this machine appears in the bake's text files (Umbra's dev/pack_build.py
+    path_forms, without its /var/home twin)."""
+    forms = set()
+    for v in {os.path.normpath(path), os.path.realpath(path)}:
+        win = 'Z:' + v.replace('/', '\\')
+        forms |= {('', v), ('_WIN', win), ('_WIN_ESC', win.replace('\\', '\\\\')), ('_WIN', 'Z:' + v)}
+    return sorted(forms, key=lambda f: -len(f[1]))
+
+
+def publish_bake(out, bucket, mo2, anomaly, caches, profile, zgo_folder, volume_files=3):
+    """Pack the bake in out the way Umbra's dev/pack_build.py does into bucket (a folder laid
+    out like the bucket, see tools/zgo_setup/prebaked.py): this machine's paths and the
+    profile and folder names become @@UMBRA_*@@ tokens, a report volume, volumes, the
+    manifest and umbra-effects/index.json. Returns (manifest, its index entry)."""
+    import hashlib
+    import re
+    import zipfile
+    sys.path.insert(0, os.path.join(MOD, 'tools', 'zgo_fracture'))
+    import bake
+    import fracture
+    reports = [r for r in (bake.REPORT, fracture.REPORT) if os.path.isfile(os.path.join(out, r))]
+    files = []
+    for r in reports:
+        with open(os.path.join(out, r), encoding='utf-8') as f:
+            files += [x for x in json.load(f).get('files', []) if os.path.isfile(os.path.join(out, *x.split('/')))]
+    data, relocate = {}, []
+    names = {'profile': ({profile}, '@@UMBRA_PROFILE@@'), 'zgo_mod': ({zgo_folder}, '@@UMBRA_ZGO_FOLDER@@')}
+    for rel in reports + sorted(set(files)):
+        with open(os.path.join(out, *rel.split('/')), 'rb') as f:
+            raw = f.read()
+        if rel.endswith(('.json', '.script')):
+            text, n = raw.decode('utf-8'), 0
+            for name, base in [('MO2', mo2), ('ANOMALY', anomaly)] + [('ZGO_CACHE', c) for c in caches]:
+                for suffix, form in _path_forms(base):
+                    n += text.count(form)
+                    text = text.replace(form, '@@UMBRA_%s%s@@' % (name, suffix))
+            if rel in reports:
+                rep = json.loads(text)
+
+                def walk(node):
+                    if isinstance(node, dict):
+                        for k, v in node.items():
+                            if k in names and v in names[k][0]:
+                                node[k] = names[k][1]
+                            else:
+                                walk(v)
+                    elif isinstance(node, list):
+                        for v in node:
+                            walk(v)
+                walk(rep)
+                text, n = json.dumps(rep, indent=1, sort_keys=True), n + 1
+            elif rel == bake.INPUTS:
+                for k, (was, tok) in names.items():
+                    text = re.sub(r'(?m)^%s = "(?:%s)"' % (k, '|'.join(re.escape(w) for w in was)),
+                                  '%s = "%s"' % (k, tok), text)
+                n += 1
+            if n:
+                relocate.append(rel)
+                raw = text.encode('utf-8')
+        data[rel] = raw
+    with open(os.path.join(out, bake.REPORT), encoding='utf-8') as f:
+        rep = json.load(f)
+    fp = rep['inputs']['fingerprint']
+    rest = [r for r in data if r not in reports]
+    vols = [reports] + [rest[i:i + volume_files] for i in range(0, len(rest), volume_files)]
+    d = os.path.join(bucket, 'umbra-effects', fp)
+    os.makedirs(d, exist_ok=True)
+    objs = []
+    for v in vols:
+        tmp = os.path.join(d, 'volume.tmp')
+        with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as z:
+            for rel in v:
+                z.writestr(zipfile.ZipInfo(rel, (2020, 1, 1, 0, 0, 0)), data[rel], zipfile.ZIP_DEFLATED)
+        with open(tmp, 'rb') as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+        os.replace(tmp, os.path.join(d, sha + '.zip'))
+        objs.append({'path': 'umbra-effects/%s/%s.zip' % (fp, sha), 'sha256': sha,
+                     'size': os.path.getsize(os.path.join(d, sha + '.zip')), 'files': len(v),
+                     'bytes': sum(len(data[r]) for r in v)})
+    man = {'format': 1, 'kind': 'umbra-effects-bake', 'fingerprint': fp, 'baker': rep['inputs'].get('baker', 0),
+           'zgo': rep['inputs'].get('zgo', ''), 'made': rep.get('time', ''), 'models': rep.get('baked', 0),
+           'files': len(data), 'bytes': sum(len(x) for x in data.values()), 'relocate': sorted(relocate),
+           'report': objs[0], 'volumes': objs[1:]}
+    blob = (json.dumps(man, indent=1, sort_keys=True) + '\n').encode('utf-8')
+    sha = hashlib.sha256(blob).hexdigest()
+    with open(os.path.join(d, sha + '.json'), 'wb') as f:
+        f.write(blob)
+    entry = {'path': 'umbra-effects/%s/%s.json' % (fp, sha), 'sha256': sha, 'size': len(blob), 'fingerprint': fp,
+             'baker': man['baker'], 'zgo': man['zgo'], 'made': man['made'], 'models': man['models'],
+             'download': sum(o['size'] for o in objs[1:]), 'bytes': man['bytes']}
+    write_index(bucket, [entry])
+    return man, entry
+
+
+def write_index(bucket, entries):
+    os.makedirs(os.path.join(bucket, 'umbra-effects'), exist_ok=True)
+    with open(os.path.join(bucket, 'umbra-effects', 'index.json'), 'w') as f:
+        json.dump({'format': 1, 'kind': 'umbra-effects-bakes', 'bakes': entries}, f, indent=1)
+
+
 class Install:
     def __init__(self, root, zgo):
         self.root = root

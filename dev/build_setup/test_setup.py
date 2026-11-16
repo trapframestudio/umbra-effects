@@ -17,6 +17,7 @@ redirected too).
 import contextlib
 import errno
 import hashlib
+import http.server
 import importlib.util
 import io
 import json
@@ -50,6 +51,8 @@ TABLES = os.path.join(MOD, 'gamedata', 'scripts', 'zgo_tables.script')
 # the baker's work folder of every test run goes to a temporary folder
 TMP_CACHE = tempfile.mkdtemp(prefix='zgo_setup_test_cache_')
 os.environ['ZGO_BAKER_CACHE'] = TMP_CACHE
+# no test asks Umbra's bucket for a ready-made bake; TestPrebaked serves its own
+os.environ['ZGO_PREBAKED_SOURCE'] = 'off'
 
 
 def tearDownModule():
@@ -663,6 +666,250 @@ class TestBakeAndCheck(FakeInstallCase):
         self.assertEqual(ev[-1]['kind'], 'bake')
         self.assertTrue(ev[-1]['msg'][0].isupper())
         self.assertTrue(rep['files'])
+
+
+class _RangeHandler(http.server.SimpleHTTPRequestHandler):
+    """A static server that answers Range requests (as B2 does); records them."""
+    ranges = []
+
+    def log_message(self, *a):
+        pass
+
+    def send_head(self):
+        rng = self.headers.get('Range')
+        path = self.translate_path(self.path)
+        if not rng or not os.path.isfile(path):
+            return super().send_head()
+        start = int(re.match(r'bytes=(\d+)-', rng).group(1))
+        type(self).ranges.append((self.path, start))
+        size = os.path.getsize(path)
+        f = open(path, 'rb')
+        f.seek(start)
+        self.send_response(206)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Range', 'bytes %d-%d/%d' % (start, size - 1, size))
+        self.send_header('Content-Length', str(size - start))
+        self.end_headers()
+        return f
+
+
+class TestPrebaked(FakeInstallCase):
+    """Umbra's ready-made bake (tools/zgo_setup/prebaked.py, setup_core.get_prebaked): install A
+    bakes, its bake goes into a fake bucket the way Umbra's packer puts it there, and install B
+    (another MO2 folder, another machine's file dates) presses Bake."""
+
+    def setUp(self):
+        super().setUp()
+        self.bake()
+        self.a = self.inst
+        self.bucket = os.path.join(self.tmp, 'bucket')
+        self.man, self.entry = fakezgo.publish_bake(self.a.mod, self.bucket, self.a.mo2, self.a.game,
+                                                    [self.a.cache, TMP_CACHE], 'P', 'Out')
+        self.b = fakezgo.make(os.path.join(self.tmp, 'b'), tools=False, zgo='Out')
+        for k in fakezgo.MOD_MODELS:
+            os.utime(self.b.model('Synth Models', k), (1600000000, 1600000000))
+        for db in ('meshes_actors.db0', 'meshes.db0'):
+            os.utime(os.path.join(self.b.game, 'db', 'meshes', db), (1600000000, 1600000000))
+        self.paths = core.Paths(MOD, self.b.mo2, 'P', self.b.game, out=self.b.mod, cache=self.b.cache)
+        self.env = mock.patch.dict(os.environ, {'ZGO_PREBAKED_SOURCE': self.bucket})
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        super().tearDown()
+
+    def run_bake(self, **kw):
+        code, ev = self.worker(**kw)
+        logs = ' | '.join(e.get('msg', '') for e in ev if e['t'] == 'log')
+        tasks = {e.get('task') for e in ev if e['t'] == 'progress'}
+        return code, ev, logs, tasks
+
+    def test_downloads_when_it_fits(self):
+        code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        s = ev[-1]['summary']
+        self.assertTrue(s.get('prebaked'), logs)
+        self.assertEqual((s['baked'], s['download']), (4, sum(v['size'] for v in self.man['volumes'])))
+        self.assertNotIn('models', tasks, 'nothing was baked here')
+        self.assertIn('download', tasks)
+        st = self.check()
+        self.assertEqual(st.state, 'ok', st.text())
+        rep_a, rep_b = bake.read_report(self.a.mod), bake.read_report(self.b.mod)
+        self.assertEqual(sorted(rep_a['files']), sorted(rep_b['files']))
+        for rel in rep_a['files']:
+            if rel == bake.INPUTS:
+                continue
+            with open(os.path.join(self.a.mod, *rel.split('/')), 'rb') as f1, \
+                    open(os.path.join(self.b.mod, *rel.split('/')), 'rb') as f2:
+                self.assertEqual(f1.read(), f2.read(), rel)
+        # this machine's paths and names, and this machine's dates
+        text = json.dumps(rep_b)
+        self.assertNotIn('@@UMBRA_', text)
+        for a_path in (self.a.mo2, self.a.game, self.a.cache):     # (B is inside A's folder: its paths start alike)
+            self.assertNotIn(a_path + '/', text)
+        self.assertIn(self.b.mo2, text)
+        self.assertEqual(rep_b['profile'], 'P')
+        r = [x for x in rep_b['results'] if x.get('src_mod')][0]
+        self.assertEqual(r['src_mtime'], 1600000000)
+        self.assertEqual(rep_b['inputs']['archives']['meshes/meshes_actors.db0'][1], 1600000000)
+        with open(os.path.join(self.b.mod, *bake.INPUTS.split('/')), encoding='utf-8') as f:
+            inp = f.read()
+        self.assertNotIn('@@UMBRA_', inp)
+        self.assertIn('mo2 = "%s"' % bake.game_path(self.b.mo2).replace('\\', '\\\\'), inp)
+        self.assertEqual(sorted(os.listdir(self.b.mod)), ['gamedata', bake.REPORT], 'no work files left')
+        self.assertFalse(os.path.exists(os.path.join(self.b.cache, 'prebaked', self.man['fingerprint'])))
+        # Bake again: it is already there
+        code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertIn('already in place', logs)
+        self.assertEqual(ev[-1]['summary']['download'], 0)
+
+    def test_bakes_when_it_does_not_fit(self):
+        fakezgo.write_model(self.b.mo2, 'New Models', 'actors\\synth\\synth_c')
+        fakezgo.set_modlist(self.b.mo2, 'P', ['+Out', '+New Models', '+Synth Models'])
+        code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertFalse(ev[-1]['summary'].get('prebaked'))
+        self.assertIn("doesn't fit", logs)
+        self.assertIn('adds 1 model', logs)
+        self.assertIn('models', tasks)
+        self.assertEqual(ev[-1]['summary']['baked'], 5)
+        self.assertEqual(self.check().state, 'ok')
+
+    def test_bakes_with_other_settings(self):
+        code, ev, logs, tasks = self.run_bake(choices=core.Choices(jobs=2, props=False, gibs=False))
+        self.assertEqual(code, 0, ev[-1])
+        self.assertFalse(ev[-1]['summary'].get('prebaked'))
+        self.assertIn('other settings than yours', logs)
+        self.assertIn('"Body gibs" on there, off in yours', logs)
+
+    def test_download_off(self):
+        code, ev, logs, tasks = self.run_bake(choices=core.Choices(jobs=2, props=False, download=False))
+        self.assertEqual(code, 0, ev[-1])
+        self.assertEqual(tasks & {'download'}, set())
+        self.assertFalse(ev[-1]['summary'].get('prebaked'))
+        with mock.patch.dict(os.environ, {'ZGO_PREBAKED_SOURCE': 'off'}):
+            code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(tasks & {'download'}, set())
+
+    def test_a_damaged_volume_or_no_bucket_means_baking_here(self):
+        v = os.path.join(self.bucket, *self.man['volumes'][0]['path'].split('/'))
+        with open(v, 'r+b') as f:
+            f.seek(10)
+            f.write(b'XXXX')
+        code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertFalse(ev[-1]['summary'].get('prebaked'))
+        self.assertIn('could not be used', logs)
+        self.assertIn('damaged on the way', logs)
+        self.assertEqual(self.check().state, 'ok')
+        self.assertFalse(os.path.exists(os.path.join(self.b.mod, '.zgo-prebaked')))
+        with mock.patch.dict(os.environ, {'ZGO_PREBAKED_SOURCE': os.path.join(self.tmp, 'nowhere')}):
+            code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertIn('could not be used', logs)
+
+    def test_another_baker_version_is_not_tried(self):
+        fakezgo.write_index(self.bucket, [dict(self.entry, baker=bake.BAKER_VERSION + 1)])
+        code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertIn('No ready-made bake for this version', logs)
+        self.assertFalse(ev[-1]['summary'].get('prebaked'))
+
+    def test_cancel_changes_nothing(self):
+        code, ev, logs, tasks = self.run_bake(cancel=True)
+        self.assertEqual(code, 3, ev[-1])
+        self.assertIn('Nothing in the Umbra Effects folder was changed', ev[-1]['msg'])
+        self.assertEqual(os.listdir(self.b.mod), [])
+
+    def test_over_http_resuming_a_cut_download(self):
+        import functools
+        import threading as th
+        srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0),
+                                              functools.partial(_RangeHandler, directory=self.bucket))
+        t = th.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        try:
+            v = self.man['volumes'][0]
+            part = os.path.join(self.b.cache, 'prebaked', self.man['fingerprint'], os.path.basename(v['path']) + '.part')
+            os.makedirs(os.path.dirname(part))
+            with open(os.path.join(self.bucket, *v['path'].split('/')), 'rb') as f:
+                half = f.read(v['size'] // 2)
+            with open(part, 'wb') as f:
+                f.write(half)
+            _RangeHandler.ranges = []
+            with mock.patch.dict(os.environ, {'ZGO_PREBAKED_SOURCE': 'http://127.0.0.1:%d' % srv.server_address[1]}):
+                code, ev, logs, tasks = self.run_bake()
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertTrue(ev[-1]['summary'].get('prebaked'), logs)
+        self.assertEqual(_RangeHandler.ranges, [('/' + v['path'], len(half))])
+        self.assertEqual(self.check().state, 'ok')
+
+
+class TestPrebakedParts(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='zgo_prebaked_test_')
+        import prebaked
+        self.pb = prebaked
+        self.tools = core.Tools(MOD)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_relocate(self):
+        pb = self.pb
+        p = os.path.join(self.tmp, 'r.json')
+        with open(p, 'w') as f:
+            f.write('{"a": "@@UMBRA_MO2@@/mods/x", "b": "@@UMBRA_MO2_WIN_ESC@@\\\\mods", "c": "@@UMBRA_PROFILE@@"}')
+        toks = pb.tokens('/m o2', '/game', '/cache', 'Prof', 'Out')
+        pb.relocate(self.tmp, ['r.json', 'missing.json'], toks)
+        with open(p) as f:
+            d = json.load(f)
+        want = 'Z:\\m o2' if os.name != 'nt' else '/m o2'
+        self.assertEqual(d, {'a': '/m o2/mods/x', 'b': want + '\\mods', 'c': 'Prof'})
+        with open(p, 'w') as f:
+            f.write('"@@UMBRA_SOMETHING_NEW@@"')
+        with self.assertRaises(pb.Unavailable):
+            pb.relocate(self.tmp, ['r.json'], toks)
+
+    def test_only_what_a_bake_writes_is_unpacked(self):
+        import zipfile
+        z = os.path.join(self.tmp, 'v.zip')
+        for bad in ('gamedata/scripts/other.script', '../x.ogf', 'gamedata/configs/system.ltx', 'C:/x'):
+            with zipfile.ZipFile(z, 'w') as zf:
+                zf.writestr('gamedata/meshes/a.ogf', b'x')
+                zf.writestr(bad, b'y')
+            with self.assertRaises(self.pb.Unavailable, msg=bad):
+                self.pb.unpack(self.tools, [z], os.path.join(self.tmp, 'out'))
+        with zipfile.ZipFile(z, 'w') as zf:
+            for rel in ('gamedata/meshes/a.ogf', bake.INDEX, bake.INPUTS, bake.REPORT):
+                zf.writestr(rel, b'x')
+        self.assertEqual(len(self.pb.unpack(self.tools, [z], os.path.join(self.tmp, 'out'))), 4)
+
+    def test_formats(self):
+        pb = self.pb
+        fp, sha = 'a' * 32, 'b' * 64
+        e = {'path': 'umbra-effects/%s/%s.json' % (fp, sha), 'sha256': sha, 'size': 10, 'fingerprint': fp, 'baker': 3}
+        idx = {'format': 1, 'kind': 'umbra-effects-bakes', 'bakes': [e, dict(e, path='elsewhere/x.json'), 'junk']}
+        self.assertEqual(pb.read_index(json.dumps(idx).encode()), [e])
+        for bad in (dict(idx, format=2), dict(idx, kind='x'), []):
+            with self.assertRaises(pb.Unavailable):
+                pb.read_index(json.dumps(bad).encode())
+        vol = {'path': 'umbra-effects/%s/%s.zip' % (fp, 'c' * 64), 'sha256': 'c' * 64, 'size': 5}
+        man = {'format': 1, 'kind': 'umbra-effects-bake', 'fingerprint': fp, 'report': vol, 'volumes': [vol],
+               'relocate': ['zgo_bake_report.json']}
+        self.assertEqual(pb.read_manifest(json.dumps(man).encode(), e)['fingerprint'], fp)
+        for bad in (dict(man, fingerprint='d' * 32), dict(man, volumes=[]), dict(man, relocate=['../x']),
+                    dict(man, report=dict(vol, sha256='e' * 64)), dict(man, format=2)):
+            with self.assertRaises(pb.Unavailable):
+                pb.read_manifest(json.dumps(bad).encode(), e)
+
+    def test_ssl_context(self):
+        import ssl
+        self.assertIsInstance(self.pb.ssl_context(), ssl.SSLContext)
 
 
 class TestKidfx(FakeInstallCase):

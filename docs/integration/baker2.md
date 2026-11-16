@@ -205,7 +205,7 @@ For **wounds**: do not send site indices across the wire as they are. A client's
 
 ## 6. README text
 
-Replace the BAKED MODELS paragraph's run line and size sentence (README.txt, CRLF):
+Replace the BAKED MODELS paragraph's run line and size sentence (README.md, CRLF):
 
 ```
     2. python3 tools/zgo_baker/bake.py   (about 2 minutes; reads MO2's

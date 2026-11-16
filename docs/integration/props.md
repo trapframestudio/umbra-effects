@@ -157,7 +157,7 @@ Until then, `tests/mocks/props.lua` adds `mod_system_zgo_props.ltx` itself.
 
 **R6. kidfx: leave `gamedata/particles/zgo/props/*.pe` as they are.** They are environmental effects (dust, splinters, sparks, glass, liquids) with stock `particles\add` / `particles\blend` shaders. Kid mode doesn't change props. They are played by `zgo_props` itself (`particles_object`), not through `zgo_fx`, so `zgo_fx.is_gore` never sees them.
 
-**R7. README.txt:** add the PROPS text from section 6. The "Objects break apart" option text points to "README, PROPS".
+**R7. README.md:** add the PROPS text from section 6 (its "Objects (props)" section). The "Objects break apart" option text points to "README, PROPS".
 
 **R8. Not needed:**
 - **kid_mode wiring:** nothing here is gory.

@@ -186,12 +186,12 @@ simply leaves the session without native features.
 exists" loop (line 86). `tests/zgo_test_native.lua` already checks this for
 its own script.
 
-**R5. README.txt.** Add the text in section 6:
+**R5. README.md and CHANGELOG.md.** Add the text in section 6:
 
-- the feature block under WHAT IT DOES;
-- the page line under SETTINGS;
-- the LIMITS bullet;
-- the CHANGES bullet.
+- the feature block under Features (WHAT IT DOES in the old plain-text README);
+- the page line under Settings;
+- the Known limits bullet;
+- the CHANGES bullet, as the version's `CHANGELOG.md` entry.
 
 **R6. dev/README.md (optional).** One line under the tests:
 
@@ -205,7 +205,7 @@ reports `loaded=false, state=not loaded (Native extensions are off)`.
 finder only and never installs a hook.
 
 **R8. xrRazom 1.5 wording (with R5).** When adding the R5 LIMITS bullet to
-README.txt, use the updated text in section 6 ("all eight of xrRazom 1.4 and
+README.md, use the updated text in section 6 ("all eight of xrRazom 1.4 and
 of xrRazom 1.5"). No other change for 1.5 is needed in shared files: the
 C ABI (1), the capability bits and the Lua side are unchanged.
 

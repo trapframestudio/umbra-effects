@@ -192,7 +192,7 @@ Not applicable: offline tool, no game code.
 
 ## 6. README text
 
-For the developer section of `README.txt`, if there is one. Players never see
+For the developer section of `README.md`, if there is one. Players never see
 this tool.
 
     Shader check (developers): dev/run.sh dev/shadercheck/check.sh compiles every ZGO

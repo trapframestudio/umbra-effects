@@ -16,6 +16,16 @@ that has no GUI code (`setup_core.py`), plus a command line on the same layer.
   estimate (G.A.M.M.A.: 4796 models, "about 6.4 GB" vs 6.5 GB real), free space
   on each drive the bake touches, and mods that load after ZGO and would hide
   baked models (red line, with "drag ZGO below it").
+- **Ready-made bakes (1.8.1).** Bake first looks for a published bake that fits
+  (`prebaked.py`): it reads `umbra-effects/index.json` in Umbra's public bucket
+  (written by Umbra's `dev/b2_upload.py`; format in Umbra's `packdef.py`), downloads a
+  candidate's small report volume, relocates its path tokens to this machine and runs
+  the prebaked `check()` against this mod list and these ticks. On a fit it downloads
+  the volumes (resumable, sha256-checked), unpacks only bake outputs, relocates them,
+  swaps them in and adopts this machine's file dates into the report; otherwise, or on
+  any failure, it bakes here. `--no-download` / the "Download a ready-made bake" box
+  turn it off; `ZGO_PREBAKED_SOURCE` points it at another bucket URL or folder (`off`
+  disables it; the tests use a local folder and a local HTTP server).
 - **Options** as checkboxes with an explanation beside each: caps (250 MB),
   pieces (3.2 GB), wound sites, breakable props; the three experimental parts
   are folded away under "Show the experimental parts", are off, and ask for
@@ -215,7 +225,7 @@ pyinstaller-hooks-contrib 2026.9, altgraph 0.17.5, packaging 26.3, setuptools
    creature kind, read from zgo_tables.script (a small Lua table reader; no
    LuaJIT needed)".
 
-8. **`README.txt`**: the BAKED MODELS section and a CHANGES bullet, §6. Note
+8. **`README.md`**: the BAKED MODELS section, §6; the CHANGES bullet goes into `CHANGELOG.md`. Note
    the current text says to keep ZGO "above every mod that ships character
    models in MO2's left pane (higher priority)": in MO2 the mod **lower** in
    the left pane wins (modlist.txt lists it first), so that sentence tells
@@ -260,7 +270,7 @@ options are local; host and clients each see only their own messages. The
 
 ## 6. README text
 
-Replace the BAKED MODELS section (README.txt, CRLF):
+Replace the BAKED MODELS section (README.md, CRLF):
 
 ```
 BAKED MODELS (optional, recommended)

@@ -12,13 +12,15 @@ Without a window (any of these):
   --check      is the bake up to date? (exit 0 = yes; the last line is "RESULT body=.. props=.. kid=..")
   --match DIR  would the prebaked bake whose report is in DIR fit this mod list? (exit 0 = yes)
   --plan       what a bake would make, and its size
-  --bake       bake in this terminal          --props   cut the props only
+  --bake       bake in this terminal (a ready-made bake is downloaded instead when one fits;
+               --no-download: always bake here)          --props   cut the props only
   --remove     remove the bake                --selftest  check that this program works
   --kid-particles-apply    kid mode for particles on (gory effects use Umbra Effects' particle shaders)
   --kid-particles-revert   undo: every particle effect back to the game's own shaders
+  --list-prebaked   list Umbra's ready-made bakes (from the internet; nothing is downloaded)
   --version    print the version
 Options: --mo2 DIR --profile NAME --game DIR --mod DIR --jobs N
-         --no-caps --no-pieces --no-wounds --no-props --no-kid-particles
+         --no-caps --no-pieces --no-wounds --no-props --no-kid-particles --no-download
          --experimental-caps --experimental-damage --experimental-props
          --yes (do not ask) --log FILE (also write the output there)
 """
@@ -99,6 +101,8 @@ def parse(argv):
         ap.add_argument('--no-' + name, action='store_true')
     ap.add_argument('--no-kid-particles', action='store_true',
                     help="--bake: leave kid mode for particles (Umbra Effects' particle shaders and copies) as it is")
+    ap.add_argument('--no-download', action='store_true',
+                    help="--bake: always bake here, even when Umbra's ready-made bake fits this mod list")
     for name in ('caps', 'damage', 'props'):
         ap.add_argument('--experimental-' + name, action='store_true')
     g = ap.add_mutually_exclusive_group()
@@ -115,6 +119,8 @@ def parse(argv):
     g.add_argument('--kid-particles-revert', action='store_true',
                    help="undo kid mode for particles: every effect back to the game's own particle shaders")
     g.add_argument('--selftest', action='store_true', help='check that this program works')
+    g.add_argument('--list-prebaked', action='store_true',
+                   help="list Umbra's ready-made bakes (from the internet; nothing is downloaded)")
     g.add_argument('--version', action='store_true', help='print the version and exit')
     g.add_argument('--worker', metavar='JOB', help=argparse.SUPPRESS)
     ap.add_argument('--deep', action='store_true', help='--check: also compare the contents of every file')
@@ -178,6 +184,8 @@ def _choices(core, tools, a, paths):
         c.experimental_props = True
     if a.no_kid_particles:
         c.kid_particles = False
+    if a.no_download:
+        c.download = False
     if a.jobs:
         c.jobs = max(1, a.jobs)
     if not tools.fracture:
@@ -278,8 +286,12 @@ def cli(a, mod_root, say):
             step = int(frac * 10)
             if last.get(key) != step or ev['done'] == ev.get('total'):
                 last[key] = step
-                say('  [%s] %s %d/%d %s' % (ev.get('task'), core.STAGE_TEXT.get(ev.get('stage'), ev.get('stage')),
-                                            ev.get('done', 0), ev.get('total', 0), ev.get('msg', '')))
+                text = core.STAGE_TEXT.get(ev.get('stage'), ev.get('stage'))
+                if ev.get('task') == 'download' and ev.get('stage') == 'download':
+                    say('  [download] %s: %s' % (text, ev.get('msg', '')))      # bytes: the message says them
+                else:
+                    say('  [%s] %s %d/%d %s' % (ev.get('task'), text, ev.get('done', 0), ev.get('total', 0),
+                                                ev.get('msg', '')))
     job = core.Job(tools, action, paths, choices).start()
     try:
         res = job.wait(on_event=show)
@@ -371,6 +383,17 @@ def selftest(a, mod_root, say):
             'yes' if tools.kidfx else 'no')
     step('baker', t_core)
 
+    def t_download():
+        # the ready-made bake's download, without the network: HTTPS and the
+        # system's certificates load, and the zips open
+        import prebaked as pb
+        import urllib.request
+        import zipfile  # noqa: F401
+        urllib.request.build_opener(urllib.request.HTTPSHandler(context=pb.ssl_context()))
+        import ssl
+        return ssl.OPENSSL_VERSION
+    step('download', t_download)
+
     def t_pool():
         import multiprocessing as mp
         import importlib
@@ -436,6 +459,27 @@ class _Skip(Exception):
     pass
 
 
+def list_prebaked(say):
+    import prebaked as pb
+    src = pb.source()
+    if src is None:
+        say('Ready-made bakes are turned off (ZGO_PREBAKED_SOURCE=off).')
+        return 1
+    try:
+        entries = pb.read_index(pb.get_small(src, pb.INDEX, 1 << 20))
+    except pb.Unavailable as e:
+        say('Could not get the list of ready-made bakes from %s: %s' % (src, e))
+        return 2
+    say('Ready-made bakes at %s:' % src)
+    for e in entries:
+        say('  made %s by Umbra Gore & Effects %s (baker %s): %s models, %s to download, %s unpacked'
+            % (e.get('made', '?'), e.get('zgo', '?'), e.get('baker', '?'), e.get('models', '?'),
+               pb.human(e.get('download', 0)), pb.human(e.get('bytes', 0))))
+    if not entries:
+        say('  (none)')
+    return 0
+
+
 # ---------------------------------------------------------------- main
 
 def _no_window_message(e):
@@ -471,6 +515,8 @@ def main(argv=None):
         return 0
     if a.selftest:
         return selftest(a, mod_root, say)
+    if a.list_prebaked:
+        return list_prebaked(say)
     if a.check or a.match or a.plan or a.bake or a.props or a.remove or a.kid_particles_apply or \
             a.kid_particles_revert:
         if not mod_root:

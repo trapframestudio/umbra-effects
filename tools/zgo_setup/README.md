@@ -6,7 +6,15 @@ your profile and the game by itself (it lives inside the Umbra Effects folder), 
 can change all three in the window.
 
 Close the game before baking. A full bake of G.A.M.M.A. takes a few minutes
-and about 6.5 GB (most of it the limb pieces, which you can untick).
+and about 7.2 GB (most of it the limb pieces, which you can untick).
+
+**Ready-made bakes.** Umbra publishes the bake it made for G.A.M.M.A. as it ships.
+With "Download a ready-made bake when one fits" ticked (the default), Bake first
+compares that bake with your mod list and your ticks; when it fits, it downloads it
+(about 4.7 GB) and puts it in place instead of baking, checking every file. When
+it does not fit, or the download fails, it bakes on your computer as before. A
+download that was cut off carries on where it stopped the next time. The work
+files go to the baker's work folder (`--cache`), and are removed once the bake is in.
 
 ## Starting it
 
@@ -68,7 +76,8 @@ should be run again (MCM: Umbra Gore & Effects, Baked models).
 
     zgo-setup-linux --check            is the bake up to date? (exit code 0 = yes)
     zgo-setup-linux --plan             what a bake would make, and how large
-    zgo-setup-linux --bake --yes       bake in the terminal
+    zgo-setup-linux --bake --yes       bake in the terminal (downloads a ready-made bake instead when one fits)
+    zgo-setup-linux --list-prebaked    list Umbra's ready-made bakes (nothing is downloaded)
     zgo-setup-linux --remove --yes     remove the bake
     zgo-setup-linux --kid-particles-apply --yes    kid mode for particles on (no bake)
     zgo-setup-linux --kid-particles-revert --yes   undo: the game's own particle shaders
@@ -76,6 +85,7 @@ should be run again (MCM: Umbra Gore & Effects, Baked models).
 
 Options: `--mo2 DIR --profile NAME --game DIR --jobs N`, `--no-caps`,
 `--no-pieces`, `--no-wounds`, `--no-props`, `--no-kid-particles`,
+`--no-download` (always bake here),
 `--cache DIR` (the work folder, needs as much free space as the bake),
 `--log FILE`. On Windows the same
 options work for `"Umbra Effects Setup.exe"`; it has no console, so add `--log FILE` to
