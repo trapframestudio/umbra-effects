@@ -32,6 +32,7 @@ import hashlib
 import json
 import os
 import re
+import struct
 import sys
 
 sys.dont_write_bytecode = True
@@ -134,6 +135,19 @@ def _words(s, words):
     return [w for w in words if w in s]
 
 
+def blood_red(color):
+    """Red with neither fire's yellow nor a pink cast: green and blue both well under red,
+    and the hue within 10 degrees of pure red. Blood (0.45, 0, 0), (0.27, 0.15, 0.15) is;
+    explosion fire (1, 0.49, 0.2) and muzzle sparks (1, 0.62, 0.34) are orange (hue 20-25)."""
+    if not color:
+        return False
+    r, g, b = color[:3]
+    lo = min(g, b)
+    if r < 0.1 or r < 1.6 * max(g, b):
+        return False
+    return abs(g - b) <= (r - lo) / 6.0         # |hue| <= 10 degrees
+
+
 def classify(rel, shader, texture, color=None):
     """('gore'|'clean'|'carrier', reason) for a .pe at particles/<rel>."""
     rel = rel.replace('\\', '/').lower()
@@ -154,7 +168,7 @@ def classify(rel, shader, texture, color=None):
     g = _words(tex, TEXTURE_GORE)
     if g:
         return 'gore', 'texture %s' % tex
-    if color and color[0] >= 0.1 and color[0] >= 1.6 * max(color[1], color[2]):
+    if blood_red(color):
         return 'gore', 'no marker in name or texture %s, but it fades to blood red %s' % (
             tex, '(%.2f, %.2f, %.2f)' % tuple(color))
     return 'clean', 'no gore marker in name, folder or texture %s (left visible)' % tex
@@ -527,9 +541,21 @@ def gen_shaders(write=False, paths=None, legacy=False, shaders_root=None):
 
 
 # ---------------------------------------------------------------- copies (per-modlist bake)
+class _XrEntry:
+    """A particles.xr entry as a source of a loose file (particles_xr writes it out)."""
+
+    def __init__(self, label, data):
+        self.label, self.data = label, data
+
+    def read(self, _src):
+        return self.data
+
+
 def copies(write=False, remove=False, paths=None):
     """Gory effects the game plays from other mods, copied into Umbra Effects with only
-    the shader line changed; the source of each goes into kidfx_copies.json."""
+    the shader line changed; the source of each goes into kidfx_copies.json. An effect no
+    mod ships as a loose file comes from the winning particles.xr (particles_xr writes it
+    out exactly), as the game itself would take it."""
     man = _load_copies()
     have = man.setdefault('copies', {})
     report = {'copies': [], 'removed': []}
@@ -558,8 +584,31 @@ def copies(write=False, remove=False, paths=None):
     bad = paths.check()
     if bad:
         raise RuntimeError('cannot find the game / MO2: ' + '; '.join(bad))
-    res = sc_tree.Resolved(paths, ('particles/',))
+    res = sc_tree.Resolved(paths, ('particles/', 'particles.xr'))
     todo, seen = [], set()
+    xr = {}
+
+    def from_xr(rel):
+        """(source, None) for a particle file that only the winning particles.xr has (the game
+        reads loose files first and takes an entry of particles.xr only when none has its name)."""
+        if 'lib' not in xr:
+            import particles_xr
+            w = res.winner('particles.xr')
+            xr['lib'], xr['label'] = None, None
+            if w:
+                xr['label'] = '%s particles.xr' % w[0].label
+                try:
+                    xr['lib'] = particles_xr.loads(w[0].read(w[1]))
+                except (ValueError, IndexError, struct.error) as ex:
+                    report['particles_xr'] = 'unreadable (%s): %s' % (xr['label'], ex)
+            xr['mod'] = particles_xr
+        if xr['lib'] is None:
+            return None
+        name, ext = rel[len('particles/'):].rsplit('.', 1)
+        hit = xr['lib'].find(name)
+        if not hit or hit[0] != ext:
+            return None
+        return _XrEntry(xr['label'], xr['mod'].entry_ini(*hit)), None
 
     def walk(name, why):
         base = 'particles/' + name.replace('\\', '/').lower()
@@ -567,7 +616,7 @@ def copies(write=False, remove=False, paths=None):
             rel = base + ext
             if rel in seen:
                 continue
-            w = res.winner(rel)
+            w = res.winner(rel) or from_xr(rel)
             if not w:
                 continue
             seen.add(rel)
@@ -585,6 +634,9 @@ def copies(write=False, remove=False, paths=None):
             ent['status'] = 'Umbra Effects ships it' if rel.lower() not in have else 'ours (copied earlier)'
             if rel.lower() in have:
                 src_now = [x for x in res.chain.get('particles/' + rel.lower(), []) if x[0].label != sc_tree.ZGO_LABEL]
+                if not src_now:
+                    w = from_xr('particles/' + rel.lower())
+                    src_now = [w] if w else []
                 if src_now:
                     d2 = src_now[-1][0].read(src_now[-1][1])
                     if hashlib.sha1(normalized(d2)).hexdigest() != have[rel.lower()]['sha1']:

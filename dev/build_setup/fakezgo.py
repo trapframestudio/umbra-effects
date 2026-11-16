@@ -163,6 +163,32 @@ def group_bytes(effects):
     return '\r\n'.join(lines + ['']).encode('latin1')
 
 
+def particles_xr_bytes(effects, groups=None):
+    """A particles.xr as the game reads it (tools/zgo_kidfx/particles_xr.py has the format):
+    effects {name: (shader, texture)}, each with one 'killold' action; groups {name: (effects)}.
+    The compiled action list (chunk 4) is a stand-in: the game rebuilds it from chunk 0x24."""
+    def chunk(cid, body):
+        return struct.pack('<II', cid, len(body)) + body
+
+    def sz(s):
+        return s.encode('latin1') + b'\0'
+    pe = []
+    for i, (name, (shader, tex)) in enumerate(sorted(effects.items())):
+        edata = struct.pack('<III', 1, 10, 1) + sz('killold') + struct.pack('<IfB', 1, 0.75, 0)
+        body = (chunk(1, struct.pack('<H', 1)) + chunk(2, sz(name)) + chunk(3, struct.pack('<I', 10)) +
+                chunk(4, b'\0' * 4) + chunk(5, struct.pack('<I', 1 | (1 << 14))) + chunk(7, sz(shader) + sz(tex)) +
+                chunk(8, struct.pack('<f', 0.5)) + chunk(0x24, edata))
+        pe.append(chunk(i, body))
+    pg = []
+    for i, (name, kids) in enumerate(sorted((groups or {}).items())):
+        ents = struct.pack('<I', len(kids)) + b''.join(sz(k) + sz('') * 3 + struct.pack('<ffI', 0, 0.25, 4)
+                                                       for k in kids)
+        body = (chunk(1, struct.pack('<H', 3)) + chunk(2, sz(name)) + chunk(3, struct.pack('<I', 0)) +
+                chunk(4, ents) + chunk(5, struct.pack('<f', 5.0)))
+        pg.append(chunk(i, body))
+    return chunk(1, struct.pack('<H', 1)) + chunk(3, b''.join(pe)) + chunk(4, b''.join(pg))
+
+
 def shaders_xr():
     """A shaders.xr holding the four stock particle blenders, in the layout
     tools/zgo_kidfx/sc_blenders.py reads: chunk 2, one sub-chunk per blender,

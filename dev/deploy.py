@@ -23,7 +23,10 @@ What it never touches in the mod folder:
 It never deletes anything. Files in the mod folder that the repo no longer has
 are listed so you can remove them yourself.
 
-It refuses to run while the game, Umbra Effects Setup, the baker or kidfx is running.
+It refuses to run while the game, Umbra Effects Setup, the baker or kidfx is running. A game
+started from another install (its exe and -fsltx outside this MO2 and its game folder, as
+test harnesses run them) doesn't count; one that links into this mod folder must be closed
+by hand.
 """
 import argparse
 import filecmp
@@ -39,7 +42,9 @@ sys.path.insert(0, HERE)
 import package  # noqa: E402  (the release file list)
 
 ROOT = package.ROOT
-DEFAULT_TO = os.path.join('~', 'gamma', 'gamma', 'mods', 'Umbra Gore & Effects')
+# the Umbra install kept for development (Umbra's pack is built from it); a release-test
+# install or a plain G.A.M.M.A. takes --to
+DEFAULT_TO = os.path.join('~', 'development', 'umbra-dev', 'gamma', 'mods', 'Umbra Gore & Effects')
 MARKER = 'gamedata/scripts/zgo_main.script'
 KIDFX_STATE = ('tools/zgo_kidfx/kidfx_copies.json', 'tools/zgo_kidfx/kidfx_snapshot.txt')
 # Umbra Effects Setup programs: build output (dev/build_setup/build.sh), not in a fresh checkout,
@@ -50,9 +55,52 @@ BUSY = re.compile(r'anomalydx[0-9a-z]*\.exe|xrengine\.exe|zgo_baker[/\\]bake\.py
                   r'|kidfx_pe\.py|zgo[-_ ]setup|umbra effects setup', re.I)
 
 
-def busy():
-    """Names of running programs that must not see the mod folder change."""
+GAME = re.compile(r'anomalydx[0-9a-z]*\.exe|xrengine\.exe', re.I)
+GAME_PATH = re.compile(r'''[^\s'";|&<>()]*(?:anomalydx[0-9a-z]*\.exe|xrengine\.exe)''', re.I)
+
+
+def _unix(p, cwd=None):
+    """A path as a command line names it (Wine's Z:\\..., or Unix), resolved; a relative one
+    against cwd; None when it can't be placed."""
+    p = p.strip('"\'')
+    if re.match(r'^[zZ]:\\', p):
+        p = '/' + p[3:]
+    elif re.match(r'^[A-Za-z]:\\', p):
+        return None
+    p = p.replace('\\', '/')
+    if not p.startswith('/'):
+        if not cwd:
+            return None
+        p = os.path.join(cwd, p)
+    return os.path.realpath(p)
+
+
+def install_roots(dst):
+    """The MO2 folder holding the mod folder, and its game folder (ModOrganizer.ini gamePath)."""
+    mo2 = os.path.dirname(os.path.dirname(dst))
+    roots = [mo2]
+    try:
+        with open(os.path.join(mo2, 'ModOrganizer.ini'), encoding='utf-8', errors='replace') as f:
+            for line in f:
+                m = re.match(r'^gamePath=(?:@ByteArray\()?(.*?)\)?\s*$', line.strip())
+                if m:
+                    g = _unix(m.group(1).replace('\\\\', '\\'))
+                    if g:
+                        roots.append(g)
+    except OSError:
+        pass
+    return [os.path.realpath(r) for r in roots]
+
+
+def _inside(p, roots):
+    return any(p == r or p.startswith(r + os.sep) for r in roots)
+
+
+def busy(dst=None):
+    """Names of running programs that must not see the mod folder change. A game whose exe and
+    -fsltx are both outside dst's install (another install, a test harness) is left out."""
     found = set()
+    roots = install_roots(dst) if dst else None
     if os.path.isdir('/proc'):
         me = {str(os.getpid()), str(os.getppid())}
         for pid in os.listdir('/proc'):
@@ -60,14 +108,27 @@ def busy():
                 continue
             try:
                 with open('/proc/%s/cmdline' % pid, 'rb') as f:
-                    cmd = f.read().replace(b'\0', b' ').decode('utf-8', 'replace')
+                    args = [a.decode('utf-8', 'replace') for a in f.read().split(b'\0') if a]
             except OSError:
                 continue
+            cmd = ' '.join(args)
             if 'dev/deploy.py' in cmd or 'dev\\deploy.py' in cmd:
                 continue
             m = BUSY.search(cmd)
-            if m:
-                found.add(m.group(0))
+            if not m:
+                continue
+            if roots and GAME.fullmatch(m.group(0)):
+                # the game, or what starts it (a launcher script): every exe or -fsltx it names
+                try:
+                    cwd = os.readlink('/proc/%s/cwd' % pid)
+                except OSError:
+                    cwd = None
+                named = [x for a in args for x in GAME_PATH.findall(a)]
+                named += [args[i + 1] for i, a in enumerate(args[:-1]) if a.lower() == '-fsltx']
+                paths = [_unix(a, cwd) for a in named]
+                if paths and all(paths) and not any(_inside(p, roots) for p in paths):
+                    continue                    # another install's game
+            found.add(m.group(0))
     elif os.name == 'nt':
         out = subprocess.run(['tasklist', '/fo', 'csv', '/nh'], capture_output=True, text=True).stdout
         for line in out.splitlines():
@@ -158,7 +219,7 @@ def main():
         sys.exit('deploy: the mod folder and the repo overlap (%s)' % dst)
     if os.path.exists(os.path.join(dst, '.git')):
         sys.exit('deploy: %s is a git repo; deploy goes from the repo into a mod folder, not into another repo' % dst)
-    running = busy()
+    running = busy(dst)
     if running and not a.dry_run:
         sys.exit('deploy: close these first: %s' % ', '.join(running))
 

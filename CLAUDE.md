@@ -67,6 +67,7 @@ command in it from the repo root.
     dev/run.sh bash -c 'cd tests && luajit zgo_test_world.lua 1'    # the other Lua suites
     dev/run.sh python3 tests/baker/test_bake.py      # also test_geometry.py
     dev/run.sh python3 dev/build_setup/test_setup.py
+    python3 tests/kidfx/test_particles_xr.py          # particles.xr <-> loose .pe/.pg; kid mode's colour rule
     dev/run.sh make -C native test
 
 Always use timeouts: a baker test run once hung for 10 hours.

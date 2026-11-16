@@ -673,6 +673,9 @@ class TestKidfx(FakeInstallCase):
 
     def setUp(self):
         super().setUp()
+        # the copy under test imports particles_xr from its own folder: set aside one another
+        # suite imported (dev/ci_tests.py loads every suite first)
+        self.preloaded = sys.modules.pop('particles_xr', None)
         self.kd = fakezgo.add_kidfx(self.inst)
         self.part = os.path.join(self.inst.mod, 'gamedata', 'particles')
         spec = importlib.util.spec_from_file_location('kidfx_pe_under_test', os.path.join(self.kd, 'kidfx_pe.py'))
@@ -687,10 +690,12 @@ class TestKidfx(FakeInstallCase):
     def tearDown(self):
         self.loader.stop()
         sys.path[:] = [p for p in sys.path if not p.startswith(self.tmp)]
-        for name in ('sc_tree', 'sc_blenders'):
+        for name in ('sc_tree', 'sc_blenders', 'particles_xr'):
             m = sys.modules.get(name)
             if m is not None and (getattr(m, '__file__', '') or '').startswith(self.tmp):
                 del sys.modules[name]          # later tests import the real ones again
+        if self.preloaded is not None:
+            sys.modules['particles_xr'] = self.preloaded
         super().tearDown()
 
     def shader(self, rel):
@@ -787,6 +792,36 @@ class TestKidfx(FakeInstallCase):
         self.assertEqual(self.check().state, 'none')
         self.assertEqual(core.check_kidfx(self.tools, self.paths), (
             'ok', "Kid mode for particles: on (2 gory effects use Umbra Effects' particle shaders)."))
+
+    def test_copies_from_particles_xr(self):
+        """A gory effect that only a particles.xr has (no mod ships it loose) is copied too,
+        written out as the loose file the game would take, with only the shader changed."""
+        gp = os.path.join(self.inst.game, 'gamedata', 'particles')
+        for rel in ('hit_fx/knife_blood_00.pe', 'hit_fx/hit_knife_flesh_00.pg'):
+            os.unlink(os.path.join(gp, *rel.split('/')))
+        effects = {'hit_fx\\knife_blood_00': fakezgo.GAME_EFFECTS['hit_fx/knife_blood_00.pe']}
+        groups = {'hit_fx\\hit_knife_flesh_00': fakezgo.GAME_GROUPS['hit_fx/hit_knife_flesh_00.pg']}
+        with open(os.path.join(self.inst.game, 'gamedata', 'particles.xr'), 'wb') as f:
+            f.write(fakezgo.particles_xr_bytes(effects, groups))
+        ev = self.bake()
+        s = ev[-1]['summary']
+        self.assertNotIn('kidfx_error', s)
+        self.assertEqual((s['kidfx']['copied'], s['kidfx']['copies'], s['kidfx']['skipped']), (2, 2, 1))
+        rel = 'hit_fx/knife_blood_00.pe'
+        self.assertEqual(self.shader(rel), 'zgo\\particle_add')
+        with open(self.kidfx.COPIES) as f:
+            self.assertEqual(json.load(f)['copies'][rel]['source'], 'game:gamedata particles.xr')
+        px = sys.modules['particles_xr']
+        self.assertTrue(px.__file__.startswith(self.tmp), 'the copy in the fake ZGO folder')
+        with open(os.path.join(self.part, *rel.split('/')), 'rb') as f:
+            copy = px.parse_pe(f.read())
+        self.assertEqual((copy.shader, copy.texture, copy.max_particles, copy.time_limit), (
+            'zgo\\particle_add', 'fx\\fx_blood_mist', 10, 0.5))
+        self.assertEqual([(a.name, a.floats, a.bools) for a in copy.actions], [('killold', [0.75], [0])])
+        self.assertFalse(os.path.exists(os.path.join(self.part, 'hit_fx', 'knife_sparks_00.pe')), 'sparks stay theirs')
+        # a second bake finds its copy current (the source is still particles.xr's entry)
+        ev = self.bake()
+        self.assertEqual((ev[-1]['summary']['kidfx']['copied'], ev[-1]['summary']['kidfx']['copies']), (0, 2))
 
     def test_a_kidfx_failure_is_a_warning(self):
         before = self.tree()
