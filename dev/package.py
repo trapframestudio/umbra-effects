@@ -34,7 +34,7 @@ SKIP_TREES = ('tools/zgo_world_assets/', 'tools/zgo_wounds/', 'tools/zgo_fractur
 REPORTS = ('zgo_bake_report.json', 'zgo_fracture_report.json')
 # generated even when a report is missing or half-written (defence in depth)
 BAKED = ('gamedata/meshes/actors/', 'gamedata/meshes/monsters/', 'gamedata/meshes/zgo/baked/',
-         'gamedata/meshes/zgo/props/fracture/')
+         'gamedata/meshes/zgo/props/fracture/', 'db/mods/zgo_bake_')     # (the bake's archives, 1.8.2)
 FRACTURE_INDEX = 'gamedata/scripts/zgo_props_fracture_index.script'
 KIDFX_COPIES = 'tools/zgo_kidfx/kidfx_copies.json'
 DEV_NOTES = ('CLAUDE.md',)  # notes for agents working in the repo

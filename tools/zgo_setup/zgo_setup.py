@@ -9,12 +9,13 @@ still up to date, and removes it. It finds MO2 and the profile by itself: it liv
   python3 zgo_setup.py               the same with your own Python (3.8+, numpy, tkinter)
 
 Without a window (any of these):
-  --check      is the bake up to date? (exit 0 = yes; the last line is "RESULT body=.. props=.. kid=..")
+  --check      is the bake up to date? (exit 0 = yes; the last line is "RESULT body=.. props=.. kid=.. pack=..")
   --match DIR  would the prebaked bake whose report is in DIR fit this mod list? (exit 0 = yes)
   --plan       what a bake would make, and its size
   --bake       bake in this terminal (a ready-made bake is downloaded instead when one fits;
                --no-download: always bake here)          --props   cut the props only
   --remove     remove the bake                --selftest  check that this program works
+  --pack       pack a bake's loose small parts into archives (bakes made before 1.8.2; Bake does it too)
   --kid-particles-apply    kid mode for particles on (gory effects use Umbra Effects' particle shaders)
   --kid-particles-revert   undo: every particle effect back to the game's own shaders
   --list-prebaked   list Umbra's ready-made bakes (from the internet; nothing is downloaded)
@@ -114,6 +115,8 @@ def parse(argv):
     g.add_argument('--bake', action='store_true', help='bake without the window')
     g.add_argument('--props', action='store_true', help='cut the props only')
     g.add_argument('--remove', action='store_true', help='remove the bake')
+    g.add_argument('--pack', action='store_true',
+                   help="pack a bake's loose small parts into archives (bakes made before 1.8.2)")
     g.add_argument('--kid-particles-apply', action='store_true',
                    help="kid mode for particles on: gory effects use Umbra Effects' particle shaders (no bake)")
     g.add_argument('--kid-particles-revert', action='store_true',
@@ -242,9 +245,11 @@ def cli(a, mod_root, say):
         kstate, ktext = core.check_kidfx(tools, paths)
         if ktext:
             say(ktext)
-        # for programs that run this one (Umbra Setup): one line, always last
-        say('RESULT body=%s props=%s kid=%s' % (st.state, pstate, kstate))
-        return 0 if st.state == 'ok' and pstate in ('ok', 'none') and kstate in ('ok', 'off', 'none') else 1
+        # for programs that run this one (Umbra Setup): one line, always last. pack=needed: the bake fits
+        # but its small parts are loose (made before 1.8.2); --pack packs them
+        say('RESULT body=%s props=%s kid=%s pack=%s' % (st.state, pstate, kstate, 'needed' if st.loose else 'ok'))
+        return 0 if (st.state == 'ok' and not st.loose and pstate in ('ok', 'none')
+                     and kstate in ('ok', 'off', 'none')) else 1
     if a.match:
         rep = tools.bake.read_report(os.path.abspath(a.match))
         if rep is None:
@@ -260,7 +265,7 @@ def cli(a, mod_root, say):
                                                 (rep.get('inputs') or {}).get('fingerprint') or '-'))
         return 0 if fits else 1
     action = ('bake' if a.bake else 'props' if a.props else 'kidfx_apply' if a.kid_particles_apply else
-              'kidfx_revert' if a.kid_particles_revert else 'remove')
+              'kidfx_revert' if a.kid_particles_revert else 'pack' if a.pack else 'remove')
     if kid_action and core.kidfx_for(tools, paths) is None:
         say('Umbra Effects Setup:', core.kidfx_unavailable(tools, paths))
         return 2
@@ -269,6 +274,7 @@ def cli(a, mod_root, say):
             'mode then cannot hide blood and gore particles already flying; --kid-particles-apply turns it back on.')
     if not a.yes and sys.stdin is not None and sys.stdin.isatty():
         ans = input('%s now? [y/N] ' % {'bake': 'Bake', 'props': 'Cut the props', 'remove': 'Remove the bake',
+                                        'pack': 'Pack the bake into archives',
                                         'kidfx_apply': 'Turn kid mode for particles on',
                                         'kidfx_revert': "Use the game's own particle shaders"}[action])
         if ans.strip().lower() not in ('y', 'yes'):
@@ -517,7 +523,7 @@ def main(argv=None):
         return selftest(a, mod_root, say)
     if a.list_prebaked:
         return list_prebaked(say)
-    if a.check or a.match or a.plan or a.bake or a.props or a.remove or a.kid_particles_apply or \
+    if a.check or a.match or a.plan or a.bake or a.props or a.remove or a.pack or a.kid_particles_apply or \
             a.kid_particles_revert:
         if not mod_root:
             say('Umbra Effects Setup: run it from the Umbra Gore & Effects folder (tools/zgo_setup), or pass --mod DIR.')

@@ -786,6 +786,8 @@ class App:
             if pstate == 'stale' and st.state == 'ok':
                 st.state, st.headline = 'stale', 'The body models are up to date; the props need a new cut.'
                 st.advice = 'Press "Cut props only" (or "Bake").'
+        if st.loose and st.state == 'ok':
+            st.state = 'stale'                  # (shown so; check() wrote the headline and the advice)
         if ktext:
             st.info.append(ktext)
             if kstate == 'stale' and st.state == 'ok':
@@ -956,7 +958,10 @@ class App:
             self.say(ev.get('msg', 'Done.'))
             s = ev.get('summary') or {}
             if action == 'bake':
-                if s.get('prebaked'):
+                if s.get('packed_only'):
+                    text = ('Your bake was up to date: packed its %s loose files into archives in %s, so the game '
+                            'starts faster.' % ('{:,}'.format(s.get('packed', 0)), core.human_seconds(s.get('seconds', 0))))
+                elif s.get('prebaked'):
                     text = 'Downloaded the ready-made bake for your mod list: %d models (%s) in %s.' % (
                         s.get('baked', 0), core.human_bytes(s.get('bytes', 0)), core.human_seconds(s.get('seconds', 0)))
                 else:

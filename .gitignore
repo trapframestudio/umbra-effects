@@ -3,6 +3,7 @@
 /gamedata/meshes/actors/
 /gamedata/meshes/monsters/
 /gamedata/meshes/zgo/baked/
+/db/mods/zgo_bake_*
 /gamedata/scripts/zgo_bake_*.script
 !/gamedata/scripts/zgo_bake.script
 /zgo_bake_report.json

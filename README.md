@@ -41,6 +41,9 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 **Updating.** Install the new zip under the same name. If you pick Replace in MO2, the old
 folder is deleted, and your bake with it. Then load a save (the game checks the bake) or press
 "Check if my bake is up to date" in Umbra Effects Setup, and bake again if it says so.
+Coming from 1.8.1 or earlier, the check says your bake "needs packing": press **Bake** once.
+It packs the bake's small parts into a few archives in a minute or two, without baking again,
+and the game starts much faster afterwards.
 
 
 ## Baked models (Umbra Effects Setup)
@@ -106,8 +109,11 @@ throw meat models. (3) For "Objects break apart"; see "Objects (props)". (4) See
 The experimental parts are hidden under "Show the experimental parts" and stay off unless you
 tick them; leave them off unless you are testing Umbra Effects.
 
-Everything is written into the mod's own folder and listed in `zgo_bake_report.json`.
-**Remove bake** deletes exactly those files (and kid mode's copies of other mods' particle
+Everything is written into the mod's own folder and listed in `zgo_bake_report.json`. The body
+models are loose files under `gamedata/meshes` (they must win over other mods' copies); the
+small parts (stump caps, limb pieces and gibs, about 79,000 files for G.A.M.M.A.) are packed
+into a few game archives, `db/mods/zgo_bake_*.db0`, because the game reads every loose file
+through MO2 each time it starts. **Remove bake** deletes exactly those files (and kid mode's copies of other mods' particle
 effects). MCM -> Dismemberment -> "Use baked models" turns the bake off without deleting it.
 
 ### Keeping it up to date
@@ -152,6 +158,7 @@ Bodies whose model another mod replaced, and bakes from before 1.7, are drawn th
     zgo-setup-linux --plan             what a bake would make, and how large
     zgo-setup-linux --bake --yes       bake in the terminal (or download a ready-made bake that fits)
     zgo-setup-linux --list-prebaked    list the ready-made bakes (nothing is downloaded)
+    zgo-setup-linux --pack --yes       pack a bake made before 1.8.2 into archives (Bake does it too)
     zgo-setup-linux --remove --yes     remove the bake
     zgo-setup-linux --selftest         check that the program works on this computer
 
@@ -522,6 +529,13 @@ co-op; leave it off there.
 
 - **"Umbra Gore & Effects is paused" on screen:** Painter of the Zone or its xrRazom patch is
   enabled. Disable it in MO2.
+- **The game takes minutes to start:** a bake made before 1.8.2 is about 79,000 loose files, and
+  the game reads each one through MO2 at every start (the log's `Init FileSystem` line says how
+  long that took). Press "Check if my bake is up to date" in Umbra Effects Setup; if it says the
+  bake needs packing, press **Bake** (or run `--pack --yes`).
+- **The game crashed while loading:** before you start it again, copy
+  `appdata\logs\xray_<name>.log` from the game's folder somewhere safe: the next start
+  overwrites it, and the end of that log says why it crashed.
 - **The game says to run Umbra Effects Setup again:** press "Check if my bake is up to date"
   in Umbra Effects Setup; it says what changed. A mod that loads after Umbra Effects and
   replaces baked models shows as a red line: move Umbra Gore & Effects below it in MO2.

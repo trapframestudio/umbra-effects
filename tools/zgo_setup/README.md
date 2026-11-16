@@ -78,6 +78,7 @@ should be run again (MCM: Umbra Gore & Effects, Baked models).
     zgo-setup-linux --plan             what a bake would make, and how large
     zgo-setup-linux --bake --yes       bake in the terminal (downloads a ready-made bake instead when one fits)
     zgo-setup-linux --list-prebaked    list Umbra's ready-made bakes (nothing is downloaded)
+    zgo-setup-linux --pack --yes       pack a bake made before 1.8.2 into archives (Bake does that too)
     zgo-setup-linux --remove --yes     remove the bake
     zgo-setup-linux --kid-particles-apply --yes    kid mode for particles on (no bake)
     zgo-setup-linux --kid-particles-revert --yes   undo: the game's own particle shaders

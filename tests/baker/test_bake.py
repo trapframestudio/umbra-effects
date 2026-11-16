@@ -123,9 +123,15 @@ class TestBake(unittest.TestCase):
             with open(os.path.join(self.o.out, f), 'rb') as a, open(os.path.join(o2.out, f), 'rb') as b:
                 self.assertEqual(a.read(), b.read(), f)
         self.assertFalse([f for f in rep2['files'] if f.startswith('gamedata/meshes/zgo/')])
-        self.assertTrue([f for f in rep['files'] if f.startswith('gamedata/meshes/zgo/baked/caps/')])
-        self.assertTrue([f for f in rep['files'] if f.startswith(bake.GIB_FILES)])
-        self.assertEqual(rep['counts']['gib_files'], len([f for f in rep['files'] if f.startswith(bake.GIB_FILES)]))
+        made = bake.output_files(rep)
+        self.assertTrue([f for f in made if f.startswith('gamedata/meshes/zgo/baked/caps/')])
+        self.assertTrue([f for f in made if f.startswith(bake.GIB_FILES)])
+        self.assertEqual(rep['counts']['gib_files'], len([f for f in made if f.startswith(bake.GIB_FILES)]))
+        # the small parts are in archives, not loose (1.8.2)
+        self.assertFalse([f for f in rep['files'] if bake.packable(f)])
+        self.assertTrue(rep['packed'])
+        self.assertEqual(sorted(rep['packed']), sorted(f for f in rep['files'] if bake.is_archive(f)))
+        self.assertFalse(os.path.isdir(os.path.join(self.o.out, 'gamedata', 'meshes', 'zgo')))
 
     def test_experimental(self):
         self.o.experimental_caps = self.o.experimental_damage = True

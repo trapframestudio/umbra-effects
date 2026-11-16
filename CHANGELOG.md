@@ -4,6 +4,18 @@ What changed in each version of Umbra Gore & Effects, newest first. Up to 1.7.1 
 called Zone Gore Overhaul (ZGO). The player's guide is [README.md](README.md).
 
 
+## 1.8.2
+
+- **Much faster game start.** The bake's small parts (stump caps, limb pieces and gibs: about
+  79,000 files for G.A.M.M.A.) are now packed into ten game archives, `db/mods/zgo_bake_*.db0`,
+  instead of being loose files. The game reads every loose file of every mod through MO2 each
+  time it starts; with the loose bake that alone took a minute or more (over four minutes on a
+  large mod list). The body models stay loose files, so they still win over other mods' copies.
+- An existing bake doesn't have to be baked again: Umbra Effects Setup's check says it "needs
+  packing", and **Bake** packs it in place in a minute or two (`--pack --yes` on the command
+  line). A downloaded ready-made bake is packed as soon as it is in.
+
+
 ## 1.8.1
 
 - Umbra Effects Setup can download a ready-made bake. Before baking, it looks on Umbra's public

@@ -20,9 +20,18 @@ asks for them:
 - body gibs (1.7.1)   `gamedata/meshes/zgo/baked/gibs/<h2>/<h12>.ogf`: one per
                       model, the pieces a blast tears out of it (docs/formats/gibs.md)
 
+Since 1.8.2 the caps, pieces and gibs (about 79,000 files for G.A.M.M.A.) are packed
+into engine archives, `db/mods/zgo_bake_<caps|pieces|gibs>_NN.db0` (at most 512 MB
+each, like Anomaly's own; `xdb_write.py`), because the game indexes every loose file
+of every mod through MO2 at each start: about a minute per 100,000 files under
+Proton. The game mounts them at `gamedata\` like any `db/mods` archive, so the paths
+above are unchanged. The body models stay loose: they must win over other mods'
+loose copies, and the game prefers any loose file to an archived one. `--loose`
+skips the archives; `--pack` packs a bake made before 1.8.2 in place.
+
 The baked models themselves are the same as before: caps, pieces, gibs and sites
 never change them. Every file it writes is listed in `zgo_bake_report.json` at the
-mod root; a re-run or `--remove` deletes exactly those files, and it refuses to
+mod root ("packed" lists what each archive holds); a re-run or `--remove` deletes exactly those files, and it refuses to
 overwrite anything it didn't write. Builds in `~/.cache/zgo_baker/building-*`
 (`%LOCALAPPDATA%\zgo_baker` on Windows), then moves the files in.
 

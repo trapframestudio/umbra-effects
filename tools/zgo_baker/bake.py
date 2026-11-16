@@ -11,8 +11,14 @@ runtime asks for them (docs/formats/).
   python3 bake.py [--mo2 DIR] [--profile NAME] [--only SUBSTR] [--jobs N]
   python3 bake.py --remove        # delete everything a bake wrote
 
-Every file it writes is listed in zgo_bake_report.json; a re-run or --remove
-deletes exactly those, nothing else. Re-run it after changing mods that add or
+The many small parts (caps, limb pieces, gibs: ~80,000 files for G.A.M.M.A.) go
+into a few engine archives, db/mods/zgo_bake_<part>_NN.db0 (xdb_write.py says why: the
+game indexes every loose file at each start); the body models stay loose, since
+they must win over other mods' loose copies, which the game prefers to archives.
+`--pack` packs a bake made before 1.8.2 in place.
+
+Every file it writes is listed in zgo_bake_report.json ("files"; "packed" lists
+what each archive holds); a re-run or --remove deletes exactly those, nothing else. Re-run it after changing mods that add or
 replace character models. Umbra Gore & Effects must sit above every model mod in
 MO2's left pane (highest priority) for its baked copies to win.
 
@@ -34,7 +40,7 @@ from multiprocessing import Pool
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import ogf, partition, limbs, resolve, unpack_base, caps, parts, wounds, luagen, gibs  # noqa: E402
+import ogf, partition, limbs, resolve, unpack_base, caps, parts, wounds, luagen, gibs, xdb_write  # noqa: E402
 
 MOD_ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
 OLD_OUT_NAME = 'Zone Gore Overhaul - Baked Models'   # 1.4.x wrote a separate mod; it's skipped as a source
@@ -57,7 +63,11 @@ CAP_FILES = 'gamedata/meshes/zgo/baked/caps/'
 PIECE_FILES = 'gamedata/meshes/zgo/baked/pieces/'
 CHUNK_FILES = 'gamedata/meshes/zgo/baked/chunks/'
 GIB_FILES = 'gamedata/meshes/zgo/baked/gibs/'
-STAGES = ('prepare', 'unpack', 'resolve', 'bake', 'scripts', 'install', 'done')
+# packed into db/mods/zgo_bake_<caps|pieces|chunks|gibs>_NN.db0 (since 1.8.2)
+PACKED = (CAP_FILES, PIECE_FILES, CHUNK_FILES, GIB_FILES)
+ARCHIVE_PREFIX = 'db/mods/zgo_bake_'
+_ARCHIVE = re.compile(r'^db/mods/zgo_bake_[a-z]+_\d{2}\.db0$')
+STAGES = ('prepare', 'unpack', 'resolve', 'bake', 'scripts', 'pack', 'install', 'done')
 
 
 def _cache_dir():
@@ -87,13 +97,14 @@ class Options:
 
     def __init__(self, mo2=None, profile=None, anomaly=None, out=MOD_ROOT, only=None, jobs=None,
                  caps=True, pieces=True, wounds=True, experimental_caps=False, experimental_damage=False,
-                 cache=CACHE, gibs=True):
+                 cache=CACHE, gibs=True, pack=True):
         self.mo2, self.profile, self.anomaly, self.out = mo2, profile, anomaly, out
         self.only = only
         self.jobs = jobs or max(1, (os.cpu_count() or 4) - 2)
         self.caps, self.pieces, self.wounds, self.gibs = caps, pieces, wounds, gibs
         self.experimental_caps, self.experimental_damage = experimental_caps, experimental_damage
         self.cache = cache
+        self.pack = pack                    # the small parts into archives (False: loose, as before 1.8.2)
 
     def flags(self):
         return {'caps': bool(self.caps), 'pieces': bool(self.pieces), 'wounds': bool(self.wounds),
@@ -102,6 +113,27 @@ class Options:
 
     def __repr__(self):
         return 'Options(%s)' % ', '.join('%s=%r' % kv for kv in sorted(vars(self).items()))
+
+
+def is_archive(rel):
+    return bool(_ARCHIVE.match(rel))
+
+
+def packable(rel):
+    return rel.startswith(PACKED)
+
+
+def output_files(rep):
+    """Every file a bake made: the loose ones and those inside its archives."""
+    out = [f for f in rep.get('files') or [] if not is_archive(f)]
+    for rels in (rep.get('packed') or {}).values():
+        out.extend(rels)
+    return sorted(out)
+
+
+def loose_files(rep):
+    """A bake's files that belong in its archives but are loose (bakes made before 1.8.2)."""
+    return [f for f in rep.get('files') or [] if packable(f)]
 
 
 # ---------------------------------------------------------------- per model (worker processes)
@@ -352,7 +384,7 @@ def previous_files(root):
     for rel in files:
         rel = rel.replace('\\', '/')
         # only ever generated paths: meshes and the generated scripts
-        if rel.startswith('gamedata/meshes/') or rel in GENERATED_SCRIPTS:
+        if rel.startswith('gamedata/meshes/') or rel in GENERATED_SCRIPTS or is_archive(rel):
             if '..' not in rel.split('/') and not rel.startswith('/'):
                 safe.append(rel)
     return safe
@@ -369,7 +401,7 @@ def remove_files(root, files, progress=None):
         dirs.add(os.path.dirname(p))
         if progress and (i + 1) % 1000 == 0:
             progress('install', i + 1, len(files), 'removing the last bake')
-    # prune emptied folders under gamedata/meshes
+    # prune emptied folders under gamedata/meshes, and db/mods, db when the archives were all
     stop = os.path.join(root, 'gamedata')
     for d in sorted(dirs, key=len, reverse=True):
         while d.startswith(os.path.join(stop, 'meshes')) and d != stop:
@@ -378,6 +410,12 @@ def remove_files(root, files, progress=None):
             except OSError:
                 break
             d = os.path.dirname(d)
+    if any(is_archive(rel) for rel in files):
+        for d in (os.path.join(root, 'db', 'mods'), os.path.join(root, 'db')):
+            try:
+                os.rmdir(d)
+            except OSError:
+                break
     return n
 
 
@@ -390,6 +428,90 @@ def remove(out=MOD_ROOT, progress=None):
     except OSError:
         pass
     return n
+
+
+# ---------------------------------------------------------------- archives (xdb_write.py)
+
+def write_archives(src_root, rels, dest_root, progress=None, cancel=None):
+    """Pack src_root/<rel> for rels into dest_root/db/mods/zgo_bake_<part>_NN.db0 (one series per
+    part: caps, chunks, gibs, pieces). Returns {archive rel: [rels in it]}. On a cancel (raises
+    Cancelled) or an error, the archives it wrote are deleted again."""
+    say = progress or (lambda *a: None)
+    stop = cancel or (lambda: False)
+    by_part = {}
+    for rel in sorted(rels):
+        by_part.setdefault(rel[len('gamedata/meshes/zgo/baked/'):].split('/')[0], []).append(rel)
+    items = {part: [(rel, os.path.join(src_root, *rel.split('/')),
+                     os.path.getsize(os.path.join(src_root, *rel.split('/')))) for rel in prels]
+             for part, prels in by_part.items()}
+    total = sum(s for its in items.values() for _, _, s in its) or 1
+    done = [0, 0]
+    out = {}
+    written = []
+
+    def on_file(rel, size):
+        done[0] += size
+        done[1] += 1
+        if done[1] % 2000 == 0:
+            say('pack', done[0], total, 'packing the small parts into archives')
+
+    try:
+        for part, its in sorted(items.items()):
+            for n, group in enumerate(xdb_write.plan_archives(its)):
+                arel = '%s%s_%02d.db0' % (ARCHIVE_PREFIX, part, n)
+                dest = os.path.join(dest_root, *arel.split('/'))
+                if xdb_write.write_archive(dest, group, on_file, stop) is None:
+                    raise Cancelled('bake cancelled; the output folder was not changed')
+                written.append(dest)
+                out[arel] = [rel for rel, _ in group]
+    except BaseException:
+        for p in written:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        raise
+    say('pack', total, total, 'packed %d files into %d archives' % (done[1], len(out)))
+    return out
+
+
+def pack(out=MOD_ROOT, progress=None, cancel=None):
+    """Pack an installed bake's loose small parts into archives, in place (bakes made before 1.8.2
+    left them loose: ~80,000 files for G.A.M.M.A.). Returns how many files it packed (0: nothing to
+    do). Cancelling (raises Cancelled) leaves the bake as it was, until the loose files are deleted."""
+    say = progress or (lambda *a: None)
+    rep = read_report(out)
+    if rep is None or rep.get('status') == 'installing':
+        return 0
+    if rep.get('status') != 'packing':
+        loose = loose_files(rep)
+        if not loose:
+            return 0
+        missing = [f for f in loose if not os.path.isfile(os.path.join(out, *f.split('/')))]
+        if missing:
+            raise BakeError('%d of the baked files are missing (e.g. %s); bake again' % (len(missing), missing[0]))
+        packed = write_archives(out, loose, out, say, cancel)
+        # the report lists both from here on, so a pack that dies while deleting is finished next time
+        rep = dict(rep, status='packing', files=sorted(set(rep.get('files') or []) | set(packed)),
+                   packed=dict(rep.get('packed') or {}, **packed))
+        _write_report(out, rep)
+    else:
+        missing = [a for a in rep.get('packed') or {} if not os.path.isfile(os.path.join(out, *a.split('/')))]
+        if missing:
+            raise BakeError('the bake\'s archive %s is missing; bake again' % missing[0])
+    loose = loose_files(rep)
+    remove_files(out, loose, lambda s, d, t, m: say('pack', d, t, 'deleting the loose copies'))
+    files = [f for f in rep['files'] if not packable(f)]
+    size = 0
+    for rel in files:
+        try:
+            size += os.path.getsize(os.path.join(out, *rel.split('/')))
+        except OSError:
+            pass
+    rep = dict(rep, files=files, bytes=size)
+    rep.pop('status', None)
+    _write_report(out, rep)
+    return len(loose)
 
 
 # ---------------------------------------------------------------- MO2
@@ -724,6 +846,15 @@ def bake(options=None, progress=None, cancel=None):
                     continue
                 new_files.append(os.path.relpath(os.path.join(dp, fn), tmp).replace(os.sep, '/'))
         new_files.sort()
+        made = list(new_files)              # every output, packed or not
+        packed = {}
+        to_pack = [f for f in new_files if packable(f)] if o.pack else []
+        if to_pack:
+            packed = write_archives(tmp, to_pack, tmp, say, stop)
+            for rel in to_pack:
+                os.remove(os.path.join(tmp, *rel.split('/')))
+            new_files = sorted([f for f in new_files if not packable(f)] + list(packed))
+        check_cancel()
         # never overwrite a file this baker didn't write (e.g. one the mod ships)
         old = set(previous_files(o.out))
         clash = [f for f in new_files if f not in old and os.path.exists(os.path.join(o.out, *f.split('/')))]
@@ -756,17 +887,18 @@ def bake(options=None, progress=None, cancel=None):
                   'profile': o.profile, 'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'version': VERSION,
                   'bake_id': bake_id, 'options': flags, 'seconds': round(time.time() - t0, 1),
                   'replaced': removed, 'bytes': size,
-                  'counts': dict(counts, models=len(ok), files=len(new_files),
+                  'counts': dict(counts, models=len(ok), files=len(made), archives=len(packed),
                                  caps=sum(r.get('caps', 0) for r in ok), pieces=sum(r.get('pieces', 0) for r in ok),
-                                 cap_files=sum(1 for f in new_files if f.startswith(CAP_FILES)),
-                                 piece_files=sum(1 for f in new_files if f.startswith(PIECE_FILES)),
-                                 chunk_files=sum(1 for f in new_files if f.startswith(CHUNK_FILES)),
+                                 cap_files=sum(1 for f in made if f.startswith(CAP_FILES)),
+                                 piece_files=sum(1 for f in made if f.startswith(PIECE_FILES)),
+                                 chunk_files=sum(1 for f in made if f.startswith(CHUNK_FILES)),
                                  gibs=sum(r.get('gibs', 0) for r in ok),
-                                 gib_files=sum(1 for f in new_files if f.startswith(GIB_FILES)),
+                                 gib_files=sum(1 for f in made if f.startswith(GIB_FILES)),
                                  sites=sum(r.get('sites', 0) for r in ok),
                                  kids_in=sum(r['kids_in'] for r in ok), kids_out=sum(r['kids_out'] for r in ok),
                                  bytes_in=sum(r['bytes_in'] for r in ok), bytes_out=sum(r['bytes_out'] for r in ok)),
-                  'inputs': inputs, 'files': new_files, 'results': sorted(results, key=lambda r: r['key'])}
+                  'inputs': inputs, 'files': new_files, 'packed': packed,
+                  'results': sorted(results, key=lambda r: r['key'])}
         _write_report(o.out, report)
         say('done', 1, 1, 'baked %d models in %.0f s' % (len(ok), report['seconds']))
         return report
@@ -801,15 +933,23 @@ def main(argv=None):
     ap.add_argument('--experimental-damage', action='store_true',
                     help='(experimental) damage meshes (D_s, zgo\\off) inside every model and gib chunks; '
                          'needs the in-game probes, roughly doubles the bake size')
+    ap.add_argument('--pack', action='store_true',
+                    help="pack a bake's loose caps, pieces and gibs into archives (bakes made before 1.8.2)")
+    ap.add_argument('--loose', action='store_true', help='leave the caps, pieces and gibs loose (no archives)')
     ap.add_argument('--quiet', action='store_true')
     a = ap.parse_args(argv)
     if a.remove:
         n = remove(a.out)
         print('removed %d baked files from %s' % (n, a.out))
         return 0
+    if a.pack:
+        n = pack(a.out, progress=None if a.quiet else (lambda s, d, t, m: print('[%s] %s' % (s, m))))
+        print('packed %d loose files into archives in %s' % (n, a.out) if n else 'nothing to pack in %s' % a.out)
+        return 0
     opts = Options(mo2=a.mo2, profile=a.profile, anomaly=a.anomaly, out=a.out, only=a.only, jobs=a.jobs,
                    caps=not a.no_caps, pieces=not a.no_pieces, wounds=not a.no_wounds, gibs=not a.no_gibs,
-                   experimental_caps=a.experimental_caps, experimental_damage=a.experimental_damage)
+                   experimental_caps=a.experimental_caps, experimental_damage=a.experimental_damage,
+                   pack=not a.loose)
     last = {}
 
     def progress(stage, done, total, msg):
@@ -817,8 +957,12 @@ def main(argv=None):
             return
         if stage in ('bake', 'install') and done != total and done % 500 >= 25:
             return
+        if stage == 'pack' and done != total and msg == last.get('pack'):
+            return
         if stage == 'unpack' and done != total:
             return
+        if stage == 'pack':
+            last['pack'] = msg
         if last.get('m') == (stage, msg, done):
             return
         last['m'] = (stage, msg, done)

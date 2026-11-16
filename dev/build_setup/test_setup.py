@@ -693,6 +693,72 @@ class _RangeHandler(http.server.SimpleHTTPRequestHandler):
         return f
 
 
+class TestPacking(FakeInstallCase):
+    """Bakes made before 1.8.2 left their small parts (~80,000 files for G.A.M.M.A.) loose, and the
+    game reads every loose file through MO2 at each start: Bake packs them into archives without
+    baking again; a new bake is packed from the start."""
+
+    def loose_bake(self):
+        o = core.bake_options(self.tools, self.paths, self.choices)
+        o.pack = False
+        rep = bake.bake(o)
+        self.assertTrue(bake.loose_files(rep))
+        return rep
+
+    def test_a_new_bake_is_packed(self):
+        self.bake()
+        rep = bake.read_report(self.inst.mod)
+        self.assertFalse(bake.loose_files(rep))
+        self.assertTrue([f for f in rep['files'] if bake.is_archive(f)])
+        self.assertFalse(os.path.isdir(os.path.join(self.inst.mod, 'gamedata', 'meshes', 'zgo')))
+        st = self.check()
+        self.assertEqual((st.state, st.loose), ('ok', 0), st.text())
+
+    def test_a_loose_bake_is_packed_not_baked_again(self):
+        rep = self.loose_bake()
+        n = len(bake.loose_files(rep))
+        st = self.check()
+        self.assertEqual((st.state, st.loose), ('ok', n), st.text())
+        self.assertIn('needs packing', st.headline)
+        self.assertIn('%d loose files' % n, st.advice)
+        code, ev = self.worker()
+        self.assertEqual(code, 0, ev[-1])
+        s = ev[-1]['summary']
+        self.assertEqual((s.get('packed_only'), s.get('packed')), (True, n))
+        stages = {e.get('stage') for e in ev if e['t'] == 'progress'}
+        self.assertNotIn('bake', stages, 'nothing was baked again')
+        self.assertIn('pack', stages)
+        rep2 = bake.read_report(self.inst.mod)
+        self.assertEqual(rep2['bake_id'], rep['bake_id'])
+        self.assertEqual(bake.output_files(rep2), sorted(rep['files']))
+        st = self.check()
+        self.assertEqual((st.state, st.loose), ('ok', 0), st.text())
+
+    def test_a_stale_loose_bake_is_baked_again_packed(self):
+        self.loose_bake()
+        with open(self.inst.model('Synth Models', fakezgo.MOD_MODELS[0]), 'ab') as f:
+            f.write(b'\0')                                  # a mod changed a model
+        self.assertEqual(self.check().state, 'stale')
+        code, ev = self.worker()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertIn('bake', {e.get('stage') for e in ev if e['t'] == 'progress'})
+        rep = bake.read_report(self.inst.mod)
+        self.assertFalse(bake.loose_files(rep))
+        self.assertFalse(os.path.isdir(os.path.join(self.inst.mod, 'gamedata', 'meshes', 'zgo')))
+
+    def test_pack_action_and_remove(self):
+        rep = self.loose_bake()
+        code, ev = self.worker(action='pack')
+        self.assertEqual(code, 0, ev[-1])
+        self.assertEqual(ev[-1]['msg'], 'Packed %d loose files into archives.' % len(bake.loose_files(rep)))
+        code, ev = self.worker(action='pack')
+        self.assertEqual(ev[-1]['msg'], 'Nothing to pack.')
+        code, ev = self.worker(action='remove')
+        self.assertEqual(code, 0, ev[-1])
+        self.assertEqual(sorted(os.listdir(self.inst.mod)), ['gamedata'] if os.path.isdir(
+            os.path.join(self.inst.mod, 'gamedata')) else [])
+
+
 class TestPrebaked(FakeInstallCase):
     """Umbra's ready-made bake (tools/zgo_setup/prebaked.py, setup_core.get_prebaked): install A
     bakes, its bake goes into a fake bucket the way Umbra's packer puts it there, and install B
@@ -723,6 +789,26 @@ class TestPrebaked(FakeInstallCase):
         logs = ' | '.join(e.get('msg', '') for e in ev if e['t'] == 'log')
         tasks = {e.get('task') for e in ev if e['t'] == 'progress'}
         return code, ev, logs, tasks
+
+    def test_a_loose_ready_made_bake_is_packed_here(self):
+        """A ready-made bake made before 1.8.2 (its small parts loose) is packed once it is in."""
+        a = core.Paths(MOD, self.a.mo2, 'P', self.a.game, out=self.a.mod, cache=self.a.cache)
+        o = core.bake_options(self.tools, a, self.choices)
+        o.pack = False
+        self.assertTrue(bake.loose_files(bake.bake(o)))
+        bucket = os.path.join(self.tmp, 'bucket-loose')
+        fakezgo.publish_bake(self.a.mod, bucket, self.a.mo2, self.a.game, [self.a.cache, TMP_CACHE], 'P', 'Out')
+        with mock.patch.dict(os.environ, {'ZGO_PREBAKED_SOURCE': bucket}):
+            code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertTrue(ev[-1]['summary'].get('prebaked'), logs)
+        self.assertIn('pack', {e.get('stage') for e in ev if e['t'] == 'progress' and e.get('task') == 'download'})
+        rep = bake.read_report(self.b.mod)
+        self.assertFalse(bake.loose_files(rep))
+        self.assertTrue(rep['packed'])
+        self.assertFalse(os.path.isdir(os.path.join(self.b.mod, 'gamedata', 'meshes', 'zgo')))
+        st = self.check()
+        self.assertEqual((st.state, st.loose), ('ok', 0), st.text())
 
     def test_downloads_when_it_fits(self):
         code, ev, logs, tasks = self.run_bake()
@@ -756,7 +842,7 @@ class TestPrebaked(FakeInstallCase):
             inp = f.read()
         self.assertNotIn('@@UMBRA_', inp)
         self.assertIn('mo2 = "%s"' % bake.game_path(self.b.mo2).replace('\\', '\\\\'), inp)
-        self.assertEqual(sorted(os.listdir(self.b.mod)), ['gamedata', bake.REPORT], 'no work files left')
+        self.assertEqual(sorted(os.listdir(self.b.mod)), ['db', 'gamedata', bake.REPORT], 'no work files left')
         self.assertFalse(os.path.exists(os.path.join(self.b.cache, 'prebaked', self.man['fingerprint'])))
         # Bake again: it is already there
         code, ev, logs, tasks = self.run_bake()
@@ -1212,6 +1298,33 @@ class EndToEnd(unittest.TestCase):
     def cmd(self, *args):
         prog = self.PROGRAM or [sys.executable, os.path.join(self.inst.mod, 'tools', 'zgo_setup', 'zgo_setup.py')]
         return run(prog + list(args), env=self.env)
+
+    def test_a_loose_bake_and_pack(self):
+        """--check says pack=needed for a bake made before 1.8.2; --pack packs it. (Runs before
+        test_flow on the same install: its own work folder, and it removes its bake again.)"""
+        env = dict(self.env, ZGO_BAKER_CACHE=tempfile.mkdtemp(dir=self.tmp))
+        prog = self.PROGRAM or [sys.executable, os.path.join(self.inst.mod, 'tools', 'zgo_setup', 'zgo_setup.py')]
+
+        def cmd(*args):
+            return run(prog + list(args), env=env)
+        bk = os.path.join(self.inst.mod, 'tools', 'zgo_baker', 'bake.py')
+        code, out = run([sys.executable, bk, '--loose', '--quiet', '--jobs', '2', '--mo2', self.inst.mo2,
+                         '--profile', 'P', '--anomaly', self.inst.game, '--out', self.inst.mod], env=env)
+        try:
+            self.assertEqual(code, 0, out)
+            code, out = cmd('--check')
+            self.assertIn('needs packing', out)
+            self.assertTrue(out.strip().splitlines()[-1].endswith(' pack=needed'), out)
+            self.assertEqual(code, 1, out)
+            code, out = cmd('--pack', '--yes')
+            self.assertEqual(code, 0, out)
+            self.assertIn('loose files into archives', out)
+            code, out = cmd('--check')
+            self.assertTrue(out.strip().splitlines()[-1].endswith(' pack=ok'), out)
+            self.assertFalse(os.path.isdir(os.path.join(self.inst.mod, 'gamedata', 'meshes', 'zgo')))
+        finally:
+            cmd('--remove', '--yes')
+        self.assertFalse(os.path.exists(os.path.join(self.inst.mod, 'db')))
 
     def test_flow(self):
         code, out = self.cmd('--plan')

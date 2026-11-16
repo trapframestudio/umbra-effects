@@ -36,14 +36,19 @@ FRACTURE = ('tools', 'zgo_fracture', 'fracture.py')
 KIDFX = ('tools', 'zgo_kidfx', 'kidfx_pe.py')
 
 # Bake stages (bake.STAGES) and how much of the progress bar each one fills
-STAGE_WEIGHT = {'prepare': 1, 'unpack': 6, 'resolve': 3, 'bake': 70, 'scripts': 4, 'install': 16, 'done': 0}
+STAGE_WEIGHT = {'prepare': 1, 'unpack': 6, 'resolve': 3, 'bake': 70, 'scripts': 4, 'pack': 10, 'install': 6, 'done': 0}
 STAGE_TEXT = {'prepare': 'Getting ready', 'unpack': "Reading the game's own models", 'resolve': 'Reading your mod list',
               'bake': 'Baking models', 'scripts': 'Writing the index', 'install': 'Installing into the Umbra Effects folder',
               'done': 'Done', 'cut': 'Cutting props', 'particles': 'Kid mode for particles',
               'match': 'Looking for a ready-made bake', 'download': 'Downloading the ready-made bake',
-              'place': 'Unpacking the ready-made bake'}
+              'place': 'Unpacking the ready-made bake', 'pack': 'Packing the small parts into archives'}
 # a ready-made bake (task 'download'): each stage's share of the models' part of the bar
-DOWNLOAD_SHARE = {'match': (0.0, 0.05), 'download': (0.05, 0.85), 'place': (0.85, 0.95), 'install': (0.95, 1.0)}
+DOWNLOAD_SHARE = {'match': (0.0, 0.05), 'download': (0.05, 0.8), 'place': (0.8, 0.88), 'install': (0.88, 0.9),
+                  'pack': (0.9, 1.0)}
+# a bake made before 1.8.2 left its small parts loose: what the check says about that
+LOOSE_TEXT = ('The bake is stored as %s loose files, and the game reads every one of them through MO2 each time it '
+              'starts: that is slow. Press "Bake" to pack them into a few archives (a minute or two; nothing is baked '
+              'again).')
 
 # Per-model averages from the full G.A.M.M.A bake (docs/integration/baker2.md):
 # 4790 models, 3.12 GB of sources -> 2.97 GB baked; caps 250 MB; pieces 3.2 GB;
@@ -687,6 +692,7 @@ class Status:
         self.info = info or []              # worth knowing, not a reason to bake
         self.details = []                   # long lists for the log
         self.report = None
+        self.loose = 0                      # loose small parts to pack (bakes made before 1.8.2)
 
     def text(self):
         lines = [self.headline]
@@ -698,7 +704,7 @@ class Status:
 
     def as_dict(self):
         return {'state': self.state, 'headline': self.headline, 'reasons': self.reasons, 'advice': self.advice,
-                'info': self.info}
+                'info': self.info, 'loose': self.loose}
 
 
 def _norm(p):
@@ -781,8 +787,11 @@ def check(tools, paths, progress=None, cancel=None, deep=False, report=None, pre
         st.advice = 'Press "Bake" to bake again (or "Remove bake" to remove what it left).'
         return st
     reasons, info = [], []
-    # ---- the baked files are all there
-    files = [] if prebaked else (rep.get('files') or [])
+    # ---- the baked files are all there (a pack that stopped half-way: the archives are; the
+    # loose copies it was deleting may not be, and "Bake" finishes it)
+    packing = rep.get('status') == 'packing'
+    files = [] if prebaked else [f for f in rep.get('files') or []
+                                 if not (packing and hasattr(b, 'packable') and b.packable(f))]
     missing = []
     for i, rel in enumerate(files):
         if not os.path.isfile(os.path.join(paths.out, *rel.split('/'))):
@@ -919,7 +928,7 @@ def check(tools, paths, progress=None, cancel=None, deep=False, report=None, pre
     if reasons:
         st.state = 'stale'
         st.headline = 'Your bake is out of date.'
-        st.advice = 'Press "Bake" to bake again for your mod list as it is now.'
+        st.advice = 'Press "Bake" to bake again for your mod list as it is now.'     # (a new bake is packed)
     elif over:
         st.state = 'order'
         st.headline = 'Your bake is up to date, but another mod hides some of it.'
@@ -936,6 +945,11 @@ def check(tools, paths, progress=None, cancel=None, deep=False, report=None, pre
             st.advice = line
         else:
             st.reasons.append(line)
+    if not reasons and hasattr(b, 'loose_files'):
+        st.loose = len(b.loose_files(rep))
+    if st.loose:
+        st.headline += ' It needs packing, though.'
+        st.advice = LOOSE_TEXT % '{:,}'.format(st.loose) + ((' ' + st.advice) if st.advice else '')
     return st
 
 
@@ -1059,7 +1073,7 @@ class Job:
         job.cancel()           # asks the worker to stop (before it installs)
         job.result             # the final event: {'ok': bool, 'msg': ..., ...}
     """
-    ACTIONS = ('bake', 'remove', 'props', 'kidfx_apply', 'kidfx_revert')
+    ACTIONS = ('bake', 'remove', 'props', 'pack', 'kidfx_apply', 'kidfx_revert')
 
     def __init__(self, tools, action, paths, choices, workdir=None, command=None):
         if action not in self.ACTIONS:
@@ -1225,11 +1239,26 @@ def _work(job, emit):
             emit(t='done', ok=True, msg='Removed %s.' % what, removed=n, props_removed=fn, kidfx_removed=kn,
                  kidfx_error=kerr, seconds=round(time.time() - t0, 1))
             return 0
+        if job['action'] == 'pack':
+            n = _pack(tools, paths, emit, stop)
+            emit(t='done', ok=True, msg=('Packed %d loose files into archives.' % n) if n else 'Nothing to pack.',
+                 packed=n, seconds=round(time.time() - t0, 1))
+            return 0
         if job['action'] == 'bake':
             bad = problems(tools, paths)
             if bad:
                 raise SetupError(bad[0])
-            got = get_prebaked(tools, paths, choices, emit, stop) if choices.download else None
+            got = None
+            rep0 = tools.bake.read_report(paths.out) if hasattr(tools.bake, 'loose_files') else None
+            if rep0 and (tools.bake.loose_files(rep0) or rep0.get('status') == 'packing'):
+                st0 = check(tools, paths, cancel=stop)
+                if st0.state in ('ok', 'order') and st0.loose:
+                    emit(t='log', msg='The bake is up to date; packing its %s loose files into archives.'
+                         % '{:,}'.format(st0.loose))
+                    n = _pack(tools, paths, emit, stop)
+                    got = {'packed_only': True, 'packed': n, 'seconds': round(time.time() - t0, 1)}
+            if got is None and choices.download:
+                got = get_prebaked(tools, paths, choices, emit, stop)
             if got:
                 models_done = True
                 summary = got
@@ -1252,6 +1281,8 @@ def _work(job, emit):
                 for key, why in summary['error_models'][:20]:
                     emit(t='log', level='warn', msg='Not baked: %s (%s); the game uses it unchanged.' % (key, why))
         do_props = job['action'] == 'props' or (job['action'] == 'bake' and choices.props and tools.fracture)
+        if do_props and job['action'] == 'bake' and summary.get('packed_only') and check_props(tools, paths)[0] == 'ok':
+            do_props = False                    # only packed: the props were fine
         if do_props and job['action'] == 'bake' and summary.get('prebaked') and check_props(tools, paths)[0] == 'ok':
             do_props = False                    # the ready-made bake's props fit this mod list
             emit(t='log', msg="Props: the ready-made bake's cut props fit your mod list.")
@@ -1307,6 +1338,17 @@ def _work(job, emit):
 
 
 # ---------------------------------------------------------------- ready-made bakes (prebaked.py)
+
+def _pack(tools, paths, emit, stop):
+    """Pack an installed bake's loose small parts (bake.pack). Returns how many files."""
+    if not hasattr(tools.bake, 'pack'):
+        raise SetupError('This version of Umbra Effects cannot pack a bake.')
+    n = tools.bake.pack(paths.out, progress=lambda s, d, t, m: emit(t='progress', task='models', stage='pack',
+                                                                     done=d, total=t, msg=m), cancel=stop)
+    if n:
+        emit(t='log', msg='Packed %s loose files into archives (db/mods/zgo_bake_*.db0).' % '{:,}'.format(n))
+    return n
+
 
 def get_prebaked(tools, paths, choices, emit, stop):
     """Umbra's ready-made bake, downloaded and put in place when one fits this mod list and
@@ -1434,6 +1476,12 @@ def get_prebaked(tools, paths, choices, emit, stop):
         prog('install', len(names), len(names), 'done')
         shutil.rmtree(tmp, ignore_errors=True)
         shutil.rmtree(fcache, ignore_errors=True)
+        if hasattr(b, 'pack'):
+            try:
+                b.pack(out, progress=lambda s, d, t, m: prog('pack', d, t, m))
+            except Exception as e:  # noqa: BLE001  (the bake is in and works; packing is for the game's start)
+                emit(t='log', level='warn', msg='The ready-made bake is in, but its small parts could not be packed '
+                     'into archives (%s), so the game starts slower; press "Bake" to try again.' % friendly(e))
         st = check(tools, paths)
         if st.state not in ('ok', 'order'):
             emit(t='log', level='warn', msg="The ready-made bake is in place but doesn't check out (%s); baking here "

@@ -329,11 +329,13 @@ def read_manifest(data, entry):
 # ---------------------------------------------------------------- unpacking
 
 def allowed(tools, rel):
-    """Only what a bake writes: its reports, gamedata/meshes, the generated scripts."""
+    """Only what a bake writes: its reports, gamedata/meshes, its archives, the generated scripts."""
     if not safe_rel(rel):
         return False
     b, f = tools.bake, tools.fracture
     if rel == b.REPORT or rel in b.GENERATED_SCRIPTS or rel.startswith('gamedata/meshes/'):
+        return True
+    if hasattr(b, 'is_archive') and b.is_archive(rel):          # db/mods/zgo_bake_*.db0 (1.8.2)
         return True
     return bool(f) and rel in (f.REPORT, f.INDEX)
 
