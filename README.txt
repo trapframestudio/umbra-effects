@@ -464,12 +464,15 @@ LIMITS
 CHANGES
   1.8.0  New name: Zone Gore Overhaul (ZGO) is now Umbra Gore & Effects,
          Umbra Effects for short, and ZGO Setup is now Umbra Effects Setup.
-         Nothing else changed: same options (your MCM settings carry
-         over), same bake, same co-op protocol (1.7 and 1.8 players still
-         see each other's effects; the host's notice says the versions
-         differ). MO2 installs it as a new mod: disable or remove the old
-         "Zone Gore Overhaul" and run Umbra Effects Setup again (the old
-         bake stays in the old folder).
+         Same options (your MCM settings carry over), same bake, same
+         co-op protocol (1.7 and 1.8 players still see each other's
+         effects; the host's notice says the versions differ). MO2
+         installs it as a new mod: disable or remove the old "Zone Gore
+         Overhaul" and run Umbra Effects Setup again (the old bake stays
+         in the old folder).
+         Kid mode also covers gory effects that a mod ships only inside
+         its particles.xr (as Cinematic VFX and HollywoodFX do), and no
+         longer mistakes fire, sparks and glows for blood.
   1.7.1  Body gibs: explosions and head bursts throw pieces torn out of the
          body itself (its clothes, skin or fur outside, raw flesh inside),
          each from the spot it came from, nearest the blast first, instead
