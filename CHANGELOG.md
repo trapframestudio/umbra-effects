@@ -4,6 +4,16 @@ What changed in each version of Umbra Gore & Effects, newest first. Up to 1.7.1 
 called Zone Gore Overhaul (ZGO). The player's guide is [README.md](README.md).
 
 
+## 1.8.4
+
+- **Co-op: the host no longer crashes loading a save with a partner connected.** With severed
+  limbs or gibs lying around, a host who loaded a save from inside the game (or quick-loaded)
+  while a partner was connected crashed at the end of the load with "attempt to call a nil
+  value". The pieces' bones are posed by script functions the game calls every frame, and
+  xrRazom's co-op reload kept the pieces past the load. The pieces now go when the level does
+  (a load, a quit to the main menu), as they already did on a level change.
+
+
 ## 1.8.3
 
 - **Co-op: cuts, stumps and gibs on a partner's screen.** A player whose bake the game isn't

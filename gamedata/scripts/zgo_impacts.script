@@ -542,4 +542,5 @@ function on_game_start()
 	register_sync()
 	RegisterScriptCallback("actor_on_update", update)
 	RegisterScriptCallback("on_level_changing", reset)
+	RegisterScriptCallback("actor_on_net_destroy", reset)   -- a load or a quit: its crater pieces go too
 end

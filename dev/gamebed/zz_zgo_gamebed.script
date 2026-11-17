@@ -15,6 +15,7 @@ runner takes it with gamescopectl and answers through appdata/zgobed_ack.txt).
   respawn_unfixed  control: respawn with ZGO's net_destroy handler skipped (as before 1.8.3):
            the engine checks must see the cut lost
   load     the save loads and the level runs (for bisecting a crash)
+  reload   a limb is cut, then the save is loaded from inside the game (the co-op crash of 1.8.3)
   respawn  the cut body goes offline and comes back (alife():teleport_object to where it lies:
            the game object is destroyed and made again, as when the player walks away and back):
            its cuts and stump caps are shown again (the 1.8.3 net_destroy fix)
@@ -94,6 +95,11 @@ local function read_app(name)
 end
 
 -- steps that run next, before whatever the queue holds (the client's answers to the host)
+local function write_app(name, s)
+	local f = io.open(app(name), "w")
+	if f then f:write(s or "") f:close() end
+end
+
 local function insert_front(steps)
 	for i, s in ipairs(steps) do table.insert(queue, i, s) end
 	wake = now() + steps[1].ms
@@ -346,6 +352,21 @@ function PLANS.load()
 	add(500, "shot load", function() shot("load") end)
 end
 
+-- a save loaded from inside the game while ZGO's pieces lie around (a limb, gibs): the 1.8.3
+-- co-op crash, "attempt to call a nil value" on the first frame after the load. rest: the
+-- scenarios to run after it (appdata/zgobed_reload.txt carries them over the load).
+function PLANS.reload(rest)
+	plan_cut("reload_cut", 3, 0, false)
+	add(500, "reload", function()
+		local n = zgo_debris.count and zgo_debris.count() or 0
+		check("pieces before reload", n > 0, "%d ZGO pieces lying around", n)
+		write_app("zgobed_reload.txt", rest ~= "" and rest or "-")
+		log("loading the save from inside the game")
+		exec_console_cmd("load zgobed")
+	end)
+	add(90000, "reload", function() check("reload", false, "the save never loaded") end)
+end
+
 ------------------------------------------------------------------------ the queue
 
 function tick()
@@ -422,6 +443,45 @@ end
 
 ------------------------------------------------------------------------ co-op: host
 
+-- co-op reload (gamebed.py coop --reload): the host loads its save from inside the game while
+-- the client is connected; the client sends ZGO's client -> host events all along unless the
+-- plan says quiet (the 1.8.3 co-op crash: "attempt to call a nil value" after the load)
+local function host_reload_plan()
+	-- saved with the client in it, so xrRazom keeps the peer through the load (its "detach
+	-- LOAD_LEVEL" path; a save the peer isn't in resets the session instead)
+	add(10000, "client sends", function() end)
+	-- ZGO's pieces lying around (a severed limb, gibs), as in a firefight
+	plan_cut("reload_cut", 3, 0, false)
+	add(500, "pieces", function()
+		local n = zgo_debris.count and zgo_debris.count() or 0
+		check("pieces before reload", n > 0, "%d ZGO pieces lying around", n)
+	end)
+	add(0, "host save", function()
+		log("host saves with the client connected")
+		exec_console_cmd("save zgobed")
+	end)
+	add(8000, "client sends", function() end)
+	add(0, "host reload", function()
+		write_app("zgobed_reload.txt", "host-after-reload")
+		log("host loads the save with the client connected")
+		exec_console_cmd("load zgobed")
+	end)
+	add(120000, "host reload", function() check("host reload", false, "the save never loaded") end)
+end
+
+local function host_after_reload()
+	add(0, "after reload", function()
+		check("host reload with a peer", true, "the save loaded with the client connected: level %s, %s peers",
+			level.name(), tostring(rawget(_G, "XrrPeerCount")))
+	end)
+	add(30000, "peer events after the load", function()
+		local s = zgo_sync.get_stats and zgo_sync.get_stats() or {}
+		check("host still running", true, "30 s after the load; events from the client: %s", tostring(s.up))
+	end)
+	add(0, "tell the client", function() log("RELAY stop") end)
+	quit_step(5000)
+end
+
 local function host_plan()
 	add_wait(1000, 120000, "listening", function() return XrrNet():IsListening() end, function(ok)
 		check("host listening", ok, "%s", ok and "xrRazom LAN session up" or "no session within 120 s")
@@ -430,6 +490,7 @@ local function host_plan()
 	add_wait(0, 1200000, "client in", function() return read_app("zgobed_go.txt") ~= nil end, function(ok)
 		check("client joined", ok, "%s", ok and "the client is in the level" or "no client within 20 min")
 	end)
+	if zz_zgo_gamebed_plan.reload then return host_reload_plan() end
 	add(0, "home", function()
 		local p, h = db.actor:position(), db.actor:direction():getH()
 		log("RELAY home %.3f %.3f %.3f %.4f", p.x, p.y, p.z, h)
@@ -547,12 +608,32 @@ local function relay_tick()
 			insert_front(client_cut(w[2]))
 		elseif w[1] == "gib" then
 			insert_front(client_gib(w[2], w[3]))
+		elseif w[1] == "stop" then
+			relayed.stop = true
 		end
 	end
 end
 
+local flood_n, flood_next = 0, 0
+local function flood_tick()
+	-- what a fighting client sends the host: ZGO's client -> host events (an unknown kind, so the
+	-- host's handler, once registered, ignores it)
+	if not (zz_zgo_gamebed_plan and zz_zgo_gamebed_plan.flood) then return end
+	if now() < flood_next then return end
+	flood_next = now() + 100                  -- ten a second, as in a firefight
+	flood_n = flood_n + 1
+	pcall(zgo_sync.send_up, { "Q", flood_n })
+	if flood_n % 50 == 0 then log("client sent %d events", flood_n) end
+end
+
 local function client_plan()
 	log("client in level")
+	if zz_zgo_gamebed_plan.reload then
+		add_wait(0, 600000, "host done", function() return relayed.stop end, function(ok)
+			check("client stayed in", true, "%s", ok and "until the host finished" or "no word from the host in 10 min")
+		end)
+		return quit_step()
+	end
 	add(5000, "settle", function() end)
 	PLANS.start()
 	add_wait(0, 900000, "relayed bodies", function() return relayed.cut and relayed.gib end, function(ok)
@@ -634,17 +715,42 @@ local function first_update()
 	ACK = app("zgobed_ack.txt")
 	hooks()
 	local wanted = zz_zgo_gamebed_plan and zz_zgo_gamebed_plan.scenarios or ""
+	local after = read_app("zgobed_reload.txt")
+	after = after and after:match("^%s*(.-)%s*$")
+	if after == "" then after = nil end
+	if after then
+		-- back from a load made from inside the game: the rest of the scenarios
+		write_app("zgobed_reload.txt", "")
+		wanted = after
+	end
 	log("level %s, role %s, scenarios '%s'", level.name(), ROLE, wanted)
 	add(8000, "settle", function() end)        -- the level's scripts finish their first updates
-	if ROLE == "host" then
+	if after then
+		add(0, "after reload", function()
+			check("reload", true, "the save loaded from inside the game: level %s, %d ZGO pieces now", level.name(),
+				zgo_debris.count and zgo_debris.count() or -1)
+		end)
+		add(500, "shot reload", function() shot("reload") end)
+	end
+	if ROLE == "host" and after then
+		host_after_reload()
+	elseif ROLE == "host" then
 		host_plan()
 	elseif ROLE == "client" then
 		client_plan()
 	else
-		for name in string.gmatch(wanted, "[^,]+") do
+		local names = {}
+		for name in string.gmatch(wanted, "[^,]+") do if name ~= "-" then names[#names + 1] = name end end
+		local reloading = false
+		for i, name in ipairs(names) do
+			if name == "reload" then
+				PLANS.reload(table.concat(names, ",", i + 1))
+				reloading = true
+				break
+			end
 			if PLANS[name] then PLANS[name]() else log("unknown scenario %s", name) end
 		end
-		quit_step()
+		if not reloading then quit_step() end
 	end
 	wake = now() + queue[1].ms
 end
@@ -662,7 +768,7 @@ end
 
 local function update()
 	tick()
-	if ROLE == "client" and started then relay_tick() end
+	if ROLE == "client" and started then relay_tick() flood_tick() end
 end
 
 function on_game_start()

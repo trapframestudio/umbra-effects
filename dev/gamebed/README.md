@@ -12,6 +12,8 @@ scripted scenarios and log checks. This repo's files stand in for the mod's fold
     python3 dev/gamebed/gamebed.py coop                    # host + client over xrRazom's LAN session on 127.0.0.1
     python3 dev/gamebed/gamebed.py coop --client-without bake
     python3 dev/gamebed/gamebed.py coop --client-baked-models-off
+    python3 dev/gamebed/gamebed.py run start reload        # a limb cut, then the save loaded from inside the game
+    python3 dev/gamebed/gamebed.py coop --reload           # the host cuts, saves and loads with the client connected
 
 Exit code 0 means every driver finished and every check passed. Each run writes
 `~/.cache/zgo-gamebed/out/<stamp>/`: `summary.txt`, the engine logs, the console output and the
@@ -27,6 +29,7 @@ screenshots (the driver asks; the runner takes them with `gamescopectl`).
 | `respawn` | the cut body goes offline and comes back as a new game object (`alife():teleport_object` to where it lies): cuts and caps are back (the 1.8.3 fix) |
 | `respawn_unfixed` | control: the same with ZGO's `net_destroy` handler skipped; the engine checks must see the cut lost, or `respawn` proves nothing |
 | `load` | the save loads (for bisecting a crash, with `--without zgo`) |
+| `reload` | a body is cut (limb pieces, gibs lying around), then the save is loaded from inside the game; the scenarios after it run in the loaded game (`appdata/zgobed_reload.txt` carries them over) |
 
 `coop` runs a host bed (loads the save, hosts) and a client bed (`~/.cache/zgo-gamebed-client`,
 joins from the main menu through xrRazom's direct-IP flow and starts from the faction screen).
@@ -35,6 +38,14 @@ things on its own copy of each body, and logs which objects lie around the gibbe
 sides. Both beds' gamedata must match (xrRazom's mod check), so the driver's role is in
 `appdata/zgobed_role.txt`; at the main menu only `modxml_` scripts run, so
 `modxml_zz_zgobed.script` hands the menu to the driver.
+
+`coop --reload` is the 1.8.4 crash: the host cuts a body, saves with the client in (so xrRazom
+keeps the peer through the load: its "detach LOAD_LEVEL" path; a save the client isn't in
+resets the session instead), and loads. Before 1.8.4 the host died at the end of the load
+with "attempt to call a nil value": the limbs' and gibs' bones are posed by Lua functions the
+engine calls every frame, and that path kept them past the load. The client sends ZGO's
+client -> host events ten times a second (`--quiet-client`: none); on LAN it rejoins on its
+own (xrRazom's same-level reload), so its events don't reach the loaded host.
 
 `--client-without bake` and `--client-baked-models-off` play a client whose bake isn't in use,
 the setup co-op players reported as "no cuts, no stumps, odd gibs". Its cut and gib checks fail by

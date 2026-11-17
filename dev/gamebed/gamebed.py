@@ -65,7 +65,7 @@ PROTON = os.environ.get('ZGO_GAMEBED_PROTON', os.path.expanduser(
 RUNTIME_DLLS = os.environ.get('ZGO_GAMEBED_RUNTIME', os.path.expanduser(
     '~/Games/Umbra/.umbra/cache/runtime/1/prefix'))
 EXE = 'AnomalyDX11AVX.exe'
-SCENARIOS = ['start', 'cut', 'gib', 'respawn', 'respawn_unfixed', 'load']
+SCENARIOS = ['start', 'cut', 'gib', 'respawn', 'respawn_unfixed', 'load', 'reload']
 DEFAULT = ['start', 'cut', 'gib', 'respawn', 'respawn_unfixed']
 COOP_SCENARIOS = ['start', 'cut', 'gib']
 LAN_PORT = 27015
@@ -73,7 +73,7 @@ USER_LTX = [('keypress_on_start', 'off'), ('rs_screenmode', 'windowed'),
             ('snd_volume_eff', '0.'), ('snd_volume_music', '0.'), ('snd_volume_master', '0.'),
             ('xrr_host_session', 'off'), ('xrr_host_steam', 'off')]
 FILES = ('zgobed_req.txt', 'zgobed_ack.txt', 'zgobed_go.txt', 'zgobed_connect.txt', 'zgobed_relay.txt',
-         'zgobed_end.txt')
+         'zgobed_end.txt', 'zgobed_reload.txt')
 
 
 def log(msg):
@@ -245,7 +245,7 @@ class Bed:
         with open(os.path.join(gd, 'scripts', 'zz_zgo_gamebed_plan.script'), 'w') as f:
             f.write('-- written by dev/gamebed/gamebed.py for one run\n')
             for k, val in sorted(plan.items()):
-                f.write('%s = %s\n' % (k, lua_str(val)))
+                f.write('%s = %s\n' % (k, ('true' if val else 'false') if isinstance(val, bool) else lua_str(val)))
             f.write('version = %s\n' % lua_str(package.version()))
             f.write('textures = { %s }\n' % ', '.join(lua_str(t) for t in sample))
 
@@ -542,6 +542,10 @@ def coop(args):
     # the same plan on both (gamedata must match for xrRazom's mod check); a client set up
     # differently on purpose needs the host to waive that check
     plan = {'scenarios': ','.join(COOP_SCENARIOS), 'connect': addr}
+    if args.reload:
+        # the host loads its save from inside the game with the client connected (and sending
+        # ZGO's client -> host events, unless --quiet-client)
+        plan.update({'scenarios': 'reload', 'reload': True, 'flood': not args.quiet_client})
     skip = [('xrr_skip_mod_check', 'on' if differs else 'off')]
     prepared(host, args, [], [], plan, args.save,
              [('xrr_host_session', 'on'), ('xrr_host_steam', 'off'), ('xrr_host_lan_port', str(LAN_PORT)),
@@ -554,7 +558,7 @@ def coop(args):
     host.start(out, args.timeout, ['-start', 'server(zgobed/single/alife/load)', 'client(localhost)'])
     client.start(out, args.timeout, [])
     beds = [host, client]
-    grace = None
+    grace, stopped = None, False
     while any(b.running() for b in beds):
         time.sleep(0.2)
         for line in host.poll():
@@ -567,6 +571,9 @@ def coop(args):
                 host.write('zgobed_go.txt', 'go')
             elif line == 'done':
                 host.write('zgobed_end.txt', 'end')
+        if args.reload and host.end and not stopped:
+            client.write('zgobed_relay.txt', 'stop\n', append=True)    # the host is done (or crashed)
+            stopped = True
         if client.end and not os.path.isfile(os.path.join(host.app, 'zgobed_end.txt')):
             host.write('zgobed_end.txt', 'end')      # the client crashed: the host stops waiting
         # each side ends on its own (the host waits for the client's word); once one has ended
@@ -611,6 +618,10 @@ def main():
                    help="the client lacks the bake (or the textures' archive)")
     c.add_argument('--client-baked-models-off', action='store_true',
                    help='the client has the bake but MCM "Use baked models" off')
+    c.add_argument('--reload', action='store_true',
+                   help='the host loads its save from inside the game with the client connected')
+    c.add_argument('--quiet-client', action='store_true',
+                   help='(--reload) the client sends no ZGO events (the control)')
     sub.add_parser('scenarios')
     args = ap.parse_args()
     if args.cmd == 'scenarios':

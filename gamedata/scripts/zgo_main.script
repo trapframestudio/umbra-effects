@@ -21,7 +21,7 @@
                                  body in zgo_blast, corpses included
 ]]
 
-VERSION = "1.8.3"
+VERSION = "1.8.4"
 
 local U = zgo_util
 local B = zgo_ballistics
@@ -400,6 +400,16 @@ local function on_level_change()
 	U.clear_timers()
 end
 
+-- The level is going away (a save loaded from inside the game, a quit to the main menu): the
+-- same as a level change. Limbs and gibs are level attachments whose bones the engine poses
+-- through Lua functions every frame; xrRazom's co-op reload keeps them past the load, and the
+-- first frame then called functions of the old Lua state ("attempt to call a nil value").
+local function on_actor_gone()
+	local n = zgo_debris.count and zgo_debris.count() or 0
+	on_level_change()
+	if n > 0 then U.log("level unloading: removed %d pieces", n) end
+end
+
 local function save_state(m_data)
 	if not U.is_client() then guarded("save", "zgo_dismember.save_data", function() zgo_dismember.save_data(m_data) end) end
 end
@@ -445,6 +455,7 @@ function on_game_start()
 	RegisterScriptCallback("actor_on_update", on_update)
 	RegisterScriptCallback("actor_on_first_update", on_first_update)
 	RegisterScriptCallback("on_level_changing", on_level_change)
+	RegisterScriptCallback("actor_on_net_destroy", on_actor_gone)
 	RegisterScriptCallback("server_entity_on_unregister", on_unregister)
 	RegisterScriptCallback("npc_on_net_destroy", on_net_destroy)
 	RegisterScriptCallback("monster_on_net_destroy", on_net_destroy)

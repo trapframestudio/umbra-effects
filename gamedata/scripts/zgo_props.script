@@ -1137,4 +1137,5 @@ function on_game_start()
 	zgo_sync.on_up("K", on_up_k)
 	RegisterScriptCallback("actor_on_update", on_update)
 	RegisterScriptCallback("on_level_changing", reset)
+	RegisterScriptCallback("actor_on_net_destroy", reset)   -- a load or a quit: its debris goes too
 end
