@@ -51,7 +51,9 @@
   piece), "Q" is the whole list of cuts of one body (sent in rounds, and
   with no cuts when the host forgets a body), so every machine ends up with
   the host's state. Sub-mesh ids never go on the wire: each machine maps
-  the cut roots onto its own bake.
+  the cut roots onto its own bake. A client whose copy of the body is a
+  ragdoll already can only show a cut on a baked model: otherwise it logs
+  why, once per body and cut (not_shown), and leaves that cut alone.
 ]]
 
 local U = zgo_util
@@ -65,6 +67,8 @@ local pending = {}      -- id -> { { root, vel, ... } } cuts on baked models wai
 local views   = {}      -- id -> off-shader state of the current online object (shader_view)
 local awaiting = {}     -- id -> true: an off-shader view whose bones get hidden once the ragdoll exists
 local unsent  = {}      -- id -> { [root] = time }: decided here, its D line not out yet (kept out of Q rounds)
+local unshown = {}      -- id -> { [root] = model }: the host's cuts this client can't show on that model (logged once, not retried)
+local last_baked        -- MCM "Use baked models" as last seen (a switch tries the unshown cuts again)
 local PENDING_MS = 1500 -- (no ragdoll by then: show it anyway)
 local UNSENT_MS = 3000
 local REAPPLY_MS, REBROADCAST_MS = 2500, 20000
@@ -203,9 +207,17 @@ function ragdoll_of(obj)
 	return ok and shell or nil
 end
 
+-- root is its own sub-mesh on the model this body wears: the bake lists it
+-- and the game loaded the baked model. A body wearing another model (another
+-- mod's file wins in MO2) is cut like an un-baked one: hiding its bones on
+-- the ragdoll would leave the part on screen.
+local function baked_section(obj, root, raw)
+	return zgo_bake.has_section(obj, root, raw) and zgo_bake.loaded_matches(obj, raw) ~= false
+end
+
 -- true when hiding root (recursively) will actually remove it from view
 function can_show_cut(obj, root)
-	if zgo_bake.has_section(obj, root) then return true end
+	if baked_section(obj, root) then return true end
 	local shell = ragdoll_of(obj)
 	if not shell then return true end     -- the ragdoll gets built without it
 	-- (a bone hidden before the ragdoll was built has no element)
@@ -249,10 +261,24 @@ local function offshader_wanted()
 	return U.setting("dismember/offshader_cuts") == true and not shader_broken
 end
 
+-- zgo\off exists only for DirectX 10 / 11 (shaders\r3; r3 and r4 read it):
+-- the DirectX 8 / 9 renderers have no such shader, and a missing shader is
+-- fatal there (the same gate as zgo_wounds' craters)
+local function renderer()
+	local ok, r = pcall(function() return get_console_cmd(0, "renderer") end)
+	return ok and r or nil
+end
+
 local function off_shader_present()
 	if off_present == nil then
-		off_present = U.file_exists("$game_shaders$", "r3\\zgo_off.s")
-		if not off_present then U.log("gamedata\\shaders\\r3\\zgo_off.s is missing: cuts hide bones as before") end
+		local r = renderer()
+		if r ~= "renderer_r3" and r ~= "renderer_r4" then
+			off_present = false
+			U.log("cuts with the off shader need the DirectX 10 or 11 renderer (this is %s): cuts hide bones as before", tostring(r))
+		else
+			off_present = U.file_exists("$game_shaders$", "r3\\zgo_off.s")
+			if not off_present then U.log("gamedata\\shaders\\r3\\zgo_off.s is missing: cuts hide bones as before") end
+		end
 	end
 	return off_present
 end
@@ -461,10 +487,33 @@ local function show_cut(obj, root, vel, head_burst, seed, a0, tip, emit, how, kc
 	return s0, s1
 end
 
+-- A co-op client can't show the host's cut at root: its copy of the body is
+-- a ragdoll already and the part is not baked here, so the physics keeps it
+-- on screen (no flying piece and no cap either, they would sit on a whole
+-- body). Says why in the log, once per body and cut; the upkeep and the Q
+-- rounds stop trying it on that model (is_unshown). id: the host's id, the
+-- one severed is keyed by.
+local function not_shown(id, obj, root)
+	local vis = vkey(obj)
+	local u = unshown[id] or {}
+	unshown[id] = u
+	if u[root] == vis then return end
+	u[root] = vis
+	local ok, why = pcall(zgo_bake.why_not_baked, obj, root)
+	U.log("host cut %s on %s (id %s) not shown on this machine (the body is a ragdoll already, which keeps an un-baked part on screen): %s",
+		root, tostring(obj:section()), id, ok and why or "its model is not baked here")
+end
+
+local function is_unshown(id, o, root)
+	local u = unshown[id]
+	return u ~= nil and u[root] ~= nil and u[root] == vkey(o)
+end
+
 -- vel == nil: just apply state (load / re-sync), no flying limb
--- returns the flying piece's start / tip (sent to co-op clients), or "wait"
--- when it is held back for the ragdoll; emit(start, tip) is called once the
--- cut is actually shown
+-- returns the flying piece's start / tip (sent to co-op clients), "wait"
+-- when it is held back for the ragdoll, or "unshown" on a co-op client that
+-- can't show it (the caller, which knows the host's id, calls not_shown);
+-- emit(start, tip) is called once the cut is actually shown
 function apply_local(obj, root, vel, head_burst, seed, a0, tip, emit)
 	if not obj or obj:get_bone_id(root) == 65535 then return end
 	-- kid mode: the cut is recorded (and sent to partners) but not shown here;
@@ -475,11 +524,15 @@ function apply_local(obj, root, vel, head_burst, seed, a0, tip, emit)
 		local ok, kc = shader_cut(obj, root, want_kcap())
 		if ok then return show_cut(obj, root, vel, head_burst, seed, a0, tip, emit, "shader", kc) end
 	end
-	-- (co-op clients and reloads: wait until it can be shown, see the top)
-	if not can_show_cut(obj, root) then return end
+	-- (a ragdoll keeps an un-baked part on screen, see the top: not shown; a
+	-- co-op client says why once and stops trying)
+	if not can_show_cut(obj, root) then
+		if not U.is_authority() then return "unshown" end
+		return
+	end
 	-- a baked model hides a part once the ragdoll exists: hidden before, the
 	-- part gets no physics and the joint above it pinches toward the parent
-	if zgo_bake.has_section(obj, root) and not ragdoll_of(obj) then
+	if baked_section(obj, root) and not ragdoll_of(obj) then
 		local id = obj:id()
 		local p = pending[id] or {}
 		pending[id] = p
@@ -488,6 +541,12 @@ function apply_local(obj, root, vel, head_burst, seed, a0, tip, emit)
 		return "wait"
 	end
 	return show_cut(obj, root, vel, head_burst, seed, a0, tip, emit, "bones")
+end
+
+-- a cut of the host's body id shown on this machine's object o (co-op
+-- replay, re-sync, upkeep): a client that can't show it says why, once
+local function replay(id, o, root, vel, head_burst, seed, a0, tip)
+	if apply_local(o, root, vel, head_burst, seed, a0, tip) == "unshown" then not_shown(id, o, root) end
 end
 
 local function run_pending(now)
@@ -534,7 +593,7 @@ local function unshow_all(o, id)
 		local st = severed[id]
 		if st and not o:alive() and zgo_bake.is_baked(o, true) then
 			for _, b in ipairs(st.b) do
-				if zgo_bake.has_section(o, b, true) and o:get_bone_id(b) ~= 65535 then pcall(o.set_bone_visible, o, b, true, true) end
+				if baked_section(o, b, true) and o:get_bone_id(b) ~= 65535 then pcall(o.set_bone_visible, o, b, true, true) end
 			end
 		end
 		pcall(zgo_debris.drop_caps, o, function() return true end)
@@ -560,7 +619,7 @@ function before_save()
 			local v = views[id]
 			for _, b in ipairs(st.b) do
 				local hid = capped[id][b] and (not (v and v.roots[b]) or v.bones[b])
-				if hid and zgo_bake.has_section(o, b, true) and o:get_bone_id(b) ~= 65535 then
+				if hid and baked_section(o, b, true) and o:get_bone_id(b) ~= 65535 then
 					pcall(o.set_bone_visible, o, b, true, true)
 					unhidden[#unhidden + 1] = { o, b }
 				end
@@ -584,7 +643,7 @@ function kid_mode(kid)
 		if o and v then revert_view(o, v) end
 		if o and not o:alive() and zgo_bake.is_baked(o, true) then
 			for _, b in ipairs(st.b) do
-				if zgo_bake.has_section(o, b, true) and o:get_bone_id(b) ~= 65535 then
+				if baked_section(o, b, true) and o:get_bone_id(b) ~= 65535 then
 					pcall(o.set_bone_visible, o, b, true, true)
 				end
 			end
@@ -910,15 +969,24 @@ function update()
 	if not U.gore() and next(pending) then drop_pending() end
 	if next(pending) then run_pending(now) end
 	if next(awaiting) then run_awaiting() end
+	-- "Use baked models" switched: the cuts this client couldn't show may show now
+	-- (the first look only records it: a host line may have arrived already)
+	local baked_on = zgo_bake.enabled()
+	if baked_on ~= last_baked then
+		if last_baked ~= nil then unshown = {} end
+		last_baked = baked_on
+	end
 	if now >= next_reapply and U.gore() then
 		next_reapply = now + REAPPLY_MS
 		local apos = db.actor and db.actor:position()
 		for id, st in pairs(severed) do
+			-- (creatures keep the host's id on co-op clients: no XrrAlife lookup
+			-- per body every round)
 			local o = level.object_by_id(id)
 			if o and o:section() == st.s and o:alive() then
 				-- only the dead are cut up: this id was released and handed to
 				-- someone new of the same kind (give a fresh kill a moment to die)
-				capped[id], views[id], awaiting[id] = nil, nil, nil
+				capped[id], views[id], awaiting[id], unshown[id] = nil, nil, nil, nil
 				if U.is_authority() and now - (st.t or 0) > 5000 then
 					severed[id], unsent[id] = nil, nil
 					zgo_sync.emit({ "Q", id, st.s, "-" })
@@ -945,8 +1013,8 @@ function update()
 									-- body may have come back online without one yet)
 									if ragdoll_of(o) then hide(o, b) else v.bones[b] = nil awaiting[id] = true end
 								end
-							else
-								apply_local(o, b, nil)
+							elseif not is_unshown(id, o, b) then
+								replay(id, o, b, nil)
 							end
 						end
 					end
@@ -1001,7 +1069,7 @@ function load_data(m_data)
 			if type(st) == "table" and st.s and type(st.b) == "table" then severed[id] = { s = st.s, b = st.b } end
 		end
 	end
-	capped, pending, views, awaiting, unsent = {}, {}, {}, {}, {}
+	capped, pending, views, awaiting, unsent, unshown = {}, {}, {}, {}, {}, {}
 	next_reapply = 0
 end
 
@@ -1013,18 +1081,18 @@ end
 -- put back, an empty list forgets the body.
 function set_state(id, sec, roots)
 	id = tonumber(id)
-	if not (id and sec) then return end
+	if not (id and sec) then U.dbg("Q line dropped: body id %s, section %s", tostring(id), tostring(sec)) return end
 	local st = severed[id]
 	local o = U.resolve(id, sec)
 	if st and st.s ~= sec then
 		-- the id belongs to another object now (the old one took its looks with it)
 		unshow_all(nil, id)
-		severed[id], stumps[id], accum[id] = nil, nil, nil
+		severed[id], stumps[id], accum[id], unshown[id] = nil, nil, nil, nil
 		st = nil
 	end
 	if #roots == 0 then
 		if st then unshow_all(o, id) end
-		severed[id], stumps[id], accum[id], unsent[id] = nil, nil, nil, nil
+		severed[id], stumps[id], accum[id], unsent[id], unshown[id] = nil, nil, nil, nil, nil
 		return
 	end
 	local want = {}
@@ -1044,31 +1112,37 @@ function set_state(id, sec, roots)
 	-- (a body still alive here dies in a moment: the regular upkeep shows it then)
 	if o and not o:alive() then
 		for _, b in ipairs(st.b) do
-			if not (capped[id] and capped[id][b]) then apply_local(o, b, nil) end
+			if not ((capped[id] and capped[id][b]) or is_unshown(id, o, b)) then replay(id, o, b, nil) end
 		end
+	elseif not o then
+		U.dbg("Q: cuts of id %s (%s) kept for later: the body is not here (offline, or another object holds the id)", id, sec)
 	end
 end
 
 function register_sync()
 	zgo_sync.on("D", function(t)
-		if #t < 9 then return end
+		if #t < 9 then U.dbg("D line dropped: %s fields", #t) return end
 		local id, sec, root = tonumber(t[2]), t[3], t[4]
+		if not id then U.dbg("D line dropped: body id %s", tostring(t[2])) return end
 		local o = U.resolve(id, sec)
 		local st = severed[id] or { s = sec, b = {} }
 		severed[id] = st
 		local fresh = not is_severed(id, root)
 		if fresh then st.b[#st.b + 1] = root st.t = time_global() end
-		if not o then return end
+		if not o then
+			U.dbg("D: cut %s of id %s (%s) kept for later: the body is not here (offline, or another object holds the id)", root, id, sec)
+			return
+		end
 		if fresh and t[9] == "1" then
 			local a0 = #t >= 16 and U.v3(tonumber(t[11]), tonumber(t[12]), tonumber(t[13])) or nil
 			local tip = #t >= 16 and U.v3(tonumber(t[14]), tonumber(t[15]), tonumber(t[16])) or nil
-			apply_local(o, root, U.v3(tonumber(t[5]), tonumber(t[6]), tonumber(t[7])), t[8] == "1", tonumber(t[10]), a0, tip)
-		elseif fresh or not (capped[id] and capped[id][root]) then
-			apply_local(o, root, nil)
+			replay(id, o, root, U.v3(tonumber(t[5]), tonumber(t[6]), tonumber(t[7])), t[8] == "1", tonumber(t[10]), a0, tip)
+		elseif fresh or not ((capped[id] and capped[id][root]) or is_unshown(id, o, root)) then
+			replay(id, o, root, nil)
 		end
 	end)
 	zgo_sync.on("G", function(t)
-		if #t < 9 then return end
+		if #t < 9 then U.dbg("G line dropped: %s fields", #t) return end
 		local ign = tonumber(t[9])
 		local opts
 		if t[11] and t[11] ~= "-" and t[11] ~= "" then
@@ -1076,13 +1150,18 @@ function register_sync()
 			for x in string.gmatch(t[11], "%d+") do list[#list + 1] = tonumber(x) end
 			if #list > 0 then opts = { pieces = list } end
 		end
-		pcall(zgo_debris.spawn_gibs, U.v3(tonumber(t[2]), tonumber(t[3]), tonumber(t[4])),
+		local body = ign and ign ~= 65535 and U.resolve(ign) or nil
+		if ign and ign ~= 65535 and not body then
+			U.dbg("G: body %s is not here: its gibs are meat models", ign)
+		end
+		local ok, err = pcall(zgo_debris.spawn_gibs, U.v3(tonumber(t[2]), tonumber(t[3]), tonumber(t[4])),
 			U.v3(tonumber(t[5]), tonumber(t[6]), tonumber(t[7])), tonumber(t[8]) or 2,
-			ign and ign ~= 65535 and level.object_by_id(ign) or nil, tonumber(t[10]), opts)
+			body, tonumber(t[10]), opts)
+		if not ok then U.log("gibs failed: %s", tostring(err)) end
 	end)
 	-- Q|id|section|root,root,... ("-" = no cuts)
 	zgo_sync.on("Q", function(t)
-		if #t < 4 then return end
+		if #t < 4 then U.dbg("Q line dropped: %s fields", #t) return end
 		local roots = {}
 		if t[4] ~= "-" then for r in string.gmatch(t[4], "[^,]+") do roots[#roots + 1] = r end end
 		set_state(t[2], t[3], roots)
@@ -1091,8 +1170,8 @@ end
 
 function reset()
 	accum, capped, stumps, pending = {}, {}, {}, {}
-	views, awaiting, unsent, ids_cache = {}, {}, {}, {}
-	next_reapply, next_rebroadcast = 0, 0
+	views, awaiting, unsent, ids_cache, unshown = {}, {}, {}, {}, {}
+	next_reapply, next_rebroadcast, last_baked = 0, 0, nil
 	shader_broken, off_present, last_offshader = false, nil, nil
 end
 
@@ -1102,7 +1181,21 @@ function forget(id)
 	local st = severed[id]
 	if st then zgo_sync.emit({ "Q", id, st.s, "-" }) end
 	severed[id], accum[id], capped[id], stumps[id], pending[id] = nil, nil, nil, nil, nil
-	views[id], awaiting[id], unsent[id] = nil, nil, nil
+	views[id], awaiting[id], unsent[id], unshown[id] = nil, nil, nil, nil
+	zgo_debris.clear_caps_for(id)
+end
+
+-- obj went offline (zgo_main: npc_on_net_destroy / monster_on_net_destroy;
+-- the game raises these for the dead too, npc_on_net_spawn only for the
+-- living): its hidden bones, shader overrides and attachments (stump caps)
+-- go with it, and the object made when it comes back has none of them, maybe
+-- within one upkeep round. Forget what was shown, keep the cuts themselves
+-- (severed, stumps: saved and synced): the upkeep shows them again once
+-- level.object_by_id finds it. Safe to call any number of times.
+function on_net_destroy(obj)
+	local id = obj and obj:id()
+	if not (id and (severed[id] or capped[id] or views[id] or awaiting[id])) then return end
+	capped[id], views[id], awaiting[id] = nil, nil, nil
 	zgo_debris.clear_caps_for(id)
 end
 

@@ -20,8 +20,15 @@ What it never touches in the mod folder:
     tools/zgo_kidfx/kidfx_copies.json, that file, and kidfx_snapshot.txt
     (both rewritten by Umbra Effects Setup for that mod list);
   * meta.ini (MO2's file).
-It never deletes anything. Files in the mod folder that the repo no longer has
-are listed so you can remove them yourself.
+
+The mod's own textures go in as one archive, db/mods/zgo_static.db0 (dev/package.py
+builds it; docs/formats/static.md), not as loose files. Before writing it, deploy checks
+that nothing else in that MO2 install (the game's archives and gamedata, the other mods,
+overwrite) has a texture of the same name, and refuses if something does.
+The only files it deletes are the loose copies of those textures that an earlier deploy
+put in the mod folder (a loose file would win over the archive's), after the archive is
+written. Other files in the mod folder that the repo no longer has are listed so you can
+remove them yourself.
 
 It refuses to run while the game, Umbra Effects Setup, the baker or kidfx is running. A game
 started from another install (its exe and -fsltx outside this MO2 and its game folder, as
@@ -165,10 +172,12 @@ def is_protected(rel, prot):
 
 
 def plan(dst):
-    kept, _ = package.walk()
+    """(new, changed, unchanged count, left alone, only in the mod folder, loose copies to remove).
+    The archive (package.STATIC_ARCHIVE) counts as one file of new or changed."""
+    loose, static, _ = package.release()
     prot = protected(dst)
     new, changed, same, kept_live = [], [], 0, []
-    for rel, size in kept:
+    for rel, size in loose:
         if is_protected(rel, prot):
             kept_live.append(rel)
             continue
@@ -179,19 +188,65 @@ def plan(dst):
             changed.append(rel)
         else:
             same += 1
-    ours = {rel for rel, _ in kept}
-    extra = []
+    ours = {rel for rel, _ in loose}
+    if static:
+        ours.add(package.STATIC_ARCHIVE)
+        d = os.path.join(dst, package.STATIC_ARCHIVE)
+        if not os.path.exists(d):
+            new.append(package.STATIC_ARCHIVE)
+        elif not package.static_matches(d, static):
+            changed.append(package.STATIC_ARCHIVE)
+        else:
+            same += 1
+    archived = {rel for rel, _ in static}
+    extra, retire = [], []
     for dp, dns, fns in os.walk(dst):
         dns[:] = [d for d in dns if d != '__pycache__']
         for fn in fns:
             rel = os.path.relpath(os.path.join(dp, fn), dst).replace(os.sep, '/')
-            if (rel not in ours and rel not in SETUP_BUILDS and not is_protected(rel, prot)
+            if rel in archived and not is_protected(rel, prot):
+                retire.append(rel)
+            elif (rel not in ours and rel not in SETUP_BUILDS and not is_protected(rel, prot)
                     and not fn.endswith(('.pyc', '.part'))):
                 extra.append(rel)
-    return new, changed, same, kept_live, sorted(extra)
+    return new, changed, same, kept_live, sorted(extra), sorted(retire)
 
 
-def copy(rel, dst):
+def static_clashes(dst, static):
+    """({archived rel: [who else has it]}, the game folder) in the MO2 install holding dst;
+    (None, None) when dst isn't in one (no ModOrganizer.ini two folders up)."""
+    roots = install_roots(dst)
+    if not os.path.isfile(os.path.join(roots[0], 'ModOrganizer.ini')):
+        return None, None
+    game = roots[1] if len(roots) > 1 and os.path.isdir(os.path.join(roots[1], 'db')) else None
+    return package.clashes([rel for rel, _ in static], game, os.path.dirname(dst)), game
+
+
+def remove_loose(rels, dst):
+    """Delete the mod folder's loose copies of archived textures, and the folders that empties
+    (under gamedata/textures only)."""
+    stop = os.path.join(dst, 'gamedata', 'textures')
+    dirs = set()
+    for rel in rels:
+        p = os.path.join(dst, rel)
+        try:
+            os.remove(p)
+        except FileNotFoundError:
+            pass
+        dirs.add(os.path.dirname(p))
+    for d in sorted(dirs, key=len, reverse=True):
+        while d.startswith(stop + os.sep):
+            try:
+                os.rmdir(d)
+            except OSError:
+                break
+            d = os.path.dirname(d)
+
+
+def copy(rel, dst, static=()):
+    if rel == package.STATIC_ARCHIVE:
+        package.build_static(os.path.join(dst, rel), static)    # (writes .part, then renames)
+        return
     s, d = os.path.join(ROOT, rel), os.path.join(dst, rel)
     os.makedirs(os.path.dirname(d), exist_ok=True)
     shutil.copy2(s, d + '.part')
@@ -223,24 +278,47 @@ def main():
     if running and not a.dry_run:
         sys.exit('deploy: close these first: %s' % ', '.join(running))
 
-    new, changed, same, kept_live, extra = plan(dst)
+    new, changed, same, kept_live, extra, retire = plan(dst)
+    _, static, _ = package.release()
+    found, game = static_clashes(dst, static) if static else ({}, None)
     print('deploy %s -> %s%s' % (root, dst, ' (dry run)' if a.dry_run else ''))
     if running:
         print('note: running now: %s (a real deploy would refuse)' % ', '.join(running))
     show('new', new)
     show('changed', changed)
     print('unchanged: %d' % same)
+    if static:
+        st = 'new' if package.STATIC_ARCHIVE in new else 'changed' if package.STATIC_ARCHIVE in changed else 'unchanged'
+        print('archive %s: %s (%d textures, %s; they are not copied loose)'
+              % (package.STATIC_ARCHIVE, st, len(static), package.mb(sum(s for _, s in static))))
+        if found is None:
+            print('    (not in an MO2 install: no check that other sources lack these textures)')
+        elif game is None:
+            print("    (the game folder isn't known: only the other mods were checked for these textures)")
+    if retire:
+        show('remove (loose copies of textures now in the archive)', retire, 6)
     if kept_live:
         show('left alone (made on that machine)', kept_live, 6)
     if extra:
         show('only in the mod folder (not in the repo; remove by hand if stale)', extra)
-    if a.dry_run or not (new or changed):
-        if not (new or changed):
+    if found:
+        print('CLASH: %d textures the archive would hold are in other sources too (a loose file of the '
+              'same name wins over an archive):' % len(found))
+        for rel in sorted(found)[:12]:
+            print('    %s: %s' % (rel, ', '.join(found[rel][:3])))
+        if not a.dry_run:
+            sys.exit('deploy: add them to STATIC_KEEP_LOOSE in dev/package.py (they stay loose), then deploy again')
+        print('    (a real deploy would refuse: add them to STATIC_KEEP_LOOSE in dev/package.py)')
+    if a.dry_run or not (new or changed or retire):
+        if not (new or changed or retire):
             print('nothing to copy')
         return
     for rel in new + changed:
-        copy(rel, dst)
+        copy(rel, dst, static)
     print('copied %d file(s)' % (len(new) + len(changed)))
+    if retire:
+        remove_loose(retire, dst)
+        print('removed %d loose texture(s) now in %s' % (len(retire), package.STATIC_ARCHIVE))
     if any(r.startswith('gamedata/particles/') for r in new + changed):
         print('particles changed: run Umbra Effects Setup (or tools/zgo_kidfx/kidfx_pe.py apply in the mod folder) '
               'to refresh kid mode for them')

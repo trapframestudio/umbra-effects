@@ -176,10 +176,17 @@ else
 		local new = 0
 		for name in pairs(LEVEL_ATT) do if name:find("limb") and not seen[name] then new = new + 1 end end
 		print(("late cut on a client ragdoll: hidden %s, new limbs %d"):format(tostring(g._hidden["bip01_r_upperarm"]), new))
+		-- (un-baked: one log line says why, and the upkeep stops trying)
+		local said = 0
+		for _, l in ipairs(LOG) do
+			if l:find("host cut bip01_r_upperarm on " .. g:section() .. " (id 16) not shown on this machine", 1, true) then said = said + 1 end
+		end
 		if BAKED then
 			assert(g._hidden["bip01_r_upperarm"] and new == 1)
+			assert(said == 0, "a cut shown here is not reported")
 		else
 			assert(not g._hidden["bip01_r_upperarm"] and new == 0, "client showed a cut its ragdoll keeps on screen")
+			assert(said == 1, "the client says once why it can't show the host's cut, got " .. said)
 		end
 		CHECK_CUTS("client late cut")
 	end

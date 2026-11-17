@@ -569,10 +569,8 @@ local function body_gib_set(obj)
 	return gs
 end
 
--- the pieces to throw: nearest the blast (or, with prefer, from those bones
--- first), some shuffling from the shared seed, pieces already thrown last
-local function choose_pieces(obj, gs, pos, count, g, prefer)
-	local id = obj:id()
+-- the pieces body id has thrown so far
+local function thrown_of(id)
 	local used = thrown[id]
 	if not used then
 		if thrown_n > 300 then thrown, thrown_n = {}, 0 end
@@ -580,6 +578,13 @@ local function choose_pieces(obj, gs, pos, count, g, prefer)
 		thrown[id] = used
 		thrown_n = thrown_n + 1
 	end
+	return used
+end
+
+-- the pieces to throw: nearest the blast (or, with prefer, from those bones
+-- first), some shuffling from g, pieces already thrown last
+local function choose_pieces(obj, gs, pos, count, g, prefer)
+	local used = thrown_of(obj:id())
 	local cand = {}
 	for i, pc in ipairs(gs.pieces) do
 		if obj:get_bone_id(pc.bone) ~= 65535 then
@@ -598,10 +603,7 @@ local function choose_pieces(obj, gs, pos, count, g, prefer)
 		return x.i < y.i
 	end)
 	local out = {}
-	for k = 1, math.min(count, #cand) do
-		out[k] = cand[k].i
-		used[cand[k].i] = true
-	end
+	for k = 1, math.min(count, #cand) do out[k] = cand[k].i end
 	return out
 end
 
@@ -684,21 +686,32 @@ end
 -- throw (co-op: the host's choice); opts.prefer: { [bone] = true } to take
 -- pieces from first. Returns the body pieces thrown (a list, maybe empty) or
 -- nil when no body gibs were possible.
+-- Co-op: the pieces are chosen from their own generator, so a client handed
+-- the host's list (no choosing) throws them exactly as the host did; it
+-- also remembers them as thrown, as the host does, so later bursts from
+-- that body pick the same pieces on every machine.
 function spawn_gibs(pos, dir, count, ignore, seed, opts)
 	if not (U.setting("dismember/gibs") and U.gore() and db.actor and pos and dir) then return nil end
 	count = math.max(0, math.floor(tonumber(count) or 0))
-	local g = U.rng(seed or math.random(1, 2147483000))
+	seed = math.floor(math.abs(tonumber(seed) or math.random(1, 2147483000)))
+	local g = U.rng(seed)
 	local used
 	local gs = body_gib_set(ignore)
 	if gs and count > 0 then
 		used = {}
-		local list = opts and opts.pieces or choose_pieces(ignore, gs, pos, count, g, opts and opts.prefer)
+		local list = opts and opts.pieces
+		if not list then
+			list = choose_pieces(ignore, gs, pos, count, U.rng((seed * 48271 + 11) % 2147483647), opts and opts.prefer)
+		end
 		for _, i in ipairs(list) do
 			if #used >= count then break end
 			local ok, done = pcall(body_gib, ignore, gs, i, dir, g)
 			if not ok then U.log("body gib failed: %s", tostring(done)) end
 			if ok and done then used[#used + 1] = i end
 		end
+		-- (the host's list counts as thrown even where a piece failed here)
+		local was = thrown_of(ignore:id())
+		for _, i in ipairs((opts and opts.pieces) or used) do was[i] = true end
 		-- the rest as meat (co-op: the same rest as on the host, unless a piece
 		-- of the host's list is missing here)
 		count = count - #used

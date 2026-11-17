@@ -21,7 +21,7 @@
                                  body in zgo_blast, corpses included
 ]]
 
-VERSION = "1.8.2"
+VERSION = "1.8.3"
 
 local U = zgo_util
 local B = zgo_ballistics
@@ -381,25 +381,38 @@ local function on_first_update()
 		U.in_session() and (U.is_client() and "co-op client" or "co-op host") or "single player")
 end
 
+-- one module's reset / save / load failing must not skip the others
+local function guarded(when, what, fn, ...)
+	local ok, err = pcall(fn, ...)
+	if not ok then U.log("%s: %s failed: %s", when, what, tostring(err)) end
+end
+
 local function on_level_change()
-	zgo_debris.reset()
-	zgo_fx.reset()
-	zgo_decals.reset()
-	zgo_dismember.reset()
-	zgo_blast.reset()
-	zgo_sync.reset()
-	pcall(zgo_handshake.reset)
-	B.reset()
+	guarded("level change", "zgo_debris.reset", function() zgo_debris.reset() end)
+	guarded("level change", "zgo_fx.reset", function() zgo_fx.reset() end)
+	guarded("level change", "zgo_decals.reset", function() zgo_decals.reset() end)
+	guarded("level change", "zgo_dismember.reset", function() zgo_dismember.reset() end)
+	guarded("level change", "zgo_blast.reset", function() zgo_blast.reset() end)
+	guarded("level change", "zgo_sync.reset", function() zgo_sync.reset() end)
+	guarded("level change", "zgo_handshake.reset", function() zgo_handshake.reset() end)
+	guarded("level change", "zgo_ballistics.reset", function() B.reset() end)
 	U.clear_jobs()
 	U.clear_timers()
 end
 
 local function save_state(m_data)
-	if not U.is_client() then zgo_dismember.save_data(m_data) end
+	if not U.is_client() then guarded("save", "zgo_dismember.save_data", function() zgo_dismember.save_data(m_data) end) end
 end
 
 local function load_state(m_data)
-	zgo_dismember.load_data(m_data)
+	guarded("load", "zgo_dismember.load_data", function() zgo_dismember.load_data(m_data) end)
+end
+
+-- a body went offline (the player went away, a level change, a co-op copy
+-- about to be made again): its hidden bones and stump caps go with it. (The
+-- game raises npc_on_net_spawn only for the living, net_destroy for all.)
+local function on_net_destroy(obj)
+	if obj then guarded("net destroy", "zgo_dismember.on_net_destroy", function() zgo_dismember.on_net_destroy(obj) end) end
 end
 
 -- every save in Anomaly goes through exec_console_cmd("save ..."), and the
@@ -433,6 +446,8 @@ function on_game_start()
 	RegisterScriptCallback("actor_on_first_update", on_first_update)
 	RegisterScriptCallback("on_level_changing", on_level_change)
 	RegisterScriptCallback("server_entity_on_unregister", on_unregister)
+	RegisterScriptCallback("npc_on_net_destroy", on_net_destroy)
+	RegisterScriptCallback("monster_on_net_destroy", on_net_destroy)
 	RegisterScriptCallback("save_state", save_state)
 	RegisterScriptCallback("load_state", load_state)
 	-- settings are cached for a moment; drop the cache when MCM saves

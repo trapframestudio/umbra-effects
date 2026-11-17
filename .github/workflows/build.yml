@@ -120,14 +120,15 @@ jobs:
       - name: Release zip
         run: |
           python3 dev/package.py --out dist
-          # the zip holds exactly what git has (plus the two programs), nothing a CI step left behind
+          # the zip holds exactly what git has (plus the two programs and the textures archive
+          # package.py builds), nothing a CI step left behind
           python3 - <<'PY'
           import glob, subprocess, sys, zipfile
           tracked = set(subprocess.run(['git', 'ls-files', '-z'], capture_output=True, check=True).stdout.decode().split('\0'))
           z = zipfile.ZipFile(glob.glob('dist/*.zip')[0])
           extra = [n.split('/', 1)[1] for n in z.namelist() if not n.endswith('/') and n.split('/', 1)[1] not in tracked]
           extra = [n for n in extra if n not in ('tools/zgo_setup/zgo-setup-linux', 'tools/zgo_setup/Umbra Effects Setup.exe',
-                                                 'tools/zgo_setup/SHA256SUMS.txt')]
+                                                 'tools/zgo_setup/SHA256SUMS.txt', 'db/mods/zgo_static.db0')]
           print('files in the zip that git does not have:', extra or 'none')
           sys.exit(1 if extra else 0)
           PY

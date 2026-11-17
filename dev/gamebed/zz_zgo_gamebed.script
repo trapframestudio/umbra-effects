@@ -1,0 +1,673 @@
+--[[
+Umbra Gore & Effects game bed driver. Loaded ONLY in dev/gamebed/gamebed.py's throwaway copy of
+the game; never shipped (dev/ is not in the release zip).
+
+On the first actor update it runs the scenarios named in zz_zgo_gamebed_plan.scenarios, one step
+at a time, each after the previous one's delay, then quits. Every result is a line
+"[zgobed] CHECK <name> PASS|FAIL <detail>"; every screenshot "[zgobed] shot <n> <name>" (the
+runner takes it with gamescopectl and answers through appdata/zgobed_ack.txt).
+
+  start    the version, the bake in use, its index, and textures from db/mods/zgo_static.db0
+  cut      a stalker spawned in front, killed; its left forearm and right calf cut off (the
+           way a wound that destroys them does: zgo_dismember.sever_wound); shown, capped
+  gib      a second stalker, killed, torn apart by a blast at its feet (zgo_dismember.consider
+           with a full gib): the gibs are the body's baked pieces, not meat
+  respawn_unfixed  control: respawn with ZGO's net_destroy handler skipped (as before 1.8.3):
+           the engine checks must see the cut lost
+  load     the save loads and the level runs (for bisecting a crash)
+  respawn  the cut body goes offline and comes back (alife():teleport_object to where it lies:
+           the game object is destroyed and made again, as when the player walks away and back):
+           its cuts and stump caps are shown again (the 1.8.3 net_destroy fix)
+
+Co-op (gamebed.py coop): appdata/zgobed_role.txt says "host" or "client" (else single player).
+The host loads the save hosting xrRazom's LAN session, says "host listening", waits for the
+client (zgobed_go.txt), tells it where it stands ("RELAY home ..."), runs start, cut and gib
+and tells it what it cut ("RELAY cut <id>") and gibbed ("RELAY gib <id> <bones>"), then waits
+for zgobed_end.txt. The client starts at the main menu, joins the address in
+zgobed_connect.txt the way xrRazom's direct-IP box does, starts from the faction screen, says
+"client in level", and checks each body the host relays (zgobed_relay.txt) as it sees it.
+--]]
+
+local queue, wake, started = {}, 0, false
+local shot_n, waiting = 0, nil
+local REQ, ACK
+local bodies = {}           -- name -> id
+local home                  -- where the player stood
+local last_gibs             -- what zgo_debris.spawn_gibs threw last
+local destroyed = {}        -- ids zgo_dismember.on_net_destroy saw (the body went offline)
+local unfixed = false       -- (control) ZGO's net_destroy handler skipped, as before 1.8.3
+local CUTS = { "bip01_l_forearm", "bip01_r_calf" }
+local ROLE = "sp"           -- appdata/zgobed_role.txt: sp, host or client
+local gib_bones = {}        -- what the blast took (host)
+local relay_pos = 0         -- (client) how much of zgobed_relay.txt was read
+local relayed = {}          -- (client) "cut", "gib": handled
+local SECTIONS = { "sim_default_stalker_2", "sim_default_stalker_1", "sim_default_stalker_0" }
+
+local function now()
+	return time_global_async and time_global_async() or time_global()
+end
+
+local function log(fmt, ...)
+	local ok, s = pcall(string.format, fmt, ...)
+	printf("[zgobed] %s", ok and s or fmt)
+end
+
+local function check(name, ok, fmt, ...)
+	local s = fmt and select("#", ...) > 0 and string.format(fmt, ...) or (fmt or "")
+	log("CHECK %s %s %s", name, ok and "PASS" or "FAIL", s)
+end
+
+local function add(ms, name, fn) queue[#queue + 1] = { ms = ms, name = name, fn = fn } end
+
+-- a step that holds the queue until cond() is true or timeout_ms passed; done(ok) after
+local function add_wait(ms, timeout_ms, name, cond, done)
+	queue[#queue + 1] = { ms = ms, name = name, cond = cond, timeout = timeout_ms, done = done }
+end
+
+local function shot(name)
+	shot_n = shot_n + 1
+	log("shot %s %s", shot_n, name)
+	local f = io.open(REQ, "w")
+	if f then
+		f:write(shot_n .. " " .. name)
+		f:close()
+	end
+	waiting = { n = shot_n, give_up = now() + 20000 }
+end
+
+local function acked()
+	local f = io.open(ACK, "r")
+	if not f then return false end
+	local s = f:read("*a")
+	f:close()
+	return tonumber(s) == waiting.n
+end
+
+local function app(name) return getFS():update_path("$app_data_root$", name) end
+
+local function read_app(name)
+	local f = io.open(app(name), "r")
+	if not f then return nil end
+	local s = f:read("*a")
+	f:close()
+	return s
+end
+
+-- steps that run next, before whatever the queue holds (the client's answers to the host)
+local function insert_front(steps)
+	for i, s in ipairs(steps) do table.insert(queue, i, s) end
+	wake = now() + steps[1].ms
+end
+
+local function v(p) return p and string.format("%.1f,%.1f,%.1f", p.x, p.y, p.z) or "nil" end
+
+local function obj(name) return bodies[name] and level.object_by_id(bodies[name]) end
+
+-- the player can't die while the bed runs (far away, mutants)
+local function keep_alive()
+	local a = db.actor
+	if a and a.health < 0.6 then pcall(function() a:set_health_ex(1) end) end
+end
+
+-- a level vertex about dist ahead of the player (and side to the right)
+local function ahead(dist, side)
+	local a = db.actor
+	local d = a:direction()
+	local fx, fz = d.x, d.z
+	local l = math.sqrt(fx * fx + fz * fz)
+	if l < 0.01 then fx, fz, l = 0, 1, 1 end
+	fx, fz = fx / l, fz / l
+	local p = a:position()
+	local want = vector():set(p.x + fx * dist + fz * side, p.y, p.z + fz * dist - fx * side)
+	local lvid = level.vertex_id(want)
+	if not lvid or lvid >= 4294967295 then return p, a:level_vertex_id() end
+	return level.vertex_position(lvid), lvid
+end
+
+local function spawn(name, dist, side)
+	local pos, lvid = ahead(dist, side)
+	for _, sec in ipairs(SECTIONS) do
+		if ini_sys:section_exist(sec) then
+			local se = alife_create(sec, pos, lvid, db.actor:game_vertex_id())
+			if se then
+				bodies[name] = se.id
+				log("spawned %s: %s id %s at %s (player at %s)", name, sec, se.id, v(pos), v(db.actor:position()))
+				return
+			end
+		end
+	end
+	log("no stalker section to spawn")
+end
+
+-- the weapon out of the picture
+local function holster()
+	pcall(function() db.actor:activate_slot(0) end)
+	pcall(function() exec_console_cmd("hud_weapon 0") end)
+end
+
+-- the camera on the body (yaw, and pitch where the exe takes one)
+local function face(name)
+	local o = obj(name)
+	if not o then return end
+	local at = o:position()
+	pcall(function() at = o:bone_position("bip01_spine") end)
+	local d = vector():set(at):sub(device().cam_pos)
+	local ok = pcall(function() db.actor:set_actor_direction(-d:getH(), -d:getP(), 0) end)
+	if not ok then pcall(function() db.actor:set_actor_direction(-d:getH()) end) end
+	log("aim at %s: want H %.2f P %.2f (pitch taken %s)", name, d:getH(), d:getP(), tostring(ok))
+end
+
+local function kill(name)
+	local o = obj(name)
+	if not o then
+		check("online " .. name, false, "body %s is not online", tostring(bodies[name]))
+		return
+	end
+	if o:alive() then o:kill(o) end
+	log("killed %s (%s, visual %s)", name, o:section(), o:get_visual_name())
+end
+
+local function describe(o)
+	local key = zgo_dismember.key_of(o)
+	local baked = zgo_bake.is_baked(o)
+	local matches = zgo_bake.loaded_matches and zgo_bake.loaded_matches(o)
+	return string.format("key %s, baked %s, loaded model matches %s", tostring(key), tostring(baked), tostring(matches))
+end
+
+-- what the engine says about the object now (not ZGO's own records): cut bones hidden on
+-- it, and ZGO's caps attached to it
+local function truth(o)
+	local hidden, attached = 0, 0
+	for _, b in ipairs(CUTS) do
+		local ok, vis = pcall(o.bone_visible, o, b)
+		if ok and vis == false then hidden = hidden + 1 end
+	end
+	local caps = zgo_debris.caps_of(o:id())
+	for _, c in ipairs(caps) do
+		local ok, att = pcall(o.get_attachment, o, c.name)
+		if ok and att then attached = attached + 1 end
+	end
+	return hidden, attached, #caps
+end
+
+local function report_cuts(name, tag)
+	local o = obj(name)
+	if not o then
+		check(tag .. " online", false, "body %s is not online", tostring(bodies[name]))
+		return
+	end
+	local caps = zgo_debris.caps_of(o:id())
+	local names = {}
+	for _, c in ipairs(caps) do names[#names + 1] = string.format("%s(%s)", tostring(c.cut), tostring(c.kind)) end
+	for _, b in ipairs(CUTS) do
+		local how = zgo_dismember.shown(o, b)
+		check(tag .. " " .. b, how ~= nil and how ~= "waiting", "shown as %s", tostring(how))
+	end
+	local want_caps = zgo_settings.get("dismember/stump_caps")
+	check(tag .. " caps", (not want_caps) or #caps >= #CUTS, "%d caps: %s (stump caps %s)", #caps,
+		table.concat(names, " "), tostring(want_caps))
+	local st = zgo_dismember.get_state()[o:id()]
+	check(tag .. " recorded", st ~= nil and #st.b >= #CUTS, "%s", st and table.concat(st.b, ",") or "nothing recorded")
+	local hidden, attached, ncaps = truth(o)
+	local bones = zgo_dismember.shown(o, CUTS[1]) == "bones"
+	check(tag .. " bones hidden on the object", (not bones) or hidden == #CUTS, "%d of %d cut bones hidden (engine)", hidden, #CUTS)
+	check(tag .. " caps attached to the object", (not want_caps) or (attached == ncaps and ncaps >= #CUTS),
+		"%d of %d recorded caps attached (engine)", attached, ncaps)
+end
+
+------------------------------------------------------------------------ scenarios
+
+local PLANS = {}
+
+function PLANS.start()
+	add(0, "start", function()
+		local plan = zz_zgo_gamebed_plan
+		check("version", zgo_main.VERSION == plan.version, "game runs %s, repo has %s", tostring(zgo_main.VERSION), plan.version)
+		local why = zgo_bake.unused_reason()
+		check("bake in use", why == nil, "%s", why and zgo_bake.reason_text(why) or "in use")
+		check("bake index", (zgo_bake.count() or 0) > 0, "%s models, bake %s", tostring(zgo_bake.count()), tostring(zgo_bake.bake_id()))
+		local fs = getFS()
+		local found, missing = 0, {}
+		for _, t in ipairs(plan.textures or {}) do
+			if fs:exist("$game_textures$", t) then found = found + 1 else missing[#missing + 1] = t end
+		end
+		check("archived textures", #missing == 0 and found > 0, "%d of %d found%s", found, #(plan.textures or {}),
+			#missing > 0 and (": missing " .. table.concat(missing, " ")) or "")
+		check("renderer", true, "%s", tostring(get_console():get_string("renderer")))
+	end)
+	add(500, "shot start", function() shot("start") end)
+end
+
+local function plan_cut(name, dist, side, report)
+	add(0, "spawn " .. name, function() holster() spawn(name, dist, side) end)
+	add_wait(500, 20000, "online " .. name, function() return obj(name) ~= nil end)
+	add(1000, "kill " .. name, function() face(name) kill(name) end)
+	add(3500, name, function()
+		local o = obj(name)
+		if not o then return check(name .. " online", false, "gone") end
+		log("cut body: %s", describe(o))
+		for _, b in ipairs(CUTS) do
+			local ev = { id = o:id(), bone = b, prof = { energy = 2.5, cls = 3, kind = "bullet" },
+				dir = db.actor:direction(), pos = o:bone_position(b), dead = true, was_dead = true }
+			local ok, res = pcall(zgo_dismember.sever_wound, o, b, ev)
+			check(name .. " sever " .. b, ok and res == true, "%s", ok and tostring(res) or ("error: " .. tostring(res)))
+		end
+	end)
+	if report then
+		add(2500, "report " .. name, function() face(name) report_cuts(name, name) end)
+		add(300, "shot " .. name, function() shot(name) end)
+	else
+		add(2500, "settle " .. name, function() end)
+	end
+end
+
+function PLANS.cut() plan_cut("cut", 3, 0, true) end
+
+function PLANS.gib()
+	add(0, "spawn gib", function() holster() spawn("gib", 4, 1.5) end)
+	add_wait(500, 20000, "online gib", function() return obj("gib") ~= nil end)
+	add(1000, "kill gib", function() face("gib") kill("gib") end)
+	add(3500, "gib", function()
+		local o = obj("gib")
+		if not o then return check("gib online", false, "gone") end
+		log("gib body: %s", describe(o))
+		last_gibs = nil
+		local p = o:position()
+		local ev = { id = o:id(), dead = true, was_dead = true, dir = vector():set(0, 1, 0), center = p,
+			prof = { energy = 4, cls = 5, kind = "blast" }, blast = { center = p, prox = 1, gib = true } }
+		local ok, res = pcall(zgo_dismember.consider, ev)
+		check("blast", ok, "%s", tostring(res))
+		gib_bones = {}
+		for b in string.gmatch(tostring(res):gsub("^GIB:", ""), "[%w_]+") do
+			if o:get_bone_id(b) ~= 65535 then gib_bones[#gib_bones + 1] = b end
+		end
+		local style = zgo_settings.get("dismember/gib_style")
+		local pieces = type(last_gibs) == "table" and #last_gibs or 0
+		check("gibs are body pieces", style ~= "body" or pieces > 0, "gib style %s, %d body pieces thrown (%s)",
+			tostring(style), pieces, type(last_gibs) == "table" and table.concat(last_gibs, ",") or tostring(last_gibs))
+	end)
+	add(200, "aim gib", function() face("gib") end)
+	add(200, "shot gib", function() shot("gib") end)
+	add(2000, "shot gib later", function() shot("gib-2s") end)
+end
+
+-- the body goes offline the way the game takes it offline (its game object destroyed,
+-- net_destroy raised) and comes back as a new game object (no net_spawn for a dead stalker):
+-- alife():teleport_object to where it lies switches it offline, and the next switch round
+-- brings it back (it is next to the player)
+local function plan_respawn(name, tag, after)
+	local id, seen_gone
+	add(0, "go offline " .. name, function()
+		id = bodies[name]
+		if not (id and obj(name)) then return check(tag .. " body", false, "no cut body %s", name) end
+		destroyed[id], seen_gone = nil, false
+		local se = alife_object(id)
+		alife():teleport_object(id, se.m_game_vertex_id, se.m_level_vertex_id, se.position)
+	end)
+	add_wait(100, 15000, "net_destroy " .. name, function() return id and destroyed[id] end, function(ok)
+		check(tag .. " went offline", ok, "%s", ok and "net_destroy raised for it" or "no net_destroy within 15 s")
+	end)
+	add_wait(100, 30000, "online again " .. name, function()
+		if obj(name) == nil then seen_gone = true end
+		return seen_gone and obj(name) ~= nil
+	end, function(ok)
+		check(tag .. " back online", ok, "%s", ok and "a new game object" or "not seen offline and back within 30 s")
+	end)
+	add(4000, "report " .. tag, function() face(name) after() end)
+	add(300, "shot " .. tag, function() shot(tag) end)
+end
+
+function PLANS.respawn()
+	if not bodies.cut then plan_cut("cut", 3, 0, false) end
+	plan_respawn("cut", "after respawn", function() report_cuts("cut", "after respawn") end)
+end
+
+-- control: the same with ZGO's net_destroy handler skipped (as before 1.8.3); the engine
+-- checks must then see the cut lost, or the respawn checks prove nothing
+function PLANS.respawn_unfixed()
+	plan_cut("cut2", 3, -1.5, false)
+	add(0, "unfix", function() unfixed = true end)
+	plan_respawn("cut2", "unfixed respawn", function()
+		unfixed = false
+		local o = obj("cut2")
+		if not o then return check("control", false, "body not online") end
+		local hidden, attached, ncaps = truth(o)
+		check("control: without the fix the cut is lost", hidden < #CUTS or attached < ncaps,
+			"%d of %d cut bones hidden, %d of %d caps attached (engine)", hidden, #CUTS, attached, ncaps)
+	end)
+end
+
+-- the save loads and the level runs (for bisecting a crash; no Umbra Gore & Effects needed)
+function PLANS.load()
+	add(0, "load", function()
+		check("loaded", true, "level %s, Umbra Gore & Effects %s", level.name(),
+			tostring(select(2, pcall(function() return zgo_main.VERSION end)) or "absent"))
+	end)
+	add(500, "shot load", function() shot("load") end)
+end
+
+------------------------------------------------------------------------ the queue
+
+function tick()
+	keep_alive()
+	if waiting then
+		if not acked() and now() < waiting.give_up then return end
+		if not acked() then log("no answer for shot %s", waiting.n) end
+		waiting = nil
+		wake = math.max(wake, now() + 200)
+	end
+	if #queue == 0 or now() < wake then return end
+	local step = queue[1]
+	if step.cond then
+		step.until_t = step.until_t or (now() + step.timeout)
+		local ok, res = pcall(step.cond)
+		local met = ok and res
+		if not met and now() < step.until_t then return end
+		if step.done then pcall(step.done, met and true or false) end
+		log("%s: %s", step.name, met and "yes" or "timed out")
+	else
+		local ok, err = pcall(step.fn)
+		if not ok then check("step " .. step.name, false, "error: %s", tostring(err)) end
+	end
+	table.remove(queue, 1)
+	if #queue > 0 then wake = now() + queue[1].ms end
+end
+
+-- the game objects within r of o (not o, not the player): what a player sees lying there
+local function nearby(o, r)
+	local out = {}
+	pcall(level.iterate_nearest, o:position(), r, function(x)
+		if x:id() ~= o:id() and x:id() ~= db.actor:id() then
+			out[#out + 1] = string.format("%s(%s)", x:section(), tostring(x:get_visual_name()))
+		end
+	end)
+	return out
+end
+
+local function hooks()
+	-- what the gibs threw (zgo_dismember calls zgo_debris.spawn_gibs through the module table)
+	local debris = rawget(_G, "zgo_debris") or (pcall(function() return zgo_debris.spawn_gibs end) and zgo_debris)
+	if debris then
+		local orig = debris.spawn_gibs
+		debris.spawn_gibs = function(...)
+			local used = orig(...)
+			last_gibs = used
+			log("gibs thrown: %s", type(used) == "table" and table.concat(used, ",") or tostring(used))
+			return used
+		end
+	end
+	local dis = pcall(function() return zgo_dismember.on_net_destroy end) and zgo_dismember
+	if dis and dis.on_net_destroy then
+		local orig_nd = dis.on_net_destroy
+		dis.on_net_destroy = function(o)
+			local oid = o and o:id()
+			local ours = false
+			for _, bid in pairs(bodies) do if bid == oid then ours = true end end
+			if ours then
+				destroyed[oid] = true
+				log("net_destroy of body %s%s", oid, unfixed and " (ZGO's handler skipped: control)" or "")
+				if unfixed then return end
+			end
+			return orig_nd(o)
+		end
+	end
+end
+
+local function quit_step(ms)
+	add(ms or 1000, "quit", function()
+		log("done")
+		exec_console_cmd("quit")
+	end)
+end
+
+------------------------------------------------------------------------ co-op: host
+
+local function host_plan()
+	add_wait(1000, 120000, "listening", function() return XrrNet():IsListening() end, function(ok)
+		check("host listening", ok, "%s", ok and "xrRazom LAN session up" or "no session within 120 s")
+		if ok then log("host listening") end
+	end)
+	add_wait(0, 1200000, "client in", function() return read_app("zgobed_go.txt") ~= nil end, function(ok)
+		check("client joined", ok, "%s", ok and "the client is in the level" or "no client within 20 min")
+	end)
+	add(0, "home", function()
+		local p, h = db.actor:position(), db.actor:direction():getH()
+		log("RELAY home %.3f %.3f %.3f %.4f", p.x, p.y, p.z, h)
+	end)
+	add(15000, "settle", function() end)       -- the client stands next to the host; the sync settles
+	PLANS.start()
+	PLANS.cut()
+	add(0, "relay cut", function() if bodies.cut then log("RELAY cut %d", bodies.cut) end end)
+	PLANS.gib()
+	add(0, "relay gib", function()
+		local o = obj("gib")
+		if o then
+			local near = nearby(o, 6)
+			log("host: %d objects within 6 m of the gibbed body: %s", #near, table.concat(near, " "))
+			log("RELAY gib %d %s", bodies.gib, #gib_bones > 0 and table.concat(gib_bones, ",") or "-")
+		end
+	end)
+	add_wait(0, 300000, "client checked", function() return read_app("zgobed_end.txt") ~= nil end, function(ok)
+		check("client finished", ok, "%s", ok and "the client checked every relayed body" or "no word from the client within 5 min")
+	end)
+	quit_step()
+end
+
+------------------------------------------------------------------------ co-op: client
+
+-- a host id to the client's game object (NPCs and corpses keep host ids on clients)
+local function resolve(id)
+	local ok, o = pcall(zgo_util.resolve, tonumber(id))
+	return ok and o or level.object_by_id(tonumber(id))
+end
+
+local function client_cut(id)
+	local o
+	return {
+		{ ms = 0, name = "client sees cut", timeout = 30000, cond = function() o = resolve(id); return o ~= nil end,
+			done = function(ok)
+				check("client sees the cut body", ok, "host id %s%s", id, ok and (", client id " .. o:id()) or ": not online")
+				if ok then bodies.cut = o:id() end
+			end },
+		{ ms = 4000, name = "client report cut", fn = function()
+			if not bodies.cut then return end
+			face("cut")
+			log("client cut body: %s", describe(obj("cut")))
+			report_cuts("cut", "client cut")
+		end },
+		{ ms = 300, name = "client shot cut", fn = function() shot("client-cut") relayed.cut = true end },
+	}
+end
+
+local function client_gib(id, bones)
+	local o
+	return {
+		{ ms = 0, name = "client sees gib", timeout = 30000, cond = function() o = resolve(id); return o ~= nil end,
+			done = function(ok)
+				check("client sees the gibbed body", ok, "host id %s%s", id, ok and (", client id " .. o:id()) or ": not online")
+				if ok then bodies.gib = o:id() end
+			end },
+		{ ms = 3000, name = "client report gib", fn = function()
+			local g = obj("gib")
+			if not g then relayed.gib = true return end
+			face("gib")
+			log("client gib body: %s", describe(g))
+			local style = zgo_settings.get("dismember/gib_style")
+			local pieces = type(last_gibs) == "table" and #last_gibs or 0
+			check("client gibs are body pieces", style ~= "body" or pieces > 0, "gib style %s, %d body pieces thrown (%s)",
+				tostring(style), pieces, type(last_gibs) == "table" and table.concat(last_gibs, ",") or tostring(last_gibs))
+			local shown_ok, hidden, n = 0, 0, 0
+			local how_all = {}
+			for b in string.gmatch(bones or "", "[%w_]+") do
+				n = n + 1
+				local how = zgo_dismember.shown(g, b)
+				if how ~= nil and how ~= "waiting" then shown_ok = shown_ok + 1 end
+				local okv, vis = pcall(g.bone_visible, g, b)
+				if okv and vis == false then hidden = hidden + 1 end
+				how_all[#how_all + 1] = b .. "=" .. tostring(how)
+			end
+			check("client gib cuts shown", n > 0 and shown_ok == n, "%d of %d shown: %s", shown_ok, n, table.concat(how_all, " "))
+			check("client gib bones hidden on the object", n == 0 or hidden > 0, "%d of %d gibbed bones hidden (engine)", hidden, n)
+			local near = nearby(g, 6)
+			log("client: %d objects within 6 m of the gibbed body: %s", #near, table.concat(near, " "))
+		end },
+		{ ms = 300, name = "client shot gib", fn = function() shot("client-gib") end },
+		{ ms = 2000, name = "client shot gib later", fn = function() shot("client-gib-2s") relayed.gib = true end },
+	}
+end
+
+local function client_home(x, y, z, h)
+	local p = vector():set(tonumber(x), tonumber(y), tonumber(z))
+	-- a step to the host's left, on the level's grid, looking the way the host looks
+	h = tonumber(h)
+	local want = vector():set(p.x - math.cos(h) * 1.5, p.y, p.z + math.sin(h) * 1.5)
+	local lvid = level.vertex_id(want)
+	if lvid and lvid < 4294967295 then want = level.vertex_position(lvid) else want = p end
+	local ok, err = pcall(function() db.actor:set_actor_position(want) end)
+	pcall(function() db.actor:set_actor_direction(-h) end)
+	home = want
+	log("client moved next to the host: %s (host at %s) %s", v(want), v(p), ok and "" or tostring(err))
+end
+
+-- read the host's new relay lines, act on them
+local function relay_tick()
+	local s = read_app("zgobed_relay.txt")
+	if not s or #s <= relay_pos then return end
+	local cut = s:sub(relay_pos + 1)
+	local last = cut:match(".*\n()")
+	if not last then return end
+	relay_pos = relay_pos + last - 1
+	for line in cut:sub(1, last - 1):gmatch("[^\n]+") do
+		log("client got: %s", line)
+		local w = {}
+		for x in line:gmatch("%S+") do w[#w + 1] = x end
+		if w[1] == "home" then
+			client_home(w[2], w[3], w[4], w[5])
+		elseif w[1] == "cut" then
+			insert_front(client_cut(w[2]))
+		elseif w[1] == "gib" then
+			insert_front(client_gib(w[2], w[3]))
+		end
+	end
+end
+
+local function client_plan()
+	log("client in level")
+	add(5000, "settle", function() end)
+	PLANS.start()
+	add_wait(0, 900000, "relayed bodies", function() return relayed.cut and relayed.gib end, function(ok)
+		check("client checked the relayed bodies", ok, "%s", ok and "cut and gib" or
+			string.format("cut %s, gib %s within 15 min", tostring(relayed.cut), tostring(relayed.gib)))
+	end)
+	quit_step()
+end
+
+-- the main menu: join the host once the runner gives the address, start from the faction screen
+local menu = { state = "wait", t = 0 }
+local function menu_tick()
+	if ROLE ~= "client" or level.present() then return end
+	if menu.state == "wait" then
+		local addr = read_app("zgobed_connect.txt")
+		if not (addr and addr:match("%d")) then return end
+		-- what xrRazom's direct-IP box hands XrrNet():Connect (its GetHost() form)
+		local host = addr:gsub("%s", ""):gsub(":", "/port=")
+		local gm = XrrNet()
+		local ok, err = pcall(gm.Connect, gm, host)
+		log("client connects to %s: %s", host, ok and "started" or ("threw " .. tostring(err)))
+		menu.state, menu.t = "connecting", os.time()
+	elseif menu.state == "connecting" then
+		local gm = XrrNet()
+		local err = gm:PendingError()
+		if err and err ~= "" then
+			check("client joined", false, "xrRazom: %s", game.translate_string(err))
+			menu.state = "failed"
+			log("done")
+			exec_console_cmd("quit")
+		elseif os.time() - menu.t > 180 then
+			check("client joined", false, "no faction screen within 180 s (connected %s)", tostring(gm:IsConnected()))
+			menu.state = "failed"
+			log("done")
+			exec_console_cmd("quit")
+		end
+	end
+end
+
+local hooked_menu = false
+local function hook_menu()
+	if hooked_menu or ROLE ~= "client" then return end
+	hooked_menu = true
+	local cls = ui_main_menu.main_menu
+	local orig = cls.Update
+	cls.Update = function(self, ...)
+		orig(self, ...)
+		local ok, err = pcall(menu_tick)
+		if not ok then log("menu step failed: %s", tostring(err)) end
+	end
+	-- the peer's faction screen: press start once it takes input
+	local okc, fcls = pcall(function() return xrr_ui_peer_faction.UIPeerFaction end)
+	if okc and fcls then
+		local orig_f = fcls.Update
+		fcls.Update = function(self, ...)
+			orig_f(self, ...)
+			if menu.state == "connecting" and self.access and not self.submitted then
+				menu.state, menu.t = "faction", os.time()
+				log("client at the faction screen")
+			elseif menu.state == "faction" and os.time() - menu.t >= 2 and self.access and not self.submitted then
+				menu.state = "started"
+				log("client starts")
+				local ok, err = pcall(self.OnStartGame, self)
+				if not ok then log("start failed: %s", tostring(err)) end
+			end
+		end
+	else
+		log("no xrRazom faction screen: %s", tostring(fcls))
+	end
+	log("client waits at the main menu")
+end
+
+------------------------------------------------------------------------ start
+
+local function first_update()
+	if started then return end
+	started = true
+	REQ = app("zgobed_req.txt")
+	ACK = app("zgobed_ack.txt")
+	hooks()
+	local wanted = zz_zgo_gamebed_plan and zz_zgo_gamebed_plan.scenarios or ""
+	log("level %s, role %s, scenarios '%s'", level.name(), ROLE, wanted)
+	add(8000, "settle", function() end)        -- the level's scripts finish their first updates
+	if ROLE == "host" then
+		host_plan()
+	elseif ROLE == "client" then
+		client_plan()
+	else
+		for name in string.gmatch(wanted, "[^,]+") do
+			if PLANS[name] then PLANS[name]() else log("unknown scenario %s", name) end
+		end
+		quit_step()
+	end
+	wake = now() + queue[1].ms
+end
+
+local function read_role()
+	local r = read_app("zgobed_role.txt")
+	ROLE = r and r:match("%a+") or "sp"
+end
+
+-- the main menu is up (modxml_zz_zgobed.script: at the menu no on_game_start has run)
+function on_menu(menu)
+	pcall(read_role)
+	hook_menu()
+end
+
+local function update()
+	tick()
+	if ROLE == "client" and started then relay_tick() end
+end
+
+function on_game_start()
+	read_role()
+	RegisterScriptCallback("actor_on_first_update", first_update)
+	RegisterScriptCallback("actor_on_update", update)
+	if ROLE == "client" then log("client driver loaded") end
+end

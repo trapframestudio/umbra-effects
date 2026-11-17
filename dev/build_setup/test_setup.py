@@ -693,6 +693,242 @@ class _RangeHandler(http.server.SimpleHTTPRequestHandler):
         return f
 
 
+class TestUnused(FakeInstallCase):
+    """A bake that is right but that the game doesn't load: check says so (state 'unused')."""
+
+    def test_unticked(self):
+        self.bake()
+        self.assertEqual(self.check().state, 'ok')
+        fakezgo.set_modlist(self.inst.mo2, 'P', ['-Out', '+Synth Models'])
+        st = self.check()
+        self.assertEqual(st.state, 'unused', st.text())
+        self.assertIn('not ticked', st.advice)
+
+    def test_a_bake_the_game_would_never_load_is_refused(self):
+        """A co-op player baked from the unpacked zip, then installed the zip through MO2: the game
+        read a copy without the bake (no cuts, stumps or body gibs on their side). Setup now refuses
+        such a bake (and download) before it starts."""
+        # run from a copy outside MO2's mods (MOD: this repo), MO2 chosen by hand
+        unpacked = core.Paths(MOD, self.inst.mo2, 'P', self.inst.game, cache=self.inst.cache)
+        bad = core.problems(self.tools, unpacked)
+        self.assertEqual(len(bad), 1, bad)
+        self.assertIn('not installed in MO2', bad[0])
+        self.assertIn('Press "Install into MO2"', bad[0])
+        # before MO2 is chosen, that is what it says first
+        self.assertIn('Choose your Mod Organizer 2 folder above', core.problems(self.tools, core.Paths(MOD))[0])
+        # the installed copy, ticked: ready
+        installed = core.Paths(self.inst.mod, self.inst.mo2, 'P', self.inst.game, cache=self.inst.cache)
+        self.assertEqual(core.problems(self.tools, installed), [])
+        # unticked while MO2 ticks another copy: the bake would land in the copy the game skips
+        new = os.path.join(self.inst.mo2, 'mods', 'Umbra Gore & Effects 1.8.2', 'gamedata', 'scripts')
+        os.makedirs(new)
+        open(os.path.join(new, 'zgo_main.script'), 'w').close()
+        fakezgo.set_modlist(self.inst.mo2, 'P', ['-Out', '+Umbra Gore & Effects 1.8.2', '+Synth Models'])
+        bad = core.problems(self.tools, installed)
+        self.assertEqual(len(bad), 1, bad)
+        self.assertIn('is not the copy MO2 loads in the profile "P": the game loads "Umbra Gore & Effects 1.8.2"', bad[0])
+        # unticked with no other copy: only a warning (the bake is right once it is ticked)
+        fakezgo.set_modlist(self.inst.mo2, 'P', ['-Out', '-Umbra Gore & Effects 1.8.2', '+Synth Models'])
+        self.assertEqual(core.problems(self.tools, installed), [])
+        self.assertTrue(any('not enabled' in w for w in core.warnings(self.tools, installed)))
+
+    # ---- Repair: Umbra Gore & Effects and its bake where the game loads them
+
+    def copy_of_zgo(self, folder, version='1.8.3'):
+        os.makedirs(os.path.join(folder, 'gamedata', 'scripts'), exist_ok=True)
+        with open(os.path.join(folder, 'gamedata', 'scripts', 'zgo_main.script'), 'w') as f:
+            f.write('VERSION = "%s"\n' % version)
+        with open(os.path.join(folder, 'meta.ini'), 'w') as f:
+            f.write('[General]\nversion=%s\n' % version)
+        return folder
+
+    def bake_into(self, folder):
+        self.paths = core.Paths(MOD, self.inst.mo2, 'P', self.inst.game, out=folder, cache=self.inst.cache)
+        self.bake()
+        self.assertTrue(os.path.isfile(os.path.join(folder, 'zgo_bake_report.json')))
+
+    def at(self, folder):
+        return core.Paths(MOD, self.inst.mo2, 'P', self.inst.game, out=folder, cache=self.inst.cache)
+
+    def baked_files(self, folder):
+        return [os.path.join(dp, f) for dp, _, fs in os.walk(folder) for f in fs
+                if f.startswith('zgo_bake') or os.sep + 'zgo' + os.sep in dp + os.sep and 'meshes' in dp]
+
+    def test_repair_installs_a_copy_baked_before_the_mod_was_installed(self):
+        """The co-op player's case: Setup run from the unpacked zip, the bake made there; MO2 had no copy."""
+        unpacked = self.copy_of_zgo(os.path.join(self.tmp, 'Downloads', 'Umbra Gore & Effects'))
+        shutil.rmtree(self.inst.mod)
+        fakezgo.set_modlist(self.inst.mo2, 'P', ['+Synth Models'])
+        self.bake_into(unpacked)
+        fix = core.repair_needed(self.tools, self.at(unpacked))
+        self.assertTrue(any('not installed in MO2' in f for f in fix), fix)
+        with mock.patch.object(core, 'mo2_running', lambda: False):
+            done = core.repair(self.tools, self.at(unpacked), lambda **ev: None)
+        installed = os.path.join(self.inst.mo2, 'mods', 'Umbra Gore & Effects')
+        self.assertEqual((done['installed'], done['moved_from']), (installed, unpacked))
+        self.assertTrue(os.path.isfile(os.path.join(installed, 'gamedata', 'scripts', 'zgo_main.script')))
+        self.assertTrue(os.path.isfile(os.path.join(installed, 'zgo_bake_report.json')))
+        self.assertEqual(self.baked_files(unpacked), [], 'baked files only in the copy the game loads')
+        # set up in MO2: ticked, on top of the load order; the game uses the bake now
+        self.assertEqual(done['tick'], 'added')
+        self.assertEqual(fakezgo_enabled(self.inst.mo2, 'P')[0], 'Umbra Gore & Effects')
+        self.assertEqual(self.check_at(installed).state, 'ok')
+        text = ' '.join(core.repair_text(done, 'P'))
+        self.assertIn('Ticked "Umbra Gore & Effects" in the MO2 profile "P"', text)
+        self.assertEqual(core.repair_needed(self.tools, self.at(installed)), [])
+        self.assertEqual(core.problems(self.tools, core.Paths(installed, self.inst.mo2, 'P', self.inst.game)), [])
+
+    def test_repair_ticks_the_copy_only_while_mo2_is_closed(self):
+        self.copy_of_zgo(self.inst.mod)
+        self.bake_into(self.inst.mod)
+        fakezgo.set_modlist(self.inst.mo2, 'P', ['-Out', '+Synth Models'])
+        fix = core.repair_needed(self.tools, self.at(self.inst.mod))
+        self.assertEqual(fix, ['"Out" is not ticked in the profile "P": tick it.'])
+        modlist = os.path.join(self.inst.mo2, 'profiles', 'P', 'modlist.txt')
+        before = open(modlist, 'rb').read()
+        with mock.patch.object(core, 'mo2_running', lambda: True):
+            done = core.repair(self.tools, self.at(self.inst.mod), lambda **ev: None)
+        self.assertEqual(done['tick'], 'mo2_open')
+        self.assertEqual(open(modlist, 'rb').read(), before, 'MO2 open: its list is left alone')
+        self.assertIn('Close MO2 and press "Repair" again', ' '.join(core.repair_text(done, 'P')))
+        with mock.patch.object(core, 'mo2_running', lambda: False):
+            done = core.repair(self.tools, self.at(self.inst.mod), lambda **ev: None)
+        self.assertEqual(done['tick'], 'ticked')
+        self.assertEqual(fakezgo_enabled(self.inst.mo2, 'P'), ['Out', 'Synth Models'])
+        self.assertEqual(self.check_at(self.inst.mod).state, 'ok')
+        self.assertEqual(core.repair_needed(self.tools, self.at(self.inst.mod)), [])
+        # not ticking on request (the window's "No" with MO2 open)
+        fakezgo.set_modlist(self.inst.mo2, 'P', ['-Out', '+Synth Models'])
+        with mock.patch.object(core, 'mo2_running', lambda: False):
+            done = core.repair(self.tools, self.at(self.inst.mod), lambda **ev: None, tick=False)
+        self.assertEqual(done['tick'], 'skipped')
+        self.assertEqual(fakezgo_enabled(self.inst.mo2, 'P'), ['Synth Models'])
+
+    def check_at(self, folder):
+        return core.check(self.tools, self.at(folder))
+
+    def test_repair_moves_a_bake_from_the_unpacked_copy_into_the_installed_one(self):
+        unpacked = self.copy_of_zgo(os.path.join(self.tmp, 'Downloads', 'Umbra Gore & Effects'))
+        self.copy_of_zgo(self.inst.mod)                         # installed, ticked, no bake
+        self.bake_into(unpacked)
+        self.assertIn('the game loads "Out"', core.problems(self.tools, core.Paths(unpacked, self.inst.mo2, 'P',
+                                                                                   self.inst.game))[0])
+        done = core.repair(self.tools, self.at(unpacked), lambda **ev: None)
+        self.assertIsNone(done['installed'])
+        self.assertEqual(done['moved_from'], unpacked)
+        self.assertEqual(self.check_at(self.inst.mod).state, 'ok')
+        self.assertEqual(self.baked_files(unpacked), [])
+        self.assertIn('run Umbra Effects Setup from', ' '.join(core.repair_text(done, 'P')))
+
+    def test_repair_keeps_a_bake_made_for_another_version(self):
+        """An update half-way: the new zip unpacked and baked, the old version still installed."""
+        unpacked = self.copy_of_zgo(os.path.join(self.tmp, 'Downloads', 'Umbra Gore & Effects'), '1.8.3')
+        self.copy_of_zgo(self.inst.mod, '1.8.2')
+        self.bake_into(unpacked)
+        bad = core.problems(self.tools, core.Paths(unpacked, self.inst.mo2, 'P', self.inst.game))
+        self.assertIn('version 1.8.3', bad[0])
+        self.assertIn('Replace', bad[0])
+        done = core.repair(self.tools, self.at(unpacked), lambda **ev: None)
+        self.assertEqual(done['kept'], [unpacked])
+        self.assertTrue(os.path.isfile(os.path.join(unpacked, 'zgo_bake_report.json')))
+        self.assertFalse(os.path.isfile(os.path.join(self.inst.mod, 'zgo_bake_report.json')))
+
+    def test_repair_removes_bakes_nobody_loads(self):
+        self.copy_of_zgo(self.inst.mod)
+        self.bake_into(self.inst.mod)                           # the loaded copy's bake fits
+        old = self.copy_of_zgo(os.path.join(self.inst.mo2, 'mods', 'Umbra Gore & Effects 1.8.1'))
+        self.bake_into(old)                                     # an unticked copy kept around
+        left = os.path.join(self.inst.mod, '.zgo-prebaked', 'gamedata')
+        os.makedirs(left)
+        fix = core.repair_needed(self.tools, self.at(self.inst.mod))
+        self.assertTrue(any('"Umbra Gore & Effects 1.8.1" holds a bake the game never loads' in f for f in fix), fix)
+        self.assertTrue(any('.zgo-prebaked' in f for f in fix), fix)
+        done = core.repair(self.tools, self.at(self.inst.mod), lambda **ev: None)
+        self.assertEqual(done['removed'], [old])
+        self.assertIsNone(done['moved_from'])
+        self.assertFalse(os.path.isfile(os.path.join(old, 'zgo_bake_report.json')))
+        self.assertEqual(self.baked_files(old), [])
+        self.assertFalse(os.path.exists(os.path.join(self.inst.mod, '.zgo-prebaked')))
+        self.assertEqual(self.check_at(self.inst.mod).state, 'ok')
+        self.assertEqual(core.repair_needed(self.tools, self.at(self.inst.mod)), [])
+
+    def test_tick_in_profile(self):
+        d = os.path.join(self.inst.mo2, 'profiles', 'T')
+        os.makedirs(d)
+        path = os.path.join(d, 'modlist.txt')
+        with open(path, 'wb') as f:
+            f.write(b'# This file was automatically generated by Mod Organizer.\r\n+xrRazom Co-op\r\n-Old\r\n'
+                    b'+Models\r\n+Base_separator\r\n')
+        self.assertEqual(core.tick_in_profile(self.inst.mo2, 'T', 'Umbra Gore & Effects'), 'added')
+        self.assertEqual(open(path, 'rb').read(), b'# This file was automatically generated by Mod Organizer.\r\n'
+                         b'+xrRazom Co-op\r\n+Umbra Gore & Effects\r\n-Old\r\n+Models\r\n+Base_separator\r\n',
+                         'under xrRazom (its fomod asks for the top), above everything else; CRLF kept')
+        self.assertTrue(os.path.isfile(path + '.zgo-bak'))
+        self.assertEqual(core.tick_in_profile(self.inst.mo2, 'T', 'Old'), 'ticked')
+        self.assertIn(b'\r\n+Old\r\n+Models', open(path, 'rb').read(), 'ticked where it was')
+        self.assertEqual(core.tick_in_profile(self.inst.mo2, 'T', 'Old'), 'already')
+        with open(path, 'wb') as f:
+            f.write(b'+Models\n')
+        core.tick_in_profile(self.inst.mo2, 'T', 'Umbra Gore & Effects')
+        self.assertEqual(open(path, 'rb').read(), b'+Umbra Gore & Effects\n+Models\n')
+
+    def test_setup_program_in(self):
+        self.assertEqual(core.setup_program_in(MOD), [sys.executable, os.path.join(MOD, 'tools', 'zgo_setup', 'zgo_setup.py')])
+        self.assertIsNone(core.setup_program_in(self.tmp))
+
+    def test_repair_through_the_worker(self):
+        unpacked = self.copy_of_zgo(os.path.join(self.tmp, 'Downloads', 'Umbra Gore & Effects'))
+        self.copy_of_zgo(self.inst.mod)
+        self.bake_into(unpacked)
+        self.paths = self.at(unpacked)
+        with mock.patch.object(core, 'mo2_running', lambda: False):
+            code, ev = self.worker('repair')
+        self.assertEqual(code, 0, ev[-1])
+        self.assertTrue(ev[-1]['ok'])
+        self.assertIn('Moved the bake', ev[-1]['msg'])
+        self.assertEqual(self.check_at(self.inst.mod).state, 'ok')
+
+    def test_outside_mo2(self):
+        self.bake()
+        elsewhere = os.path.join(self.tmp, 'Umbra Gore & Effects')
+        shutil.copytree(self.inst.mod, elsewhere)
+        self.paths = core.Paths(MOD, self.inst.mo2, 'P', self.inst.game, out=elsewhere, cache=self.inst.cache)
+        st = self.check()
+        self.assertEqual(st.state, 'unused', st.text())
+        self.assertIn("not one of MO2's mods", st.advice)
+
+    def test_baked_models_off_in_mcm(self):
+        self.bake()
+        cfg = os.path.join(self.inst.mo2, 'overwrite', 'gamedata', 'configs')
+        os.makedirs(cfg)
+        with open(os.path.join(cfg, 'axr_options.ltx'), 'w') as f:
+            f.write('[mcm]\n        zgo/dismember/baked_models               = false\n')
+        st = self.check()
+        self.assertEqual(st.state, 'unused', st.text())
+        self.assertIn('Use baked models', st.advice)
+        with open(os.path.join(cfg, 'axr_options.ltx'), 'w') as f:
+            f.write('[mcm]\n        zgo/dismember/baked_models               = true\n')
+        self.assertEqual(self.check().state, 'ok')
+
+    def test_a_cut_off_downloads_folder_is_named_and_cleared(self):
+        self.bake()
+        left = os.path.join(self.inst.mod, '.zgo-prebaked', 'gamedata', 'meshes')
+        os.makedirs(left)
+        st = self.check()
+        self.assertTrue(any('.zgo-prebaked' in r for r in st.reasons), st.text())
+        self.bake()
+        self.assertFalse(os.path.exists(os.path.join(self.inst.mod, '.zgo-prebaked')))
+
+    def test_pack_alone_has_its_own_bar(self):
+        self.assertEqual(core.overall_fraction('pack', 'pack', 0, 10, False), 0.0)
+        self.assertEqual(core.overall_fraction('pack', 'pack', 10, 10, False), 1.0)
+
+
+def fakezgo_enabled(mo2, profile):
+    import resolve
+    return resolve.enabled_mods(mo2, profile)
+
+
 class TestPacking(FakeInstallCase):
     """Bakes made before 1.8.2 left their small parts (~80,000 files for G.A.M.M.A.) loose, and the
     game reads every loose file through MO2 at each start: Bake packs them into archives without
@@ -733,6 +969,29 @@ class TestPacking(FakeInstallCase):
         self.assertEqual(bake.output_files(rep2), sorted(rep['files']))
         st = self.check()
         self.assertEqual((st.state, st.loose), ('ok', 0), st.text())
+
+    def test_a_loose_bake_with_other_settings_is_baked_again(self):
+        """Bake with settings that differ from the loose bake's: a new bake, not just a pack."""
+        rep = self.loose_bake()
+        self.assertTrue(rep['options'].get('gibs'))
+        code, ev = self.worker(choices=core.Choices(jobs=2, props=False, gibs=False, download=False))
+        self.assertEqual(code, 0, ev[-1])
+        self.assertFalse(ev[-1]['summary'].get('packed_only'), ev[-1])
+        rep2 = bake.read_report(self.inst.mod)
+        self.assertFalse(rep2['options'].get('gibs'))
+        self.assertFalse(bake.loose_files(rep2))
+
+    def test_a_damaged_archive_is_found(self):
+        self.bake()
+        rep = bake.read_report(self.inst.mod)
+        self.assertEqual(set(rep['archive_bytes']), set(rep['packed']))
+        a = sorted(rep['packed'])[0]
+        with open(os.path.join(self.inst.mod, *a.split('/')), 'r+b') as f:
+            f.truncate(100)
+        st = self.check()
+        self.assertEqual(st.state, 'broken', st.text())
+        self.assertIn('damaged', st.headline)
+        self.assertIn(a, st.details)
 
     def test_a_stale_loose_bake_is_baked_again_packed(self):
         self.loose_bake()
@@ -811,13 +1070,21 @@ class TestPrebaked(FakeInstallCase):
         self.assertEqual((st.state, st.loose), ('ok', 0), st.text())
 
     def test_downloads_when_it_fits(self):
+        import zipfile
+        self.assertEqual(self.man['format'], 2, 'a 1.8.2 bake goes up with its parts in archives')
+        v = os.path.join(self.bucket, *self.man['volumes'][0]['path'].split('/'))
+        with zipfile.ZipFile(v) as z:
+            self.assertEqual({i.compress_type for i in z.infolist()}, {zipfile.ZIP_LZMA})
         code, ev, logs, tasks = self.run_bake()
         self.assertEqual(code, 0, ev[-1])
         s = ev[-1]['summary']
         self.assertTrue(s.get('prebaked'), logs)
+        self.assertIn('its small parts already in archives', logs)
         self.assertEqual((s['baked'], s['download']), (4, sum(v['size'] for v in self.man['volumes'])))
         self.assertNotIn('models', tasks, 'nothing was baked here')
         self.assertIn('download', tasks)
+        self.assertNotIn('pack', {e.get('stage') for e in ev if e['t'] == 'progress'}, 'nothing to pack here')
+        self.assertFalse(bake.loose_files(bake.read_report(self.b.mod)))
         st = self.check()
         self.assertEqual(st.state, 'ok', st.text())
         rep_a, rep_b = bake.read_report(self.a.mod), bake.read_report(self.b.mod)
@@ -850,6 +1117,78 @@ class TestPrebaked(FakeInstallCase):
         self.assertIn('already in place', logs)
         self.assertEqual(ev[-1]['summary']['download'], 0)
 
+    def test_takes_the_packed_bake_of_a_fingerprint(self):
+        """The bucket has the same bake loose (format 1, listed first for older Setups) and
+        packed (format 2): this Setup takes the packed one."""
+        a = core.Paths(MOD, self.a.mo2, 'P', self.a.game, out=self.a.mod, cache=self.a.cache)
+        o = core.bake_options(self.tools, a, self.choices)
+        o.pack = False
+        bake.bake(o)
+        loose_man, loose = fakezgo.publish_bake(self.a.mod, self.bucket, self.a.mo2, self.a.game,
+                                                [self.a.cache, TMP_CACHE], 'P', 'Out', index=False)
+        self.assertEqual((loose_man['format'], loose['fingerprint']), (1, self.entry['fingerprint']))
+        fakezgo.write_index(self.bucket, [loose, self.entry])
+        code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertTrue(ev[-1]['summary'].get('prebaked'), logs)
+        self.assertEqual(ev[-1]['summary']['download'], sum(v['size'] for v in self.man['volumes']))
+        self.assertIn('already in archives', logs)
+        self.assertNotIn('pack', {e.get('stage') for e in ev if e['t'] == 'progress'})
+        self.assertEqual(self.check().state, 'ok')
+
+    def test_an_up_to_date_bake_of_the_same_mod_list_downloads_nothing(self):
+        o = core.bake_options(self.tools, self.paths, self.choices)
+        bake.bake(o)                                    # B bakes for itself: the same fingerprint
+        self.assertEqual(bake.read_report(self.b.mod)['inputs']['fingerprint'], self.man['fingerprint'])
+        code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertTrue('nothing to download' in logs or 'already in place' in logs, logs)
+        self.assertNotIn('downloading', logs)
+        self.assertEqual(ev[-1]['summary']['download'], 0)
+
+    def test_an_install_that_fails_half_way_is_baked_over(self):
+        """A file move fails (a virus scanner on Windows): the folder lists what came, so the
+        bake that follows replaces it instead of refusing."""
+        import prebaked as pb
+        real, n = pb.move, [0]
+
+        def flaky(src, dst):
+            if dst.startswith(self.b.mod + os.sep):      # (moving into the Umbra Effects folder)
+                n[0] += 1
+                if n[0] == 3:
+                    raise PermissionError(13, 'in use')
+            return real(src, dst)
+        with mock.patch.object(pb, 'move', flaky):
+            code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertIn('could not be used', logs)
+        self.assertIn('models', tasks, 'baked here instead')
+        self.assertEqual(self.check().state, 'ok', self.check().text())
+
+    def test_a_complete_part_file_is_checked_not_fetched(self):
+        v = self.man['volumes'][0]
+        part = os.path.join(self.b.cache, 'prebaked', self.man['fingerprint'], os.path.basename(v['path']) + '.part')
+        os.makedirs(os.path.dirname(part))
+        shutil.copyfile(os.path.join(self.bucket, *v['path'].split('/')), part)
+        code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertTrue(ev[-1]['summary'].get('prebaked'), logs)
+
+    def test_an_unreadable_manifest_is_skipped(self):
+        """A newer bake whose manifest is damaged doesn't stop the download of the next one."""
+        fp, sha = 'f' * 32, 'e' * 64
+        d = os.path.join(self.bucket, 'umbra-effects', fp)
+        os.makedirs(d)
+        with open(os.path.join(d, sha + '.json'), 'wb') as f:
+            f.write(b'{"not": "it"}')
+        bad = dict(self.entry, path='umbra-effects/%s/%s.json' % (fp, sha), sha256=sha, size=13, fingerprint=fp,
+                   made='2999-01-01 00:00:00')
+        fakezgo.write_index(self.bucket, [bad, self.entry])
+        code, ev, logs, tasks = self.run_bake()
+        self.assertEqual(code, 0, ev[-1])
+        self.assertIn('made 2999-01-01 00:00:00 cannot be read', logs)
+        self.assertTrue(ev[-1]['summary'].get('prebaked'), logs)
+
     def test_bakes_when_it_does_not_fit(self):
         fakezgo.write_model(self.b.mo2, 'New Models', 'actors\\synth\\synth_c')
         fakezgo.set_modlist(self.b.mo2, 'P', ['+Out', '+New Models', '+Synth Models'])
@@ -861,6 +1200,10 @@ class TestPrebaked(FakeInstallCase):
         self.assertIn('models', tasks)
         self.assertEqual(ev[-1]['summary']['baked'], 5)
         self.assertEqual(self.check().state, 'ok')
+        # the report it compared is not left in the Umbra Effects folder (1.8.3 named that folder a
+        # cut-off download after every such bake)
+        self.assertFalse(os.path.exists(os.path.join(self.b.mod, '.zgo-prebaked')))
+        self.assertFalse(any('.zgo-prebaked' in r for r in self.check().reasons))
 
     def test_bakes_with_other_settings(self):
         code, ev, logs, tasks = self.run_bake(choices=core.Choices(jobs=2, props=False, gibs=False))
@@ -936,6 +1279,21 @@ class TestPrebaked(FakeInstallCase):
 
 
 class TestPrebakedParts(unittest.TestCase):
+
+    def test_adopt_dates_records_the_archive_sizes(self):
+        """A packed bake from Umbra's build records no archive sizes: putting it in place
+        records them, so check() finds an archive cut short later."""
+        import prebaked as pb
+        d = tempfile.mkdtemp(prefix='zgo_adopt_')
+        self.addCleanup(shutil.rmtree, d, True)
+        os.makedirs(os.path.join(d, 'db', 'mods'))
+        with open(os.path.join(d, 'db', 'mods', 'zgo_bake_caps_00.db0'), 'wb') as f:
+            f.write(b'x' * 1234)
+        with open(os.path.join(d, bake.REPORT), 'w') as f:
+            json.dump({'packed': {'db/mods/zgo_bake_caps_00.db0': ['a'], 'db/mods/zgo_bake_gone_00.db0': ['b']},
+                       'results': []}, f)
+        pb.adopt_dates(d, bake.REPORT, None, lambda g: {})
+        self.assertEqual(bake.read_report(d)['archive_bytes'], {'db/mods/zgo_bake_caps_00.db0': 1234})
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix='zgo_prebaked_test_')
         import prebaked
@@ -992,6 +1350,103 @@ class TestPrebakedParts(unittest.TestCase):
                     dict(man, report=dict(vol, sha256='e' * 64)), dict(man, format=2)):
             with self.assertRaises(pb.Unavailable):
                 pb.read_manifest(json.dumps(bad).encode(), e)
+
+    def test_candidates(self):
+        pb = self.pb
+        def e(fp, made, fmt=None, baker=3):
+            x = {'fingerprint': fp * 32, 'made': made, 'baker': baker, 'path': fp + str(fmt)}
+            if fmt is not None:
+                x['format'] = fmt
+            return x
+        old_loose, new_loose, new_packed = e('a', '2026-01-01'), e('b', '2026-02-01', 1), e('b', '2026-02-01', 2)
+        other = e('c', '2026-03-01', baker=4)
+        # the list's order (format 1 first) doesn't matter: newest first, packed preferred
+        self.assertEqual(pb.candidates([old_loose, new_loose, other, new_packed], 3), [new_packed, old_loose])
+        self.assertEqual(pb.candidates([new_packed, new_loose], 3), [new_packed])
+        self.assertEqual(pb.candidates([old_loose, new_loose], 3, n=1), [new_loose])
+        self.assertEqual(pb.candidates([other], 3), [])
+        # a format this Setup doesn't know is left out of the list; a bool is no format
+        sha = 'b' * 64
+        ok = {'path': 'umbra-effects/%s/%s.json' % ('a' * 32, sha), 'sha256': sha, 'size': 10,
+              'fingerprint': 'a' * 32, 'baker': 3}
+        idx = {'format': 1, 'kind': 'umbra-effects-bakes',
+               'bakes': [dict(ok, format=3), dict(ok, format=True), dict(ok, format=2), ok]}
+        self.assertEqual(pb.read_index(json.dumps(idx).encode()), [dict(ok, format=2), ok])
+
+    def _object(self, data, name='v.zip'):
+        import hashlib
+        src = os.path.join(self.tmp, 'src')
+        sha = hashlib.sha256(data).hexdigest()
+        rel = 'umbra-effects/%s/%s.zip' % ('a' * 32, sha)
+        os.makedirs(os.path.join(src, os.path.dirname(rel)), exist_ok=True)
+        with open(os.path.join(src, *rel.split('/')), 'wb') as f:
+            f.write(data)
+        return src, {'path': rel, 'sha256': sha, 'size': len(data)}
+
+    def test_download_checks_as_it_arrives(self):
+        pb = self.pb
+        data = os.urandom(3 << 20)
+        src, obj = self._object(data)
+        dest = os.path.join(self.tmp, 'cache', 'v.zip')
+        os.makedirs(os.path.dirname(dest))
+        with open(dest + '.part', 'wb') as f:          # an earlier try's part: resumed, not fetched again
+            f.write(data[:1 << 20])
+        got = []
+        with mock.patch.object(pb, 'sha256_file', side_effect=AssertionError('read again')):
+            pb.download(src, obj, dest, got.append)
+        with open(dest, 'rb') as f:
+            self.assertEqual(f.read(), data)
+        self.assertEqual(sum(got), len(data))
+        os.remove(dest)
+        with open(dest + '.part', 'wb') as f:          # a damaged part: fetched again
+            f.write(b'X' * (1 << 20))
+        got = []
+        pb.download(src, obj, dest, got.append)
+        with open(dest, 'rb') as f:
+            self.assertEqual(f.read(), data)
+        self.assertEqual(sum(got), len(data), 'counted once')
+        os.remove(dest)
+        bad = dict(obj, sha256='0' * 64)               # damaged at the source: refused after a second try
+        with self.assertRaises(pb.Unavailable):
+            pb.download(src, bad, dest)
+        self.assertFalse(os.path.exists(dest + '.part'))
+        self.assertFalse(os.path.exists(dest))
+
+    def test_fetch_and_unpack(self):
+        import io
+        import zipfile
+        pb = self.pb
+
+        def vol(names):
+            b = io.BytesIO()
+            with zipfile.ZipFile(b, 'w', zipfile.ZIP_LZMA) as z:
+                for n in names:
+                    z.writestr(n, n.encode() * 1000)
+            return b.getvalue()
+        src = os.path.join(self.tmp, 'src')
+        objs = []
+        for k in range(5):
+            s, o = self._object(vol(['gamedata/meshes/zgo/baked/v%d_%d.ogf' % (k, i) for i in range(7)]))
+            objs.append(o)
+        cache, out = os.path.join(self.tmp, 'cache'), os.path.join(self.tmp, 'out')
+        got, files = [], []
+        paths, names = pb.fetch_and_unpack(self.tools, src, objs, cache, out, got.append,
+                                           lambda i, rel: files.append(i))
+        self.assertEqual(names, ['gamedata/meshes/zgo/baked/v%d_%d.ogf' % (k, i) for k in range(5) for i in range(7)])
+        self.assertEqual(sum(got), sum(o['size'] for o in objs))
+        self.assertEqual(sorted(files), list(range(1, 36)))
+        for n in names:
+            with open(os.path.join(out, *n.split('/')), 'rb') as f:
+                self.assertEqual(f.read(), n.encode() * 1000)
+        self.assertTrue(all(os.path.isfile(p) for p in paths))
+        # one volume with a file a bake never writes: refused, the rest stopped
+        _, bad = self._object(vol(['gamedata/scripts/evil.script']))
+        with self.assertRaises(pb.Unavailable):
+            pb.fetch_and_unpack(self.tools, src, objs[:2] + [bad] + objs[2:], os.path.join(self.tmp, 'c2'),
+                                os.path.join(self.tmp, 'o2'))
+        with self.assertRaises(pb.Cancelled):
+            pb.fetch_and_unpack(self.tools, src, objs, os.path.join(self.tmp, 'c3'), os.path.join(self.tmp, 'o3'),
+                                stop=lambda: True)
 
     def test_ssl_context(self):
         import ssl
@@ -1298,6 +1753,12 @@ class EndToEnd(unittest.TestCase):
     def cmd(self, *args):
         prog = self.PROGRAM or [sys.executable, os.path.join(self.inst.mod, 'tools', 'zgo_setup', 'zgo_setup.py')]
         return run(prog + list(args), env=self.env)
+
+    def test_adopt_dates(self):
+        prog = self.PROGRAM or [sys.executable, os.path.join(self.inst.mod, 'tools', 'zgo_setup', 'zgo_setup.py')]
+        code, out = run(prog + ['--adopt-dates', '--yes'], env=self.env)
+        self.assertEqual(code, 1, out)
+        self.assertIn('RESULT adopted=0', out)
 
     def test_a_loose_bake_and_pack(self):
         """--check says pack=needed for a bake made before 1.8.2; --pack packs it. (Runs before

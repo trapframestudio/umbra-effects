@@ -26,6 +26,49 @@ that has no GUI code (`setup_core.py`), plus a command line on the same layer.
   any failure, it bakes here. `--no-download` / the "Download a ready-made bake" box
   turn it off; `ZGO_PREBAKED_SOURCE` points it at another bucket URL or folder (`off`
   disables it; the tests use a local folder and a local HTTP server).
+- **Packed ready-made bakes (1.8.3).** A manifest of format 2 holds the bake as it is
+  installed since 1.8.2: the small parts already inside `db/mods/zgo_bake_*.db0`, in
+  LZMA zip volumes (G.A.M.M.A.: 4,941 files, 3.5 GB to download, against 83,789 files and
+  4.7 GB for format 1). The index lists a fingerprint's format-1 entry first, since Setup
+  1.8.1/1.8.2 stop at a format they can't read; 1.8.3 takes the format-2 entry of a
+  fingerprint first (`prebaked.candidates`). Volumes download three at a time, are hashed
+  as they arrive, and each is unpacked as soon as it is in (two at a time), so the download
+  and the unpacking overlap. A volume that arrives damaged is fetched once more.
+- **Putting it in** writes an `installing` report listing the files first, so a move that
+  fails half-way (a virus scanner holding a file) leaves a bake that **Bake** replaces and
+  **Remove bake** removes. Bake, Pack and Remove delete a `.zgo-prebaked` folder a hard
+  kill left in the Umbra Effects folder, and old job folders in the temp folder go after
+  two days. An installed bake that already matches the fingerprint and the ticks is not
+  downloaded again. `--adopt-dates --yes` records this machine's dates in a bake another
+  program put in place (Umbra's installer, after its own download).
+- **`unused` (1.8.3).** A bake that checks out but that the game won't load: the folder
+  isn't `<MO2>/mods/<name>` (compared by real path), the mod is unticked in the profile, or
+  the MCM key `zgo/dismember/baked_models` is `false` in the `axr_options.ltx` the game
+  reads (overwrite, then the enabled mods by priority). The window shows it in orange and
+  `--check` exits 1.
+- **Only into the copy the game loads; Repair (1.8.3).** `loaded_copy()` is the copy of ZGO
+  the game loads: the highest-priority ticked copy in `<MO2>/mods` (a copy: `zgo_main.script`
+  or a bake report in it), else this copy when it is in `mods`, else the one copy there is;
+  `None` when MO2 has none. `install_problems()` (part of `problems()`, so it gates Bake,
+  the download, `--bake` and the worker) refuses a bake unless Setup's own copy is that one:
+  started from the unpacked zip before the zip was installed through MO2, a bake used to land
+  where the game never reads it (no cuts, stumps or body gibs; in co-op only on that player's
+  screen). `repair_needed()` lists what `repair()` fixes, cheaply (no check); `repair()`
+  (worker action `repair`, `--repair`, the **Repair** button) installs this copy into
+  `<MO2>/mods/Umbra Gore & Effects` when MO2 has none (the bake files moved, the rest copied),
+  moves the first stray bake that `check()`s as fitting into the loaded copy when that has
+  none that fits (reports first, files, then the source reports, so a cut-off move leaves a
+  bake Bake replaces), removes the other stray bakes (unticked copies, the unpacked copy), and
+  clears `.zgo-prebaked`, then ticks the loaded copy in the profile when it isn't
+  (`tick_in_profile()`: `-name` flipped where it is, a new line on top under xrRazom, whose fomod
+  asks for the highest priority; the old list kept as `modlist.txt.zgo-bak`) unless
+  `mo2_running()` (tasklist on Windows; `/proc`, or `Z:\proc` under Wine, as Umbra's installer
+  does): MO2 rewrites `modlist.txt` from memory when it closes. The window asks to close MO2
+  first, labels the button "Install into MO2" when that is the fix, and afterwards offers to
+  start Setup from the installed copy (`open_setup_in()`). A bake is moved only between copies
+  of the same `zgo_version()`; a
+  newer unpacked copy keeps its bake until its zip is installed. A bake into another folder on
+  purpose (`out` other than the copy itself: the tests, the self-test) is not checked.
 - **Options** as checkboxes with an explanation beside each: caps (250 MB),
   pieces (3.2 GB), wound sites, breakable props; the three experimental parts
   are folded away under "Show the experimental parts", are off, and ask for
@@ -302,8 +345,12 @@ BAKED MODELS (optional, recommended)
   (lower in the list wins), or the game shows their unbaked models; ZGO Setup
   names such mods. MCM -> Dismemberment -> Use baked models turns the bake off
   without deleting it.
-  Co-op: every player bakes for their own mod list; a player without a bake
-  just sees fewer cuts on corpses.
+  Co-op: every player bakes for their own mod list. A client without a bake
+  in use (none, "Use baked models" off, or another mod's model wins) sees
+  almost none of a baked host's cuts: they arrive once the host's ragdoll
+  exists, and an un-baked ragdoll keeps the part on screen. Its gibs are meat
+  models. The client's log says why, once per cut, and the co-op handshake
+  tells both players.
   Cost: about 4.5 times as many sub-meshes per NPC (draw calls; roughly 15
   extra per stalker), and distant NPCs lose the models' built-in level of
   detail. In testing there was no noticeable FPS loss in a crowded base.

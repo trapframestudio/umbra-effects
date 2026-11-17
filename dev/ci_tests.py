@@ -16,6 +16,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUITES = ["tests/baker/test_geometry.py", "tests/baker/test_bake.py", "tests/baker/test_xdb_write.py",
+          "tests/package/test_static_archive.py",
           "dev/build_setup/test_setup.py",
           "tests/kidfx/test_particles_xr.py"]
 STALE = {

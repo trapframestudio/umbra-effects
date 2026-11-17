@@ -19,5 +19,15 @@ for b in 0 1; do
 		done
 	done
 done
+# co-op with a baked host and a client without a bake in use (sets ZGO_BAKED per role itself)
+for s in $seeds; do
+	runs=$((runs+1))
+	out=$(luajit zgo_test_mp_mixed.lua "$s" 2>&1 | tail -1)
+	case "$out" in *PASSED*) ;; *) fails=$((fails+1)); echo "FAIL seed=$s mp-mixed: $out";; esac
+done
+# a cut body offline and back (every role, baked and not; sets ZGO_BAKED itself)
+runs=$((runs+1))
+out=$(luajit zgo_test_respawn.lua 2>&1 | tail -1)
+case "$out" in *PASSED*) ;; *) fails=$((fails+1)); echo "FAIL respawn: $out";; esac
 echo "$runs runs, $fails failures"
 [ "$fails" -eq 0 ]

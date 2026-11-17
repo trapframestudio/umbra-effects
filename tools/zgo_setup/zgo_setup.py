@@ -15,7 +15,12 @@ Without a window (any of these):
   --bake       bake in this terminal (a ready-made bake is downloaded instead when one fits;
                --no-download: always bake here)          --props   cut the props only
   --remove     remove the bake                --selftest  check that this program works
+  --repair     put Umbra Gore & Effects and its bake where the game loads them: install this copy
+               into MO2 when MO2 has none, move a bake made in the wrong copy (say, the unpacked zip,
+               before the mod was installed) into the copy the game loads, remove bakes nobody loads
   --pack       pack a bake's loose small parts into archives (bakes made before 1.8.2; Bake does it too)
+  --adopt-dates  record this machine's file dates in a bake another program put in place (Umbra Setup,
+               after its own download of the ready-made bake); prints "RESULT adopted=<n>"
   --kid-particles-apply    kid mode for particles on (gory effects use Umbra Effects' particle shaders)
   --kid-particles-revert   undo: every particle effect back to the game's own shaders
   --list-prebaked   list Umbra's ready-made bakes (from the internet; nothing is downloaded)
@@ -115,12 +120,17 @@ def parse(argv):
     g.add_argument('--bake', action='store_true', help='bake without the window')
     g.add_argument('--props', action='store_true', help='cut the props only')
     g.add_argument('--remove', action='store_true', help='remove the bake')
+    g.add_argument('--repair', action='store_true',
+                   help='install this copy into MO2 if it has none; move a bake in the wrong copy into the copy the '
+                        'game loads; remove bakes nobody loads')
     g.add_argument('--pack', action='store_true',
                    help="pack a bake's loose small parts into archives (bakes made before 1.8.2)")
     g.add_argument('--kid-particles-apply', action='store_true',
                    help="kid mode for particles on: gory effects use Umbra Effects' particle shaders (no bake)")
     g.add_argument('--kid-particles-revert', action='store_true',
                    help="undo kid mode for particles: every effect back to the game's own particle shaders")
+    g.add_argument('--adopt-dates', action='store_true',
+                   help="record this machine's file dates in a ready-made bake another program put in place")
     g.add_argument('--selftest', action='store_true', help='check that this program works')
     g.add_argument('--list-prebaked', action='store_true',
                    help="list Umbra's ready-made bakes (from the internet; nothing is downloaded)")
@@ -210,14 +220,20 @@ def cli(a, mod_root, say):
     paths = _paths(core, tools, a)
     say('MO2: %s | profile: %s | game: %s | output: %s' % (paths.mo2, paths.profile, paths.game, paths.out))
     kid_action = a.kid_particles_apply or a.kid_particles_revert
-    # removing and kid mode on / off need only the ZGO folder
-    bad = core.problems(tools, paths) if not (a.remove or kid_action) else []
+    # removing and kid mode on / off need only the ZGO folder; repair fixes where it is
+    bad = core.problems(tools, paths, install=not a.repair) if not (a.remove or kid_action) else []
     if bad:
         for b in bad:
             say('Problem:', b)
         return 2
     for w in core.warnings(tools, paths):
         say('Warning:', w)
+    fix = core.repair_needed(tools, paths)
+    if a.repair and not fix:
+        say('Nothing to repair: Umbra Gore & Effects and its bake are where the game loads them.')
+        return 0
+    for f in fix:
+        say(('To repair: ' if a.repair else 'Repair (--repair) would fix: ') + f)
     choices = _choices(core, tools, a, paths)
     if a.plan or a.bake:
         p = core.plan(tools, paths, choices)
@@ -264,8 +280,20 @@ def cli(a, mod_root, say):
         say('RESULT match=%s fingerprint=%s' % ('yes' if fits else 'no',
                                                 (rep.get('inputs') or {}).get('fingerprint') or '-'))
         return 0 if fits else 1
+    if a.adopt_dates:
+        rep = tools.bake.read_report(paths.out)
+        if rep is None:
+            say('Umbra Effects Setup: no bake in %s' % paths.out)
+            say('RESULT adopted=0')
+            return 1
+        import prebaked as pb
+        pb.adopt_dates(paths.out, tools.bake.REPORT, paths.game, tools.bake.archives_info)
+        n = sum(1 for r in rep.get('results', []) if r.get('src') and r.get('src_mtime') is not None)
+        say("Recorded this machine's file dates in the bake (%d models)." % n)
+        say('RESULT adopted=%d' % n)
+        return 0
     action = ('bake' if a.bake else 'props' if a.props else 'kidfx_apply' if a.kid_particles_apply else
-              'kidfx_revert' if a.kid_particles_revert else 'pack' if a.pack else 'remove')
+              'kidfx_revert' if a.kid_particles_revert else 'pack' if a.pack else 'repair' if a.repair else 'remove')
     if kid_action and core.kidfx_for(tools, paths) is None:
         say('Umbra Effects Setup:', core.kidfx_unavailable(tools, paths))
         return 2
@@ -274,6 +302,7 @@ def cli(a, mod_root, say):
             'mode then cannot hide blood and gore particles already flying; --kid-particles-apply turns it back on.')
     if not a.yes and sys.stdin is not None and sys.stdin.isatty():
         ans = input('%s now? [y/N] ' % {'bake': 'Bake', 'props': 'Cut the props', 'remove': 'Remove the bake',
+                                        'repair': 'Repair',
                                         'pack': 'Pack the bake into archives',
                                         'kidfx_apply': 'Turn kid mode for particles on',
                                         'kidfx_revert': "Use the game's own particle shaders"}[action])
@@ -305,7 +334,8 @@ def cli(a, mod_root, say):
         say('Cancelling...')
         job.cancel()
         res = job.wait(on_event=show)
-    say(res.get('msg', ''))
+    for line in res.get('lines') or [res.get('msg', '')]:
+        say(line)
     if res.get('trace') and not res.get('ok'):
         say(res['trace'])
     return 0 if res.get('ok') else (3 if res.get('cancelled') else 2)
@@ -391,13 +421,20 @@ def selftest(a, mod_root, say):
 
     def t_download():
         # the ready-made bake's download, without the network: HTTPS and the
-        # system's certificates load, and the zips open
+        # system's certificates load, and the zips open (a packed bake's are LZMA)
+        import io
         import prebaked as pb
         import urllib.request
-        import zipfile  # noqa: F401
+        import zipfile
         urllib.request.build_opener(urllib.request.HTTPSHandler(context=pb.ssl_context()))
+        b = io.BytesIO()
+        with zipfile.ZipFile(b, 'w', zipfile.ZIP_LZMA) as z:
+            z.writestr('x', b'umbra' * 100)
+        with zipfile.ZipFile(b) as z:
+            if z.read('x') != b'umbra' * 100:
+                raise RuntimeError('an LZMA zip does not read back')
         import ssl
-        return ssl.OPENSSL_VERSION
+        return '%s, LZMA zips' % ssl.OPENSSL_VERSION
     step('download', t_download)
 
     def t_pool():
@@ -524,7 +561,7 @@ def main(argv=None):
     if a.list_prebaked:
         return list_prebaked(say)
     if a.check or a.match or a.plan or a.bake or a.props or a.remove or a.pack or a.kid_particles_apply or \
-            a.kid_particles_revert:
+            a.kid_particles_revert or a.adopt_dates:
         if not mod_root:
             say('Umbra Effects Setup: run it from the Umbra Gore & Effects folder (tools/zgo_setup), or pass --mod DIR.')
             return 2

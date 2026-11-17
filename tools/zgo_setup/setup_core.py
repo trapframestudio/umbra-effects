@@ -20,6 +20,7 @@ the baker itself needs numpy.
 import errno
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,8 @@ STAGE_TEXT = {'prepare': 'Getting ready', 'unpack': "Reading the game's own mode
 # a ready-made bake (task 'download'): each stage's share of the models' part of the bar
 DOWNLOAD_SHARE = {'match': (0.0, 0.05), 'download': (0.05, 0.8), 'place': (0.8, 0.88), 'install': (0.88, 0.9),
                   'pack': (0.9, 1.0)}
+# check() states where the bake's files are right ('unused': but the game doesn't load them)
+FINE = ('ok', 'order', 'unused')
 # a bake made before 1.8.2 left its small parts loose: what the check says about that
 LOOSE_TEXT = ('The bake is stored as %s loose files, and the game reads every one of them through MO2 each time it '
               'starts: that is slow. Press "Bake" to pack them into a few archives (a minute or two; nothing is baked '
@@ -230,17 +233,448 @@ def detect(tools):
     return Paths(tools.mod, mo2, profile, game)
 
 
-def problems(tools, paths):
-    """What stops a bake, in plain words ([] = ready)."""
+INSTALLED_NAME = 'Umbra Gore & Effects'     # the folder name the README asks for in MO2
+LEFTOVERS = ('.zgo-prebaked',)              # a download's unpacking folder, cut off by a hard kill
+
+
+def _in_mods(mo2, folder):
+    """folder is one of MO2's mods (<MO2>/mods/<name>)."""
+    return bool(mo2) and _same_dir(os.path.dirname(os.path.normpath(folder)), os.path.join(mo2, 'mods'))
+
+
+def _is_zgo_copy(tools, folder):
+    """A copy of Umbra Gore & Effects: its main script, or a bake of ours in it."""
+    return os.path.isfile(os.path.join(folder, *ZGO_MAIN)) or os.path.isfile(os.path.join(folder, tools.bake.REPORT))
+
+
+def zgo_copies(tools, paths):
+    """Every copy of Umbra Gore & Effects in MO2's mods folder, ticked or not (names, sorted).
+    The 1.4 bake folder is not one."""
+    mods = os.path.join(paths.mo2 or '', 'mods')
+    try:
+        names = sorted(os.listdir(mods), key=str.lower)
+    except OSError:
+        return []
+    return [n for n in names if n != tools.bake.OLD_OUT_NAME and _is_zgo_copy(tools, os.path.join(mods, n))]
+
+
+def loaded_copy(tools, paths, this=None):
+    """The copy of Umbra Gore & Effects the game loads, where a bake has to go: the ticked copy
+    MO2 gives the highest priority; with none ticked, this copy when it is in MO2's mods (it only
+    needs ticking), else the one copy there is. None: MO2 has no copy (not installed)."""
+    if not looks_like_mo2(paths.mo2):
+        return None
+    mods = os.path.join(paths.mo2, 'mods')
+    this = this or zgo_folder(tools, paths)
+    copies = zgo_copies(tools, paths)
+    try:
+        enabled = tools.resolve.enabled_mods(paths.mo2, paths.profile) if paths.profile else []
+    except OSError:
+        enabled = []
+    ticked = [m for m in enabled if m in copies]
+    if ticked:
+        return os.path.join(mods, ticked[0])
+    if _in_mods(paths.mo2, this):
+        return os.path.normpath(this)
+    if copies:
+        return os.path.join(mods, INSTALLED_NAME if INSTALLED_NAME in copies else copies[0])
+    return None
+
+
+def install_problems(tools, paths):
+    """A bake has to go into the copy of Umbra Gore & Effects the game loads: the one in MO2's
+    mods folder that the profile ticks. Made before the mod was installed in MO2 (Setup run from
+    the unpacked zip, the zip installed through MO2 after), or into one copy while MO2 ticks
+    another, it lands where the game never looks, and the game shows no cuts, no stumps and no
+    body gibs (in co-op too: a client sees the host's cuts only with its own bake). Setup bakes
+    only into the copy it was started from, so it has to be that one; "Repair" fixes the rest.
+    [] when it is, or when the bake goes into another folder on purpose (the tests', the self-test's)."""
+    this = zgo_folder(tools, paths)
+    if not _same_dir(this, paths.mod) or not looks_like_mo2(paths.mo2):
+        return []
+    loaded = loaded_copy(tools, paths)
+    if loaded is None:
+        return ['This copy of Umbra Gore & Effects (%s) is not installed in MO2, so the game would never see a bake '
+                'made here. Press "Install into MO2": Setup copies it into MO2\'s mods folder, ticks it in the profile '
+                '"%s" and opens Setup from there to bake.' % (this, paths.profile)]
+    if not _same_dir(loaded, this):
+        how = ('is not installed in MO2' if not _in_mods(paths.mo2, this)
+               else 'is not the copy MO2 loads in the profile "%s"' % paths.profile)
+        mine, theirs = tools.bake.zgo_version(this), tools.bake.zgo_version(loaded)
+        if mine != theirs:
+            return ['This copy of Umbra Gore & Effects (%s, version %s) %s: the game loads "%s" (version %s), so it '
+                    'would never see a bake made here. To update, install this version\'s zip through MO2 ("Install a '
+                    'mod from archive", Replace "%s"), then press "Repair" here to move this copy\'s bake (if it has '
+                    'one) into it; else run Umbra Effects Setup from "%s" (tools\\zgo_setup in that folder).'
+                    % (this, mine, how, os.path.basename(loaded), theirs, os.path.basename(loaded),
+                       os.path.basename(loaded))]
+        then = ('Press "Repair" to move its bake into "%s", then run Umbra Effects Setup from there'
+                % os.path.basename(loaded) if _has_bake(tools, this) else 'Run Umbra Effects Setup from there instead')
+        return ['This copy of Umbra Gore & Effects (%s) %s: the game loads "%s", so it would never see a bake made '
+                'here. %s (tools\\zgo_setup in that folder).' % (this, how, os.path.basename(loaded), then)]
+    return []
+
+
+def _bake_files(tools, folder):
+    """Every file a bake of ours wrote into folder (body and props), relative paths, the reports last."""
+    out = list(tools.bake.previous_files(folder))
+    reports = [tools.bake.REPORT] if os.path.isfile(os.path.join(folder, tools.bake.REPORT)) else []
+    if tools.fracture is not None:
+        out += list(tools.fracture.previous_files(folder))
+        if os.path.isfile(os.path.join(folder, tools.fracture.REPORT)):
+            reports.append(tools.fracture.REPORT)
+    return [r for r in out if os.path.isfile(os.path.join(folder, *r.split('/')))] + reports
+
+
+def _has_bake(tools, folder):
+    return os.path.isfile(os.path.join(folder, tools.bake.REPORT)) or (
+        tools.fracture is not None and os.path.isfile(os.path.join(folder, tools.fracture.REPORT)))
+
+
+def mo2_running():
+    """Is Mod Organizer 2 open? It rewrites the profile's modlist.txt from memory when it closes,
+    so a tick written while it runs is lost. (Umbra's installer asks the same way.)"""
+    try:
+        if os.name == 'nt':
+            out = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq ModOrganizer.exe', '/NH'], capture_output=True,
+                                 text=True, timeout=20, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            if 'modorganizer.exe' in (out.stdout or '').lower():
+                return True
+        # Linux, and under Wine (Z:\proc): MO2 in any Wine prefix or Proton. Only MO2's own process
+        # (Wine names it after the exe), not one that carries its command line (a launcher).
+        proc = '/proc' if os.name != 'nt' else ('Z:\\proc' if under_wine() else None)
+        if proc and os.path.isdir(proc):
+            for pid in os.listdir(proc):
+                if not pid.isdigit():
+                    continue
+                try:
+                    with open(os.path.join(proc, pid, 'comm'), 'rb') as f:
+                        comm = f.read().strip().lower()
+                    with open(os.path.join(proc, pid, 'cmdline'), 'rb') as f:
+                        a0 = f.read().split(b'\0', 1)[0]
+                except OSError:
+                    continue
+                a0 = a0.decode('utf-8', 'replace').replace('\\', '/').rsplit('/', 1)[-1].lower()
+                if comm.startswith(b'modorganizer') or a0 == 'modorganizer.exe':
+                    return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+# mods whose own instructions ask for the highest priority (xrRazom's fomod): a new line goes under them
+TOP_MODS = ('xrrazom',)
+
+
+def tick_in_profile(mo2, profile, name):
+    """Tick the mod name in the profile's modlist.txt (MO2 must be closed): '-name' becomes
+    '+name' where it is; a name MO2 hasn't listed yet goes on top (the highest priority, so its
+    baked models win), under xrRazom. Line endings and everything else stay; the old list is
+    kept as modlist.txt.zgo-bak. Returns 'ticked', 'added' or 'already'."""
+    path = os.path.join(mo2, 'profiles', profile, 'modlist.txt')
+    with open(path, 'rb') as f:
+        data = f.read()
+    bom = data.startswith(b'\xef\xbb\xbf')
+    text = data.decode('utf-8-sig')
+    nl = '\r\n' if '\r\n' in text else '\n'
+    lines = text.splitlines()
+    how = None
+    for i, line in enumerate(lines):
+        if line[:1] in '+-' and line[1:] == name:
+            if line[0] == '+':
+                return 'already'
+            lines[i], how = '+' + name, 'ticked'
+            break
+    if how is None:
+        at = 0
+        while at < len(lines) and (not lines[at] or lines[at].startswith('#')):
+            at += 1
+        while at < len(lines) and lines[at][:1] in '+-' and lines[at][1:].lower().startswith(TOP_MODS):
+            at += 1
+        lines.insert(at, '+' + name)
+        how = 'added'
+    shutil.copyfile(path, path + '.zgo-bak')
+    with open(path + '.tmp', 'wb') as f:
+        f.write((b'\xef\xbb\xbf' if bom else b'') + (nl.join(lines) + nl).encode('utf-8'))
+    os.replace(path + '.tmp', path)
+    return how
+
+
+def _ticked(tools, paths, folder):
+    try:
+        return os.path.basename(os.path.normpath(folder)) in tools.resolve.enabled_mods(paths.mo2, paths.profile)
+    except OSError:
+        return False
+
+
+def repair_needed(tools, paths, this=None):
+    """What "Repair" would fix, in plain words ([] = nothing). Quick: no bake is checked here."""
+    if not looks_like_mo2(paths.mo2) or not paths.profile or paths.profile not in profiles(paths.mo2):
+        return []
+    this = os.path.normpath(this or zgo_folder(tools, paths))
+    loaded = loaded_copy(tools, paths, this)
+    out = []
+    if loaded is None:
+        out.append('Umbra Gore & Effects is not installed in MO2: install this copy as "%s" and tick it in the '
+                   'profile "%s".' % (INSTALLED_NAME, paths.profile))
+    elif not _ticked(tools, paths, loaded):
+        out.append('"%s" is not ticked in the profile "%s": tick it.' % (os.path.basename(loaded), paths.profile))
+    elif not _same_dir(loaded, this) and _has_bake(tools, this) and \
+            tools.bake.zgo_version(this) == tools.bake.zgo_version(loaded):
+        out.append('The bake in this copy (%s) is not where the game looks: move it into "%s" (or remove it if it no '
+                   'longer fits your mod list).' % (this, os.path.basename(loaded)))
+    mods = os.path.join(paths.mo2, 'mods')
+    for name in zgo_copies(tools, paths):
+        d = os.path.join(mods, name)
+        if loaded and _same_dir(d, loaded) or _same_dir(d, this):
+            continue
+        if _has_bake(tools, d):
+            out.append('"%s" holds a bake the game never loads (it loads "%s"): %s it.' % (
+                name, os.path.basename(loaded) if loaded else INSTALLED_NAME,
+                'move it into the copy the game loads, or remove' if loaded else 'remove'))
+    for d in ([loaded] if loaded else []) + ([this] if not loaded or not _same_dir(loaded, this) else []):
+        for left in LEFTOVERS:
+            if os.path.isdir(os.path.join(d, left)):
+                out.append('A download cut off half-way left %s: clear it.' % os.path.join(d, left))
+    return out
+
+
+def _move_file(src, dst):
+    """Rename; across drives (the unpacked zip in Downloads, MO2 on another drive), copy then delete."""
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    import prebaked as pb
+    try:
+        pb.move(src, dst)
+    except OSError:
+        if not os.path.isfile(src):
+            raise
+        shutil.copyfile(src, dst + '.part')
+        os.replace(dst + '.part', dst)
+        os.remove(src)
+
+
+def _prune(root, rels):
+    """Remove the folders moving rels out of root left empty."""
+    for d in sorted({os.path.dirname(os.path.join(root, *r.split('/'))) for r in rels}, key=len, reverse=True):
+        while _same_dir(os.path.commonpath([d, root]), root) and not _same_dir(d, root):
+            try:
+                os.rmdir(d)
+            except OSError:
+                break
+            d = os.path.dirname(d)
+
+
+def _move_bake(tools, src, dst, emit):
+    """The bake in src into dst (whatever bake dst had goes first). The reports go before the
+    files and leave src last, so a move cut off half-way leaves a bake that "Bake" replaces and
+    "Remove bake" removes on either side, not files nobody knows about."""
+    rels = _bake_files(tools, src)
+    if _has_bake(tools, dst):
+        tools.bake.remove(dst)
+        if tools.fracture is not None:
+            tools.fracture.remove(dst)
+    reports = [r for r in rels if r in (tools.bake.REPORT, getattr(tools.fracture, 'REPORT', None))]
+    for r in reports:
+        shutil.copyfile(os.path.join(src, r), os.path.join(dst, r))
+    files = [r for r in rels if r not in reports]
+    for i, rel in enumerate(files):
+        _move_file(os.path.join(src, *rel.split('/')), os.path.join(dst, *rel.split('/')))
+        if (i + 1) % 2000 == 0:
+            emit(t='log', msg='  %d / %d files moved' % (i + 1, len(files)))
+    for r in reports:
+        os.remove(os.path.join(src, r))
+    _prune(src, files)
+    return len(files)
+
+
+def _remove_bake(tools, folder):
+    n = tools.bake.remove(folder) if os.path.isfile(os.path.join(folder, tools.bake.REPORT)) else 0
+    if tools.fracture is not None and os.path.isfile(os.path.join(folder, tools.fracture.REPORT)):
+        n += tools.fracture.remove(folder)
+    return n
+
+
+def _fits(tools, paths, folder, cancel=None):
+    """The bake in folder fits the mod list as it is now (it would be used as it is)."""
+    if not os.path.isfile(os.path.join(folder, tools.bake.REPORT)):
+        return False
+    p = Paths(paths.mod, paths.mo2, paths.profile, paths.game, out=folder, cache=paths.cache)
+    try:
+        return check(tools, p, cancel=cancel).state in FINE
+    except Cancelled:
+        raise
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def repair(tools, paths, emit, stop=None, this=None, tick=True):
+    """Put Umbra Gore & Effects and its bake where the game loads them: install this copy into
+    MO2 when MO2 has none; move the bake that fits the mod list into the copy the game loads (a
+    bake made before the mod was installed, or in another copy); remove the bakes nobody loads;
+    clear what a cut-off download left. Baked files end up only in the copy the game loads.
+    Returns a summary dict."""
+    stop = stop or (lambda: False)
+    if not looks_like_mo2(paths.mo2) or not paths.profile or paths.profile not in profiles(paths.mo2):
+        raise SetupError('Choose MO2\'s folder and the profile you play with first: Repair needs them to know which '
+                         'copy of Umbra Gore & Effects the game loads.')
+    this = os.path.normpath(this or zgo_folder(tools, paths))
+    mods = os.path.join(paths.mo2, 'mods')
+    done = {'installed': None, 'moved_from': None, 'moved': 0, 'removed': [], 'kept': [], 'cleared': [],
+            'loaded': None, 'this_is_loaded': False, 'tick': None}
+    loaded = loaded_copy(tools, paths, this)
+    if loaded is None:
+        loaded = os.path.join(mods, INSTALLED_NAME)
+        emit(t='log', msg='Installing this copy of Umbra Gore & Effects into MO2: %s' % loaded)
+        skip = set(_bake_files(tools, this))
+
+        def ignore(d, names):
+            rel = os.path.relpath(d, this).replace(os.sep, '/')
+            rel = '' if rel == '.' else rel + '/'
+            return [n for n in names if (rel + n) in skip or (not rel and n in LEFTOVERS)]
+        shutil.copytree(this, loaded, ignore=ignore, dirs_exist_ok=True)
+        done['installed'] = loaded
+    done['loaded'] = loaded
+    # the bakes the game never loads: this copy's (when it is not the loaded one), the other copies'
+    strays = []
+    if not _same_dir(this, loaded) and _has_bake(tools, this):
+        if tools.bake.zgo_version(this) == tools.bake.zgo_version(loaded):
+            strays.append(this)
+        else:
+            # (an update half-way: the new version's zip is not installed yet; its bake stays for then)
+            emit(t='log', msg='Kept the bake in %s: it is for Umbra Effects %s, the game loads %s. Install this version '
+                              'through MO2, then Repair again.' % (this, tools.bake.zgo_version(this),
+                                                                  tools.bake.zgo_version(loaded)))
+            done['kept'].append(this)
+    for name in zgo_copies(tools, paths):
+        d = os.path.join(mods, name)
+        if not (_same_dir(d, loaded) or _same_dir(d, this)) and _has_bake(tools, d):
+            strays.append(d)
+    good = False
+    if strays:
+        emit(t='log', msg='Checking the bakes against your mod list...')
+        good = _fits(tools, paths, loaded, cancel=stop)
+        for d in strays:
+            if stop():
+                raise Cancelled()
+            # (a bake is only moved between copies of the same version)
+            if not good and tools.bake.zgo_version(d) == tools.bake.zgo_version(loaded) and \
+                    _fits(tools, paths, d, cancel=stop):
+                emit(t='log', msg='Moving the bake in %s into %s' % (d, loaded))
+                done['moved'] = _move_bake(tools, d, loaded, emit)
+                done['moved_from'] = d
+                good = True
+            else:
+                why = ('the game loads a bake that fits already' if good else
+                       'it is for Umbra Effects %s, the game loads %s' % (tools.bake.zgo_version(d),
+                                                                          tools.bake.zgo_version(loaded))
+                       if tools.bake.zgo_version(d) != tools.bake.zgo_version(loaded) else
+                       'it no longer fits your mod list')
+                emit(t='log', msg='Removing the bake in %s (%s)' % (d, why))
+                _remove_bake(tools, d)
+                done['removed'].append(d)
+    for d in {os.path.normcase(loaded): loaded, os.path.normcase(this): this}.values():
+        for left in LEFTOVERS:
+            p = os.path.join(d, left)
+            if os.path.isdir(p):
+                shutil.rmtree(p, ignore_errors=True)
+                done['cleared'].append(p)
+    # set up in MO2: the copy the game is to load, ticked in the profile (only with MO2 closed)
+    if not _ticked(tools, paths, loaded):
+        if not tick:
+            done['tick'] = 'skipped'
+        elif mo2_running():
+            done['tick'] = 'mo2_open'
+            emit(t='log', level='warn', msg='Mod Organizer 2 is open, so "%s" was not ticked: MO2 rewrites its mod list '
+                                            'when it closes.' % os.path.basename(loaded))
+        else:
+            done['tick'] = tick_in_profile(paths.mo2, paths.profile, os.path.basename(loaded))
+            emit(t='log', msg='Ticked "%s" in the MO2 profile "%s" (%s).' % (
+                os.path.basename(loaded), paths.profile,
+                'put on top of the load order, so its baked models win' if done['tick'] == 'added' else 'where it was'))
+    done['this_is_loaded'] = _same_dir(this, loaded)
+    done['good'] = good if strays else _has_bake(tools, loaded)
+    return done
+
+
+def repair_text(done, profile):
+    """What Repair did and what is left to do, for the player."""
+    lines = []
+    if done.get('installed'):
+        lines.append('Installed Umbra Gore & Effects into MO2: %s.' % done['installed'])
+    if done.get('moved_from'):
+        lines.append('Moved the bake (%s files) from %s into %s.' % ('{:,}'.format(done['moved']), done['moved_from'],
+                                                                      done['loaded']))
+    for d in done.get('removed', []):
+        lines.append('Removed the bake in %s, which the game never loaded.' % d)
+    for p in done.get('cleared', []):
+        lines.append('Cleared %s.' % p)
+    for d in done.get('kept', []):
+        lines.append('Kept the bake in %s: it is for another version of Umbra Effects than the one the game loads. '
+                     'Install this version through MO2, then press "Repair" again.' % d)
+    name = os.path.basename(done['loaded']) if done.get('loaded') else INSTALLED_NAME
+    if done.get('tick') in ('ticked', 'added'):
+        lines.append('Ticked "%s" in the MO2 profile "%s".' % (name, profile))
+    if not lines:
+        lines.append('Nothing needed repairing.')
+    if done.get('removed') and not done.get('moved_from') and not done.get('good'):
+        lines.append('Bake again (or download the ready-made bake) for the copy the game loads.')
+    if done.get('tick') == 'mo2_open':
+        lines.append('Mod Organizer 2 is open, so "%s" is not ticked yet (MO2 rewrites its mod list when it closes). '
+                     'Close MO2 and press "Repair" again, or tick it in MO2 yourself (press F5 first if it isn\'t '
+                     'listed).' % name)
+    elif done.get('tick') == 'skipped':
+        lines.append('Tick "%s" in the MO2 profile "%s" (press F5 in MO2 first if it isn\'t listed).' % (name, profile))
+    if not done.get('this_is_loaded'):
+        lines.append('From now on run Umbra Effects Setup from tools\\zgo_setup in "%s": that is the copy the game '
+                     'loads.' % done.get('loaded'))
+    return lines
+
+
+def setup_program_in(folder):
+    """The command that starts Umbra Effects Setup from folder's tools/zgo_setup: the same kind of
+    program as this one (the ready-made program, or zgo_setup.py with this Python). None when
+    that copy has none."""
+    d = os.path.join(folder, 'tools', 'zgo_setup')
+    if getattr(sys, 'frozen', False):
+        exe = os.path.join(d, os.path.basename(sys.executable))
+        return [exe] if os.path.isfile(exe) else None
+    script = os.path.join(d, 'zgo_setup.py')
+    return [sys.executable, script] if os.path.isfile(script) else None
+
+
+def open_setup_in(folder):
+    """Start Umbra Effects Setup from folder (detached: this one closes after)."""
+    cmd = setup_program_in(folder)
+    if cmd is None:
+        raise SetupError('%s has no Umbra Effects Setup (tools\\zgo_setup).' % folder)
+    kw = {'cwd': os.path.dirname(cmd[-1]), 'close_fds': True}
+    if os.name == 'nt':
+        kw['creationflags'] = getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+    else:
+        kw['start_new_session'] = True
+    subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+
+
+def problems(tools, paths, install=True):
+    """What stops a bake, in plain words ([] = ready). install=False: leave out where this copy
+    is (for Repair, which fixes that)."""
     out = []
     if not looks_like_mo2(paths.mo2):
-        out.append("Mod Organizer 2's folder is not set. Choose the folder that holds MO2's \"mods\" and \"profiles\" "
-                   "folders (normally the one Umbra Effects is installed in, two levels above the Umbra Effects folder).")
+        zgo = zgo_folder(tools, paths)
+        if _same_dir(zgo, paths.mod) and os.path.basename(os.path.dirname(os.path.normpath(zgo))).lower() != 'mods':
+            # most likely the unpacked zip, before it was installed through MO2
+            out.append('This copy of Umbra Gore & Effects (%s) is not installed in MO2, so the game would never see a '
+                       'bake made here. Choose your Mod Organizer 2 folder above, then press "Install into MO2".' % zgo)
+        else:
+            out.append("Mod Organizer 2's folder is not set. Choose the folder that holds MO2's \"mods\" and \"profiles\" "
+                       "folders (normally the one Umbra Effects is installed in, two levels above the Umbra Effects folder).")
     elif not paths.profile or paths.profile not in profiles(paths.mo2):
         out.append('Choose the MO2 profile you play with (for G.A.M.M.A. it is usually "G.A.M.M.A").')
     if not looks_like_game(paths.game):
         out.append('The game folder is not set. Choose the Anomaly folder: the one that holds the "db" and "bin" '
                    'folders (the MO2 setting "Game folder" shows it).')
+    if not out and install:
+        out += install_problems(tools, paths)
     return out
 
 
@@ -256,6 +690,57 @@ def other_zgo_copies(tools, paths):
         return []
     own = os.path.basename(zgo_folder(tools, paths))
     return [m for m in tools.bake.other_zgo_mods(paths.mo2, paths.profile, tools.mod) if m != own]
+
+
+def mcm_value(paths, key):
+    """An MCM setting as the game reads it (gamedata/configs/axr_options.ltx through MO2: the
+    overwrite folder, then the enabled mods, highest priority first; the first file found is
+    the one it reads), as text; None when it is not set there (the default)."""
+    if not paths.mo2:
+        return None
+    try:
+        import resolve
+        roots = [os.path.join(paths.mo2, 'overwrite')] + [os.path.join(paths.mo2, 'mods', m)
+                                                          for m in resolve.enabled_mods(paths.mo2, paths.profile)]
+    except (ImportError, OSError):
+        return None
+    for root in roots:
+        f = os.path.join(root, 'gamedata', 'configs', 'axr_options.ltx')
+        try:
+            with open(f, 'rb') as fh:
+                text = fh.read().decode('utf-8', 'replace')
+        except OSError:
+            continue
+        m = re.search(r'^\s*%s\s*=\s*([^\s;]+)' % re.escape(key), text, re.M)
+        return m.group(1) if m else None
+    return None
+
+
+def unused_reasons(tools, paths):
+    """Why the game would not use a bake that is otherwise right: [text] (none: it does)."""
+    out = []
+    if not paths.mo2:
+        return out
+    zgo = zgo_folder(tools, paths)
+    mods = os.path.join(paths.mo2, 'mods')
+    name = os.path.basename(os.path.normpath(zgo))
+    same = os.path.normcase(os.path.realpath(os.path.dirname(os.path.normpath(zgo)))) == \
+        os.path.normcase(os.path.realpath(mods))
+    if not same:
+        out.append('The bake is in %s, which is not one of MO2\'s mods (%s), so the game never sees it. Run Umbra '
+                   'Effects Setup from the Umbra Gore & Effects folder inside MO2\'s mods folder.' % (zgo, mods))
+    else:
+        try:
+            enabled = tools.resolve.enabled_mods(paths.mo2, paths.profile)
+        except OSError:
+            enabled = None
+        if enabled is not None and name not in enabled:
+            out.append('"%s" is not ticked in the MO2 profile "%s", so the game doesn\'t load it or its bake. Tick it '
+                       'in MO2\'s left pane.' % (name, paths.profile))
+    if str(mcm_value(paths, 'zgo/dismember/baked_models')).lower() == 'false':
+        out.append('The game\'s option "Use baked models" (MCM, Umbra Gore & Effects, Dismemberment) is off, so the game '
+                   'ignores the bake. Turn it on there.')
+    return out
 
 
 def warnings(tools, paths):
@@ -762,6 +1247,14 @@ PREBAKE_SETTINGS = (('caps', 'Stump caps'), ('pieces', 'Limb pieces'), ('wounds'
                     ('experimental_props', 'Game breaks crates and stools itself (experimental)'))
 
 
+def body_settings_differ(rep, want):
+    """The body-model settings (not the props') a bake report was made with, against the
+    chosen ones: [(label, on in the bake)] that differ."""
+    got = Choices.from_dict(rep.get('options') or {})        # (a report without 'gibs' had them)
+    return [(label, getattr(got, k)) for k, label in PREBAKE_SETTINGS
+            if k != 'experimental_props' and bool(getattr(got, k)) != bool(getattr(want, k))]
+
+
 def check(tools, paths, progress=None, cancel=None, deep=False, report=None, prebaked=False, props_report=None,
           choices=None):
     """Compare the last bake's recorded inputs with the mod list now.
@@ -805,6 +1298,17 @@ def check(tools, paths, progress=None, cancel=None, deep=False, report=None, pre
         st.headline = '%d of the %d baked files are missing (for example %s).' % (len(missing), len(files), missing[0])
         st.advice = 'Press "Bake" to bake again.'
         st.details = missing[:200]
+        return st
+    # an archive cut short (a copy that stopped, a full disk) crashes the game at its start
+    cut = [a for a, n in sorted((rep.get('archive_bytes') or {}).items()) if not prebaked and isinstance(n, int)
+           and os.path.isfile(os.path.join(paths.out, *a.split('/')))
+           and os.path.getsize(os.path.join(paths.out, *a.split('/'))) != n]
+    if cut:
+        st.state = 'broken'
+        st.headline = '%d of the bake\'s archives %s damaged (for example %s): the game would not start.' % (
+            len(cut), 'is' if len(cut) == 1 else 'are', cut[0])
+        st.advice = 'Press "Bake" to bake again.'
+        st.details = cut
         return st
     inputs = rep.get('inputs') or {}
     rep_version = rep.get('version', 1)
@@ -945,8 +1449,21 @@ def check(tools, paths, progress=None, cancel=None, deep=False, report=None, pre
             st.advice = line
         else:
             st.reasons.append(line)
+    if not prebaked and st.state in ('ok', 'order'):
+        why = unused_reasons(tools, paths)
+        if why:
+            st.state = 'unused'
+            st.headline = "The bake is up to date, but the game doesn't use it."
+            st.advice = ' '.join(why)
+    if not prebaked and os.path.isdir(os.path.join(paths.out, '.zgo-prebaked')):
+        st.reasons.append('A download that was cut off left a temporary folder (.zgo-prebaked) in the Umbra Effects '
+                          'folder; the game reads every file in it through MO2 at each start. "Bake" or "Remove bake" '
+                          'deletes it.')
     if not reasons and hasattr(b, 'loose_files'):
-        st.loose = len(b.loose_files(rep))
+        loose = b.loose_files(rep)
+        if packing:         # (a pack that stopped while deleting them: the ones still there)
+            loose = [f for f in loose if os.path.isfile(os.path.join(paths.out, *f.split('/')))]
+        st.loose = len(loose) or (1 if packing else 0)
     if st.loose:
         st.headline += ' It needs packing, though.'
         st.advice = LOOSE_TEXT % '{:,}'.format(st.loose) + ((' ' + st.advice) if st.advice else '')
@@ -1051,6 +1568,8 @@ def overall_fraction(task, stage, done, total, with_props, with_particles=False)
         return share * (lo + (hi - lo) * f)
     if task == 'particles':
         return end + tail * f
+    if task == 'pack':                                  # packing alone: the models' whole part
+        return share * f
     if task == 'props':
         return min(end, share + (end - share) * f)      # (min: no float drift past the next part)
     order = list(STAGE_WEIGHT)
@@ -1073,12 +1592,15 @@ class Job:
         job.cancel()           # asks the worker to stop (before it installs)
         job.result             # the final event: {'ok': bool, 'msg': ..., ...}
     """
-    ACTIONS = ('bake', 'remove', 'props', 'pack', 'kidfx_apply', 'kidfx_revert')
+    ACTIONS = ('bake', 'remove', 'props', 'pack', 'kidfx_apply', 'kidfx_revert', 'repair')
 
-    def __init__(self, tools, action, paths, choices, workdir=None, command=None):
+    def __init__(self, tools, action, paths, choices, workdir=None, command=None, extra=None):
         if action not in self.ACTIONS:
             raise ValueError(action)
         self.tools, self.action, self.paths, self.choices = tools, action, paths, choices
+        self.extra = dict(extra or {})        # more for the worker (repair: tick=False)
+        if workdir is None:
+            _drop_old_jobs()
         self.dir = workdir or tempfile.mkdtemp(prefix='zgo_setup_')
         self.status_path = os.path.join(self.dir, 'status.jsonl')
         self.cancel_path = os.path.join(self.dir, 'cancel')
@@ -1095,6 +1617,7 @@ class Job:
     def start(self):
         job = {'action': self.action, 'paths': self.paths.as_dict(), 'choices': self.choices.as_dict(),
                'status': self.status_path, 'cancel': self.cancel_path}
+        job.update(self.extra)
         with open(self.job_path, 'w') as f:
             json.dump(job, f)
         open(self.status_path, 'wb').close()
@@ -1186,6 +1709,23 @@ class Job:
             pass
 
 
+def _drop_old_jobs(days=2):
+    """Delete the temporary folders of jobs older than days (each job leaves its status file)."""
+    base = tempfile.gettempdir()
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return
+    old = time.time() - days * 86400
+    for n in names:
+        p = os.path.join(base, n)
+        try:
+            if n.startswith('zgo_setup_') and os.path.isdir(p) and os.path.getmtime(p) < old:
+                shutil.rmtree(p, ignore_errors=True)
+        except OSError:
+            pass
+
+
 class _Writer:
     def __init__(self, path):
         self.f = open(path, 'a', encoding='utf-8')
@@ -1227,6 +1767,14 @@ def _work(job, emit):
         emit(t='log', msg=' / '.join(environment_lines(tools)))
         if job['action'] in ('kidfx_apply', 'kidfx_revert'):
             return _work_kidfx(job['action'], tools, paths, emit, t0)
+        if job['action'] in ('bake', 'pack', 'remove'):
+            # (a download cut off by a hard kill: thousands of loose files MO2 would index)
+            shutil.rmtree(os.path.join(paths.out, '.zgo-prebaked'), ignore_errors=True)
+        if job['action'] == 'repair':
+            done = repair(tools, paths, emit, tick=job.get('tick', True))   # (quick; not cut off half-way)
+            lines = repair_text(done, paths.profile)
+            emit(t='done', ok=True, msg=' '.join(lines), summary=done, lines=lines, seconds=round(time.time() - t0, 1))
+            return 0
         if job['action'] == 'remove':
             emit(t='log', msg='Removing the baked files from %s' % paths.out)
             n = tools.bake.remove(paths.out, progress=lambda s, d, t, m: emit(t='progress', task='models', stage=s,
@@ -1250,9 +1798,11 @@ def _work(job, emit):
                 raise SetupError(bad[0])
             got = None
             rep0 = tools.bake.read_report(paths.out) if hasattr(tools.bake, 'loose_files') else None
-            if rep0 and (tools.bake.loose_files(rep0) or rep0.get('status') == 'packing'):
+            # (other settings than the bake's mean a new bake, not just a pack)
+            if rep0 and (tools.bake.loose_files(rep0) or rep0.get('status') == 'packing') and \
+                    not body_settings_differ(rep0, choices):
                 st0 = check(tools, paths, cancel=stop)
-                if st0.state in ('ok', 'order') and st0.loose:
+                if st0.state in FINE and st0.loose:
                     emit(t='log', msg='The bake is up to date; packing its %s loose files into archives.'
                          % '{:,}'.format(st0.loose))
                     n = _pack(tools, paths, emit, stop)
@@ -1343,7 +1893,7 @@ def _pack(tools, paths, emit, stop):
     """Pack an installed bake's loose small parts (bake.pack). Returns how many files."""
     if not hasattr(tools.bake, 'pack'):
         raise SetupError('This version of Umbra Effects cannot pack a bake.')
-    n = tools.bake.pack(paths.out, progress=lambda s, d, t, m: emit(t='progress', task='models', stage='pack',
+    n = tools.bake.pack(paths.out, progress=lambda s, d, t, m: emit(t='progress', task='pack', stage='pack',
                                                                      done=d, total=t, msg=m), cancel=stop)
     if n:
         emit(t='log', msg='Packed %s loose files into archives (db/mods/zgo_bake_*.db0).' % '{:,}'.format(n))
@@ -1380,15 +1930,19 @@ def get_prebaked(tools, paths, choices, emit, stop):
     try:
         prog('match', 0, 1, 'asking %s' % (src if pb.is_url(src) else 'the folder given'))
         entries = pb.read_index(pb.get_small(src, pb.INDEX, 1 << 20, stop=stop))
-        usable = [e for e in entries if e.get('baker') == b.BAKER_VERSION]
+        usable = pb.candidates(entries, b.BAKER_VERSION)
         if not usable:
             emit(t='log', msg='No ready-made bake for this version of Umbra Gore & Effects (%d listed); baking here.'
                  % len(entries))
             return None
         toks = pb.tokens(paths.mo2, paths.game, cache_dir(tools, paths), paths.profile, os.path.basename(out))
         man = None
-        for e in usable[:pb.CANDIDATES]:
-            m = pb.read_manifest(pb.get_small(src, e['path'], 4 << 20, e['sha256'], e['size'], stop), e)
+        for e in usable:
+            try:
+                m = pb.read_manifest(pb.get_small(src, e['path'], 4 << 20, e['sha256'], e['size'], stop), e)
+            except pb.Unavailable as ex:     # (one bad manifest: the next bake may still do)
+                emit(t='log', msg='The ready-made bake made %s cannot be read: %s' % (e.get('made', '?'), ex))
+                continue
             fcache = os.path.join(cache, m['fingerprint'])
             rz = pb.download(src, m['report'], os.path.join(fcache, os.path.basename(m['report']['path'])), stop=stop)
             fresh_tmp()
@@ -1409,10 +1963,14 @@ def get_prebaked(tools, paths, choices, emit, stop):
             emit(t='log', msg='No ready-made bake fits your mod list and settings; baking here.')
             return None
         here, theirs = b.read_report(out) or {}, b.read_report(tmp) or {}
-        if here.get('bake_id') and here.get('bake_id') == theirs.get('bake_id') and \
-                check(tools, paths, cancel=stop).state in ('ok', 'order'):
+        same_inputs = (here.get('inputs') or {}).get('fingerprint') == man['fingerprint'] and \
+            not body_settings_differ(here, choices) and not b.loose_files(here)
+        if ((here.get('bake_id') and here.get('bake_id') == theirs.get('bake_id')) or same_inputs) and \
+                check(tools, paths, cancel=stop).state in FINE:
             shutil.rmtree(tmp, ignore_errors=True)
-            emit(t='log', msg='The ready-made bake for your mod list is already in place (made %s).' % man.get('made', '?'))
+            emit(t='log', msg='The ready-made bake for your mod list is already in place (made %s).' % man.get('made', '?')
+                 if here.get('bake_id') == theirs.get('bake_id') else
+                 'Your bake is already the one for your mod list and settings: nothing to download.')
             return {'prebaked': True, 'baked': here.get('baked', 0), 'skipped': here.get('skipped', 0),
                     'errors': here.get('errors', 0), 'bytes': man.get('bytes', 0), 'download': 0,
                     'seconds': round(time.time() - t0, 1), 'files': len(here.get('files') or []), 'error_models': [],
@@ -1430,8 +1988,9 @@ def get_prebaked(tools, paths, choices, emit, stop):
             free = pb.free_bytes(where)
             if free is not None and free < n + (200 << 20):
                 raise pb.Unavailable('%s free on the drive of %s, %s needed' % (pb.human(free), where, pb.human(n)))
-        emit(t='log', msg='A ready-made bake fits your mod list (made %s, %d models): downloading %s instead of baking.'
-             % (man.get('made', '?'), man.get('models', 0), pb.human(total)))
+        emit(t='log', msg='A ready-made bake fits your mod list (made %s, %d models): downloading %s instead of baking%s.'
+             % (man.get('made', '?'), man.get('models', 0), pb.human(total),
+                ', its small parts already in archives' if man.get('format') == pb.BAKE_FORMAT_PACKED else ''))
         got = [0]
         last = [0.0, time.time(), 0]
 
@@ -1448,12 +2007,18 @@ def get_prebaked(tools, paths, choices, emit, stop):
                 last[0] = now
                 prog('download', got[0], total, msg)
         prog('download', 0, total, '0 of %s' % pb.human(total))
-        zips = [pb.download(src, man['report'], os.path.join(fcache, os.path.basename(man['report']['path'])), stop=stop)]
-        for v in vols:
-            zips.append(pb.download(src, v, os.path.join(fcache, os.path.basename(v['path'])), on_bytes, stop))
+        rz = pb.download(src, man['report'], os.path.join(fcache, os.path.basename(man['report']['path'])), stop=stop)
         fresh_tmp()
         nfiles = man.get('files') or 1
-        names = pb.unpack(tools, zips, tmp, lambda i, rel: (i % 500 == 0) and prog('place', i, nfiles, rel), stop)
+        names = pb.unpack(tools, [rz], tmp, stop=stop)
+
+        def on_file(i, rel):
+            # (each volume is unpacked while the next ones download: the bar shows the
+            # download until it is done, then the rest of the unpacking)
+            if got[0] >= total and i % 500 == 0:
+                prog('place', len(names) + i, nfiles, rel)
+        _, more = pb.fetch_and_unpack(tools, src, vols, fcache, tmp, on_bytes, on_file, stop)
+        names += more
         if b.REPORT not in names:
             raise pb.Unavailable('its report is missing')
         pb.relocate(tmp, [r for r in man.get('relocate', []) if r in names], toks)
@@ -1466,10 +2031,14 @@ def get_prebaked(tools, paths, choices, emit, stop):
         if fr:
             fr.remove(out)
         reports = [r for r in (fr.REPORT if fr else None, b.REPORT) if r in names]
+        # listed before they come: a move that fails half-way leaves a bake that "Bake" replaces
+        # and "Remove bake" removes, not files nobody knows about
+        b._write_report(out, {'status': 'installing', 'version': b.VERSION,
+                              'files': sorted(n for n in names if n not in reports)})
         for i, rel in enumerate([n for n in names if n not in reports] + reports):
             dst = os.path.join(out, *rel.split('/'))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            os.replace(os.path.join(tmp, *rel.split('/')), dst)
+            pb.move(os.path.join(tmp, *rel.split('/')), dst)
             if (i + 1) % 2000 == 0:
                 prog('install', i + 1, len(names), 'moving the files in')
         pb.adopt_dates(out, b.REPORT, paths.game, b.archives_info)
@@ -1483,7 +2052,7 @@ def get_prebaked(tools, paths, choices, emit, stop):
                 emit(t='log', level='warn', msg='The ready-made bake is in, but its small parts could not be packed '
                      'into archives (%s), so the game starts slower; press "Bake" to try again.' % friendly(e))
         st = check(tools, paths)
-        if st.state not in ('ok', 'order'):
+        if st.state not in FINE:
             emit(t='log', level='warn', msg="The ready-made bake is in place but doesn't check out (%s); baking here "
                  'instead.' % (' '.join(st.reasons[:2]) or st.headline))
             return None
@@ -1505,8 +2074,11 @@ def get_prebaked(tools, paths, choices, emit, stop):
         emit(t='log', level='warn' if installing else 'info',
              msg='The ready-made bake could not be used (%s); baking here instead.' % why,
              trace=traceback.format_exc() if not isinstance(e, pb.Unavailable) else None)
-        shutil.rmtree(tmp, ignore_errors=True)
         return None
+    finally:
+        # every way out (none fits, one fails, cancelled, done): the report it compared, the files it
+        # unpacked, never left behind in the Umbra Effects folder
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _bake_kidfx(k, tools, paths, emit, summary):

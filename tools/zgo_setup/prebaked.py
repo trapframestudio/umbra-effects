@@ -9,13 +9,26 @@ downloaded and checked.
 The bucket (Umbra's dev/b2_upload.py writes it; its installer's packdef.py has the
 bake manifest's format, the same one Umbra Setup reads):
 
-    umbra-effects/index.json                     the bakes there, newest first:
+    umbra-effects/index.json                     the bakes there:
         {"format": 1, "kind": "umbra-effects-bakes",
          "bakes": [{"path": "umbra-effects/<fingerprint>/<sha256>.json", "sha256", "size",
-                    "fingerprint", "baker", "zgo", "made", "models",
+                    "fingerprint", "format", "baker", "zgo", "made", "models",
                     "download": <bytes of its volumes>, "bytes": <unpacked>}, ...]}
     umbra-effects/<fingerprint>/<sha256>.json    a bake's manifest
     umbra-effects/<fingerprint>/<sha256>.zip     its report volume (the two reports), its volumes
+
+A bake comes in two formats (an entry's "format", none = 1). Format 1 has the small
+parts loose (deflate volumes), so they are packed here once in place. Format 2
+(1.8.3) is the same bake with its small parts already in the game archives
+(db/mods/zgo_bake_*.db0) and LZMA volumes, about a quarter smaller: some 5,000 files
+to unpack instead of 84,000, and no packing. candidates() takes a fingerprint's
+format-2 bake when the list has one. The list puts the format-1 bakes first, because
+Setup before 1.8.3 tries the first entries in turn and gives up at a manifest it
+cannot read.
+
+The volumes download PARALLEL at a time, each checked against its sha256 as it
+arrives, and each is unpacked as soon as it is in, while the others still download
+(fetch_and_unpack).
 
 Every file is named by its sha256 and checked against it. The reports carry
 @@UMBRA_*@@ tokens where the bake recorded its machine's paths and names; they get
@@ -24,6 +37,7 @@ this machine's (tokens(), relocate()), as Umbra Setup does.
 ZGO_PREBAKED_SOURCE (a URL or a folder) replaces the bucket; ZGO_PREBAKED_SOURCE=off
 turns the download off.
 """
+import concurrent.futures as cf
 import hashlib
 import json
 import os
@@ -31,6 +45,7 @@ import re
 import shutil
 import ssl
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -40,7 +55,11 @@ DEFAULT_SOURCE = 'https://f005.backblazeb2.com/file/umbra-mod'
 DIR = 'umbra-effects'
 INDEX = DIR + '/index.json'
 INDEX_FORMAT = 1
-BAKE_FORMAT = 1
+BAKE_FORMAT = 1                         # small parts loose
+BAKE_FORMAT_PACKED = 2                  # small parts in game archives, LZMA volumes
+BAKE_FORMATS = (BAKE_FORMAT, BAKE_FORMAT_PACKED)
+PARALLEL = 3                            # volumes downloading at once
+UNPACKERS = 2                           # volumes unpacking at once
 USER_AGENT = 'UmbraEffectsSetup'
 TMP = '.zgo-prebaked'                   # in the Umbra Effects folder while it is unpacked
 CANDIDATES = 3                          # bakes compared at most (newest first)
@@ -198,8 +217,9 @@ class Cancelled(Exception):
 
 def download(src, obj, dest, on_bytes=None, stop=None, tries=6):
     """obj ({"path", "sha256", "size"}) into dest, resuming a .part file left by an earlier
-    try; checked against its sha256. on_bytes(n) for each block. A dest already there with
-    the right sha256 is kept."""
+    try; checked against its sha256 as it arrives (a damaged one is fetched once more). on_bytes(n)
+    for each block, never more than the file's size in all. A dest already there with the right
+    sha256 is kept."""
     if os.path.isfile(dest) and os.path.getsize(dest) == obj['size']:
         if sha256_file(dest, stop) == obj['sha256']:
             if on_bytes:
@@ -208,11 +228,27 @@ def download(src, obj, dest, on_bytes=None, stop=None, tries=6):
         os.remove(dest)
     part = dest + '.part'
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    counted = 0
+    reported = [0]
+
+    def count(upto):
+        if upto > reported[0]:
+            if on_bytes:
+                on_bytes(upto - reported[0])
+            reported[0] = upto
+
     delay = 2.0
+    damaged = 0
+    err = None
     for n in range(tries):
         have = os.path.getsize(part) if os.path.isfile(part) else 0
         if have > obj['size']:
+            os.remove(part)
+            have = 0
+        if have == obj['size']:         # (complete but not checked: cut off while it was checked)
+            if sha256_file(part, stop) == obj['sha256']:
+                count(have)
+                move(part, dest)
+                return dest
             os.remove(part)
             have = 0
         try:
@@ -221,11 +257,20 @@ def download(src, obj, dest, on_bytes=None, stop=None, tries=6):
                 if total is not None and total != obj['size']:
                     raise Unavailable('%s has %d bytes, %d expected' % (obj['path'], total, obj['size']))
                 with open(part, 'r+b' if at else 'wb') as out:
+                    # hashed as it arrives (the part kept from an earlier try first), so the
+                    # volume is not read a second time to check it
+                    h = hashlib.sha256()
+                    left = at
+                    while left:
+                        b = out.read(min(left, 1 << 20))
+                        if not b:
+                            raise OSError('the part file shrank')
+                        h.update(b)
+                        left -= len(b)
                     out.seek(at)
                     out.truncate()
-                    if at > counted and on_bytes:
-                        on_bytes(at - counted)
-                    counted = at
+                    got = at
+                    count(got)
                     while True:
                         if stop and stop():
                             raise Cancelled()
@@ -233,19 +278,28 @@ def download(src, obj, dest, on_bytes=None, stop=None, tries=6):
                         if not b:
                             break
                         out.write(b)
-                        counted += len(b)
-                        if on_bytes:
-                            on_bytes(len(b))
+                        h.update(b)
+                        got += len(b)
+                        count(got)
             if os.path.getsize(part) != obj['size']:
                 raise OSError('the download stopped at %s of %s' % (human(os.path.getsize(part)), human(obj['size'])))
-            if sha256_file(part, stop) != obj['sha256']:
+            if h.hexdigest() != obj['sha256']:
                 os.remove(part)
-                raise Unavailable('%s is not the file its name says (damaged on the way?)' % obj['path'])
-            os.replace(part, dest)
+                damaged += 1
+                if damaged > 1:
+                    raise Unavailable('%s is not the file its name says (damaged on the way?)' % obj['path'])
+                err = OSError('%s arrived damaged; fetching it again' % obj['path'])
+                continue
+            move(part, dest)
             return dest
         except urllib.error.HTTPError as e:
             if e.code in (403, 404, 410):
                 raise Unavailable('%s: the server says %d %s' % (obj['path'], e.code, e.reason))
+            if e.code == 416:           # (a part the server says is past the end: start again)
+                try:
+                    os.remove(part)
+                except OSError:
+                    pass
             err = e
         except (OSError, ValueError) as e:
             err = e
@@ -256,6 +310,18 @@ def download(src, obj, dest, on_bytes=None, stop=None, tries=6):
                 time.sleep(0.1)
             delay = min(delay * 2, 30.0)
     raise Unavailable('%s: %s' % (obj['path'], getattr(err, 'reason', None) or err))
+
+
+def move(src, dst, tries=20):
+    """os.replace, retried for a few seconds on Windows while a virus scanner or the search
+    indexer holds the file."""
+    for n in range(tries):
+        try:
+            return os.replace(src, dst)
+        except PermissionError:
+            if os.name != 'nt' or n + 1 == tries:
+                raise
+            time.sleep(0.25)
 
 
 # ---------------------------------------------------------------- formats
@@ -276,6 +342,12 @@ def _obj(v, fp, what, ext):
     return v
 
 
+def entry_format(e):
+    """A list entry's manifest format (an entry without one is format 1)."""
+    f = e.get('format', BAKE_FORMAT)
+    return f if isinstance(f, int) and not isinstance(f, bool) else None
+
+
 def read_index(data):
     """The bucket's list of bakes -> [entry] (entries this program cannot use are left out)."""
     try:
@@ -291,12 +363,30 @@ def read_index(data):
     for e in d.get('bakes') or []:
         if not isinstance(e, dict) or not _FP.match(str(e.get('fingerprint', ''))):
             continue
+        if entry_format(e) not in BAKE_FORMATS:
+            continue
         try:
             _obj(e, e['fingerprint'], 'a bake', 'json')
         except Unavailable:
             continue
         out.append(e)
     return out
+
+
+def candidates(entries, baker, n=CANDIDATES):
+    """The bakes to compare with this mod list, newest first, at most n: per fingerprint the
+    one with its parts in archives (format 2) when the list has it, else the loose one."""
+    usable = sorted((e for e in entries if e.get('baker') == baker),
+                    key=lambda e: str(e.get('made', '')), reverse=True)
+    best, order = {}, []
+    for e in usable:
+        fp = e['fingerprint']
+        if fp not in best:
+            order.append(fp)
+            best[fp] = e
+        elif entry_format(e) > entry_format(best[fp]):
+            best[fp] = e
+    return [best[fp] for fp in order[:n]]
 
 
 def read_manifest(data, entry):
@@ -306,8 +396,12 @@ def read_manifest(data, entry):
         raise Unavailable('the bake manifest is not readable')
     if not isinstance(b, dict) or b.get('kind') != 'umbra-effects-bake':
         raise Unavailable('the bake manifest is not one')
-    if b.get('format') != BAKE_FORMAT:
-        raise Unavailable('the bake is in format %r; this Umbra Effects Setup reads %d' % (b.get('format'), BAKE_FORMAT))
+    if b.get('format') not in BAKE_FORMATS:
+        raise Unavailable('the bake is in format %r; this Umbra Effects Setup reads %s'
+                          % (b.get('format'), ' and '.join(str(f) for f in BAKE_FORMATS)))
+    if b.get('format') != entry_format(entry):
+        raise Unavailable('the bake manifest is not the one the list names (format %r, the list says %r)'
+                          % (b.get('format'), entry_format(entry)))
     fp = str(b.get('fingerprint', ''))
     if not _FP.match(fp) or fp != entry['fingerprint']:
         raise Unavailable('the bake manifest is not the one the list names')
@@ -360,6 +454,57 @@ def unpack(tools, zips, dest, on_file=None, stop=None):
                 if on_file:
                     on_file(len(names), i.filename)
     return names
+
+
+def fetch_and_unpack(tools, src, objs, cache, dest, on_bytes=None, on_file=None, stop=None,
+                     parallel=PARALLEL, unpackers=UNPACKERS):
+    """Download objs (volumes) into the folder cache, parallel at a time, and unpack each into
+    dest as soon as it is in, while the others still download. on_bytes(n) and on_file(i,
+    rel) are called from those threads, one at a time. Returns (the volumes' paths, the
+    names unpacked, in objs' order). Anything going wrong stops the rest and is raised."""
+    paths = [os.path.join(cache, os.path.basename(o['path'])) for o in objs]
+    names = [None] * len(objs)
+    halt = threading.Event()
+    lock = threading.Lock()
+    count = [0]
+
+    def stopped():
+        return halt.is_set() or bool(stop and stop())
+
+    def got(n):
+        if on_bytes:
+            with lock:
+                on_bytes(n)
+
+    def placed(_i, rel):
+        with lock:
+            count[0] += 1
+            if on_file:
+                on_file(count[0], rel)
+
+    def fetch(i):
+        return download(src, objs[i], paths[i], got, stopped)
+
+    def place(i):
+        names[i] = unpack(tools, [paths[i]], dest, placed, stopped)
+
+    dl = cf.ThreadPoolExecutor(max(1, parallel))
+    up = cf.ThreadPoolExecutor(max(1, unpackers))
+    try:
+        fetching = {dl.submit(fetch, i): i for i in range(len(objs))}
+        placing = []
+        for f in cf.as_completed(fetching):
+            f.result()
+            placing.append(up.submit(place, fetching[f]))
+        for f in cf.as_completed(placing):
+            f.result()
+    except BaseException:
+        halt.set()
+        raise
+    finally:
+        dl.shutdown(wait=True, cancel_futures=True)
+        up.shutdown(wait=True, cancel_futures=True)
+    return paths, [n for ns in names for n in ns]
 
 
 def win_path(p):
@@ -426,6 +571,17 @@ def adopt_dates(folder, report_name, game, archives_info):
             continue
         if r.get('bytes_in') is None or st.st_size == r['bytes_in']:
             r['src_mtime'] = int(st.st_mtime)
+    # the bake's own archives (checked by sha256 as they arrived): their sizes, so check()
+    # finds one cut short later (a bake packed by Umbra's build has none recorded)
+    if rep.get('packed') and not rep.get('archive_bytes'):
+        sizes = {}
+        for a in rep['packed']:
+            try:
+                sizes[a] = os.path.getsize(os.path.join(folder, *a.split('/')))
+            except OSError:
+                pass
+        if sizes:
+            rep['archive_bytes'] = sizes
     arch = (rep.get('inputs') or {}).get('archives') or {}
     if arch and game:
         now = archives_info(game)

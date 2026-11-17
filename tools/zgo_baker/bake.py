@@ -124,11 +124,61 @@ def packable(rel):
 
 
 def output_files(rep):
-    """Every file a bake made: the loose ones and those inside its archives."""
-    out = [f for f in rep.get('files') or [] if not is_archive(f)]
+    """Every file a bake made: the loose ones and those inside its archives (once each, also
+    while a pack that stopped half-way lists both)."""
+    out = {f for f in rep.get('files') or [] if not is_archive(f)}
     for rels in (rep.get('packed') or {}).values():
-        out.extend(rels)
+        out.update(rels)
     return sorted(out)
+
+
+def orphan_archives(root, known=()):
+    """Archives of ours (by their name) in root/db/mods that no report lists, and .part files
+    of them: left by a pack or bake that was killed between writing them and its report."""
+    d = os.path.join(root, 'db', 'mods')
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return []
+    known = set(known)
+    out = []
+    for fn in sorted(names):
+        rel = 'db/mods/' + fn
+        base = rel[:-len('.part')] if rel.endswith('.part') else rel
+        if _ARCHIVE.match(base) and rel not in known:
+            out.append(rel)
+    return out
+
+
+def archive_sizes(root, archives):
+    """{archive rel: its size} for the report: check() compares them (a cut-off archive
+    crashes the game at its start)."""
+    out = {}
+    for a in archives:
+        try:
+            out[a] = os.path.getsize(os.path.join(root, *a.split('/')))
+        except OSError:
+            pass
+    return out
+
+
+def check_replaceable(root, rels):
+    """Raise BakeError when one of these archives can't be replaced: on Windows the running
+    game holds every archive it loaded (no delete sharing), so a bake or remove would stop
+    half-way. A file is renamed away and back to find out."""
+    for rel in rels:
+        if not is_archive(rel):
+            continue
+        p = os.path.join(root, *rel.split('/'))
+        if not os.path.isfile(p):
+            continue
+        probe = p + '.zgo-check'
+        try:
+            os.replace(p, probe)
+        except PermissionError:
+            raise BakeError('%s is in use: close the game (and anything else that has it open), then try again'
+                            % rel.split('/')[-1])
+        os.replace(probe, p)
 
 
 def loose_files(rep):
@@ -420,9 +470,12 @@ def remove_files(root, files, progress=None):
 
 
 def remove(out=MOD_ROOT, progress=None):
-    """Delete everything the last bake wrote into out, and its report.
-    Returns the number of files removed."""
-    n = remove_files(out, previous_files(out), progress)
+    """Delete everything the last bake wrote into out (and archives of ours no report lists),
+    and its report. Returns the number of files removed."""
+    files = previous_files(out)
+    files += orphan_archives(out, files)
+    check_replaceable(out, files)
+    n = remove_files(out, files, progress)
     try:
         os.remove(os.path.join(out, REPORT))
     except OSError:
@@ -432,10 +485,11 @@ def remove(out=MOD_ROOT, progress=None):
 
 # ---------------------------------------------------------------- archives (xdb_write.py)
 
-def write_archives(src_root, rels, dest_root, progress=None, cancel=None):
+def write_archives(src_root, rels, dest_root, progress=None, cancel=None, consume=False):
     """Pack src_root/<rel> for rels into dest_root/db/mods/zgo_bake_<part>_NN.db0 (one series per
     part: caps, chunks, gibs, pieces). Returns {archive rel: [rels in it]}. On a cancel (raises
-    Cancelled) or an error, the archives it wrote are deleted again."""
+    Cancelled) or an error, the archives it wrote are deleted again. consume: delete each
+    source once it is in an archive (the bake's temporary copies, never installed files)."""
     say = progress or (lambda *a: None)
     stop = cancel or (lambda: False)
     by_part = {}
@@ -460,7 +514,7 @@ def write_archives(src_root, rels, dest_root, progress=None, cancel=None):
             for n, group in enumerate(xdb_write.plan_archives(its)):
                 arel = '%s%s_%02d.db0' % (ARCHIVE_PREFIX, part, n)
                 dest = os.path.join(dest_root, *arel.split('/'))
-                if xdb_write.write_archive(dest, group, on_file, stop) is None:
+                if xdb_write.write_archive(dest, group, on_file, stop, consume) is None:
                     raise Cancelled('bake cancelled; the output folder was not changed')
                 written.append(dest)
                 out[arel] = [rel for rel, _ in group]
@@ -490,6 +544,22 @@ def pack(out=MOD_ROOT, progress=None, cancel=None):
         missing = [f for f in loose if not os.path.isfile(os.path.join(out, *f.split('/')))]
         if missing:
             raise BakeError('%d of the baked files are missing (e.g. %s); bake again' % (len(missing), missing[0]))
+        # the archives are written before the loose copies go: room for both
+        need = sum(os.path.getsize(os.path.join(out, *f.split('/'))) for f in loose) + (64 << 20)
+        try:
+            free = shutil.disk_usage(out).free
+        except OSError:
+            free = None
+        if free is not None and free < need:
+            raise BakeError('packing needs %.1f GB free on the drive of the Umbra Effects folder; it has %.1f GB'
+                            % (need / 1e9, free / 1e9))
+        orphans = orphan_archives(out, rep.get('files') or [])
+        check_replaceable(out, orphans)
+        for rel in orphans:             # (a pack killed before its report: its archives are written again)
+            try:
+                os.remove(os.path.join(out, *rel.split('/')))
+            except OSError:
+                pass
         packed = write_archives(out, loose, out, say, cancel)
         # the report lists both from here on, so a pack that dies while deleting is finished next time
         rep = dict(rep, status='packing', files=sorted(set(rep.get('files') or []) | set(packed)),
@@ -508,7 +578,9 @@ def pack(out=MOD_ROOT, progress=None, cancel=None):
             size += os.path.getsize(os.path.join(out, *rel.split('/')))
         except OSError:
             pass
-    rep = dict(rep, files=files, bytes=size)
+    counts = dict(rep.get('counts') or {}, archives=len(rep.get('packed') or {}))
+    rep = dict(rep, files=files, bytes=size, counts=counts,
+               archive_bytes=archive_sizes(out, rep.get('packed') or {}))
     rep.pop('status', None)
     _write_report(out, rep)
     return len(loose)
@@ -850,16 +922,18 @@ def bake(options=None, progress=None, cancel=None):
         packed = {}
         to_pack = [f for f in new_files if packable(f)] if o.pack else []
         if to_pack:
-            packed = write_archives(tmp, to_pack, tmp, say, stop)
-            for rel in to_pack:
-                os.remove(os.path.join(tmp, *rel.split('/')))
+            # (each part is deleted once it is in: the cache never holds the parts twice)
+            packed = write_archives(tmp, to_pack, tmp, say, stop, consume=True)
             new_files = sorted([f for f in new_files if not packable(f)] + list(packed))
         check_cancel()
-        # never overwrite a file this baker didn't write (e.g. one the mod ships)
+        # never overwrite a file this baker didn't write (e.g. one the mod ships); archives
+        # named like ours that no report lists are ours (a pack killed before its report)
         old = set(previous_files(o.out))
+        old |= set(orphan_archives(o.out, old))
         clash = [f for f in new_files if f not in old and os.path.exists(os.path.join(o.out, *f.split('/')))]
         if clash:
             raise BakeError('refusing to overwrite files the baker did not write, e.g. %s' % clash[0])
+        check_replaceable(o.out, sorted(old | set(new_files)))
         check_cancel()
         # ---- from here on the output folder changes; no more cancelling.
         # The manifest first lists old and new files, so an install that dies
@@ -898,6 +972,7 @@ def bake(options=None, progress=None, cancel=None):
                                  kids_in=sum(r['kids_in'] for r in ok), kids_out=sum(r['kids_out'] for r in ok),
                                  bytes_in=sum(r['bytes_in'] for r in ok), bytes_out=sum(r['bytes_out'] for r in ok)),
                   'inputs': inputs, 'files': new_files, 'packed': packed,
+                  'archive_bytes': archive_sizes(o.out, packed),
                   'results': sorted(results, key=lambda r: r['key'])}
         _write_report(o.out, report)
         say('done', 1, 1, 'baked %d models in %.0f s' % (len(ok), report['seconds']))

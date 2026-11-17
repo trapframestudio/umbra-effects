@@ -9,14 +9,16 @@
   body     zgo_bake_inputs.fingerprint: one md5 over the baker version, the
            creature tables, the bake options and every source model, so two
            machines with the same mod list and options have the same one
-           ("-" = no body bake)
+           ("-" = no body bake in use: none, "Use baked models" off, or no
+           index with models; the log says which)
   props    zgo_props_fracture_index.bake: the same kind of content id for the
            breakable-objects bake ("-" = none)
 
   A difference is written to the log and shown to the player once, in
   English or Russian, and nothing is refused: the host still decides every
-  effect, a client without the host's bake simply draws some of it the
-  simpler way (unbaked cuts, the game's own prop parts). Peers on another
+  effect, a client without the host's bake draws less of it (a cut on a body
+  that is a ragdoll there already doesn't show, and zgo_dismember logs why;
+  gibs are meat models; props break into the game's own parts). Peers on another
   sync protocol never hear each other at all (zgo_sync's event names carry
   PROTO); zgo_sync logs that case itself.
 
@@ -32,8 +34,8 @@ local T = {
 	caption = { "Umbra Gore & Effects (co-op)", "Umbra Gore & Effects (кооператив)" },
 	version = { "The host runs Umbra Gore & Effects %s, you run %s: some gore may not match between you. Install the same version on every computer.",
 	            "У хоста Umbra Gore & Effects %s, у вас %s: часть эффектов может различаться. Установите одну и ту же версию на всех компьютерах." },
-	body_none_here = { "The host has baked body models and you don't: you see fewer cuts on bodies. Run Umbra Effects Setup (tools\\zgo_setup in the Umbra Effects folder) and press Bake.",
-	                   "У хоста есть запечённые модели тел, а у вас нет: разрезов на телах у вас будет меньше. Запустите Umbra Effects Setup (tools\\zgo_setup в папке Umbra Effects) и нажмите Bake." },
+	body_none_here = { "The host has baked body models and none are in use on your computer: many cuts on bodies don't show for you (nor their severed limbs and stump caps), and gibs are meat models. Run Umbra Effects Setup (tools\\zgo_setup in the Umbra Effects folder) and press Bake; if you already did, check that \"Use baked models\" is on (MCM, Dismemberment). The game log ([ZGO] lines) says why the bake is not used.",
+	                   "У хоста есть запечённые модели тел, а у вас они не используются: многие разрезы на телах у вас не видны (как и оторванные конечности и культи), а ошмётки будут моделями мяса. Запустите Umbra Effects Setup (tools\\zgo_setup в папке Umbra Effects) и нажмите Bake; если уже запекали, проверьте, что включено «Запечённые модели» (MCM, Расчленение). Почему запекание не используется, написано в логе игры (строки [ZGO])." },
 	body_none_host = { "You have baked body models and the host doesn't: cuts on bodies may look different on your screen. That's fine; the host can run Umbra Effects Setup too.",
 	                   "У вас есть запечённые модели тел, а у хоста нет: разрезы на телах у вас могут выглядеть иначе. Это не страшно; хост тоже может запустить Umbra Effects Setup." },
 	body_differs = { "Your baked body models differ from the host's (another mod list or other Umbra Effects Setup options): cuts and wounds may look a little different on your screen. Bake with the same mod list on every computer to match.",
@@ -93,11 +95,30 @@ local function generated(name, field)
 	return (string.gsub(v, "[|\n]", "_"))
 end
 
+local said_unused    -- the reason last logged for a body bake this machine doesn't use
+
+-- the body bake counts only while this machine uses it (MCM "Use baked
+-- models" on, an index with models: zgo_bake.unused_reason); otherwise
+-- partners are told "-" and the log says why, once per reason
+local function body_bake()
+	local fp = generated("zgo_bake_inputs", "fingerprint")
+	if fp == "-" then return fp end
+	local ok, why = pcall(zgo_bake.unused_reason)
+	if not ok then why = "unreadable" end
+	if not why then said_unused = nil return fp end
+	if why ~= said_unused then
+		said_unused = why
+		U.log("co-op handshake: this machine's body bake %s is not in use: %s; partners are told it has none",
+			fp, zgo_bake.reason_text(why))
+	end
+	return "-"
+end
+
 function mine()
 	local ok, ver = pcall(function() return zgo_main.VERSION end)
 	return {
 		version = ok and type(ver) == "string" and ver or "?",
-		body = generated("zgo_bake_inputs", "fingerprint"),
+		body = body_bake(),
 		props = generated("zgo_props_fracture_index", "bake"),
 	}
 end

@@ -24,12 +24,16 @@
 
   loaded_matches(obj) tells whether the model the game actually loaded for an
   object is the baked one (sub-mesh count); anything that names sub-mesh ids
-  (set_shader) or fits a cap / piece to the body checks it first.
+  (set_shader) or fits a cap / piece to the body checks it first, and
+  zgo_dismember cuts a body that wears another model as an un-baked one.
+  unused_reason() / why_not_baked() say in words why a machine or a body
+  does without the bake (co-op logs: zgo_dismember, zgo_handshake).
 ]]
 
 local U = zgo_util
 
 local index        -- false = no baked models installed
+local index_why    -- why not: "missing" (no file) or "unreadable" (it did not load)
 local parts_src    -- zgo_bake_parts namespace (false = none / another bake)
 local wounds_src   -- zgo_bake_wounds namespace (false = none / another bake)
 -- decoded per model on first use; weak values, so models nobody holds on to
@@ -43,10 +47,10 @@ local GIB_DIR = "zgo\\baked\\gibs\\"
 
 local function load_index()
 	if index ~= nil then return index end
-	index = false
+	index, index_why = false, "missing"
 	if U.file_exists("$game_scripts$", "zgo_bake_index.script") then
 		local ok, t = pcall(function() return zgo_bake_index.models end)
-		if ok and type(t) == "table" then index = t end
+		if ok and type(t) == "table" then index, index_why = t, nil else index_why = "unreadable" end
 	end
 	return index
 end
@@ -143,6 +147,27 @@ function bake_id()
 	local ns = index_ns()
 	return ns and rawget(ns, "bake_id") or nil
 end
+
+-- Why this machine uses no baked models at all (nil: it uses some), for the
+-- log lines that say so (zgo_dismember, zgo_handshake):
+--   "off"         MCM "Use baked models" is off
+--   "missing"     the game's file system has no zgo_bake_index.script
+--   "unreadable"  it has one, but it did not load
+--   "empty"       it lists no models
+function unused_reason()
+	if not enabled() then return "off" end
+	if not load_index() then return index_why or "missing" end
+	if next(index) == nil then return "empty" end
+	return nil
+end
+
+local REASONS = {
+	off = "\"Use baked models\" is off on this machine (MCM, Dismemberment)",
+	missing = "the game finds no zgo_bake_index.script (no bake in the Umbra Effects folder it loads)",
+	unreadable = "zgo_bake_index.script is there but did not load",
+	empty = "zgo_bake_index.script lists no models",
+}
+function reason_text(why) return REASONS[why] or tostring(why) end
 
 ------------------------------------------------------------------------
 -- Parts (zgo_bake_parts.script, docs/formats/parts.md)
@@ -263,10 +288,25 @@ function loaded_matches(obj, raw)
 	c = n == want
 	loaded_cache[k] = c
 	if not c then
-		U.log("%s: the game loaded %d sub-meshes, the bake has %d (another mod's model wins, or it was loaded before the bake): this model is cut by hiding bones, without fitted caps or pieces",
+		U.log("%s: the game loaded %d sub-meshes, the bake has %d (another mod's model wins, or it was loaded before the bake): it is used as an un-baked model (a part comes off only before its ragdoll exists; meat gibs, no fitted caps or pieces)",
 			k, n, want)
 	end
 	return c
+end
+
+-- Why obj's part at root is not drawn the baked way on this machine, in
+-- words for the log (nil: it is): the bake is not in use here, the model
+-- is not in it, the game wears another model, or the section isn't baked
+function why_not_baked(obj, root)
+	local why = unused_reason()
+	if why then return reason_text(why) end
+	local k = key_of(obj)
+	if not (k and index[k]) then return string.format("its model %s is not in this machine's bake", tostring(k)) end
+	if loaded_matches(obj) == false then
+		return string.format("the game wears another model than the baked %s here (another mod wins in MO2, or it was loaded before the bake)", k)
+	end
+	if root and not index[k][root] then return string.format("its model %s has no baked section %s", k, root) end
+	return nil
 end
 
 -- set_shader ids of the section's own sub-meshes (not its children's)
@@ -482,7 +522,7 @@ function nearest_site(visual, section, p_bind, raw)
 end
 
 function reset()
-	index, parts_src, wounds_src = nil, nil, nil
+	index, index_why, parts_src, wounds_src = nil, nil, nil, nil
 	parts_cache, wounds_cache, skel_cache = weak(), weak(), weak()
 	loaded_cache = {}
 end

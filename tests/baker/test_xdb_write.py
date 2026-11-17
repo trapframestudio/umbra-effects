@@ -9,6 +9,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -94,6 +95,38 @@ class TestArchive(unittest.TestCase):
         self.assertIsNone(xdb_write.write_archive(dest, files, stop=lambda: True))
         self.assertEqual(os.listdir(self.root), ['src'])
 
+    def test_an_error_leaves_no_part_file(self):
+        files = self._files(5)
+        files[3] = (files[3][0], os.path.join(self.root, 'gone.ogf'))
+        dest = os.path.join(self.root, 'a.db0')
+        with self.assertRaises(OSError):
+            xdb_write.write_archive(dest, files)
+        self.assertEqual(os.listdir(self.root), ['src'])
+
+    def test_consume_deletes_each_source_once_it_is_in(self):
+        files = self._files(6)
+        want = {}
+        for rel, p in files:
+            with open(p, 'rb') as f:
+                want[xdb_write.archive_name(rel)] = f.read()
+        dest = os.path.join(self.root, 'a.db0')
+        xdb_write.write_archive(dest, files, consume=True)
+        self.assertFalse(any(os.path.exists(p) for _, p in files))
+        got = {e[0]: xdb_write.read_file(dest, e) for e in xdb_write.read_table(dest)[1] if not e[0].endswith('\\')}
+        self.assertEqual(got, want)
+
+    def test_the_engines_2_gb_limit(self):
+        files = self._files(2)
+        with mock.patch.object(xdb_write, 'DATA_MAX', 100):
+            with self.assertRaisesRegex(xdb_write.BadArchive, '2 GB'):
+                xdb_write.write_archive(os.path.join(self.root, 'a.db0'), files)
+        self.assertEqual(os.listdir(self.root), ['src'])
+
+    def test_limit_is_read_when_called(self):
+        its = [('gamedata/x/%d' % i, 'p', 100) for i in range(4)]
+        with mock.patch.object(xdb_write, 'LIMIT', 150):
+            self.assertEqual(len(xdb_write.plan_archives(its)), 4)
+
 
 class TestPackABake(unittest.TestCase):
     """A bake made loose (as before 1.8.2) packs in place; Remove deletes the archives."""
@@ -168,6 +201,59 @@ class TestPackABake(unittest.TestCase):
         self.assertEqual(self._contents(rep), before)
         self.assertFalse(os.path.exists(os.path.join(self.o.out, 'db', 'mods')) and
                          os.listdir(os.path.join(self.o.out, 'db', 'mods')))
+
+    def test_archives_a_killed_pack_left_dont_block_anything(self):
+        """A pack killed after writing its archives but before its report: the next bake
+        replaces them, the next pack writes them again, and Remove deletes them."""
+        mods = os.path.join(self.o.out, 'db', 'mods')
+        os.makedirs(mods)
+        for fn in ('zgo_bake_caps_00.db0', 'zgo_bake_pieces_07.db0', 'zgo_bake_gibs_00.db0.part'):
+            with open(os.path.join(mods, fn), 'wb') as f:
+                f.write(b'half')
+        with open(os.path.join(mods, 'someone_elses.db0'), 'wb') as f:
+            f.write(b'theirs')
+        before = self._contents(self.loose)
+        bake.pack(self.o.out)
+        rep = bake.read_report(self.o.out)
+        self.assertEqual(self._contents(rep), before)
+        self.assertEqual(sorted(os.listdir(mods)), sorted([a.split('/')[-1] for a in rep['packed']] + ['someone_elses.db0']))
+        self.assertEqual(rep['counts']['archives'], len(rep['packed']))
+        self.assertEqual(rep['archive_bytes'], {a: os.path.getsize(os.path.join(self.o.out, *a.split('/')))
+                                                for a in rep['packed']})
+        with open(os.path.join(mods, 'zgo_bake_pieces_09.db0'), 'wb') as f:      # another orphan
+            f.write(b'half')
+        self.o.pack = True
+        bake.bake(self.o)
+        self.assertNotIn('zgo_bake_pieces_09.db0', os.listdir(mods))
+        with open(os.path.join(mods, 'zgo_bake_chunks_05.db0'), 'wb') as f:
+            f.write(b'half')
+        bake.remove(self.o.out)
+        self.assertEqual(os.listdir(mods), ['someone_elses.db0'])
+
+    def test_an_archive_in_use_stops_before_anything_changes(self):
+        bake.pack(self.o.out)
+        rep = bake.read_report(self.o.out)
+        real = os.replace
+
+        def locked(src, dst):
+            if dst.endswith('.zgo-check'):
+                raise PermissionError(13, 'in use')
+            return real(src, dst)
+        with mock.patch.object(bake.os, 'replace', locked):
+            with self.assertRaisesRegex(bake.BakeError, 'close the game'):
+                bake.remove(self.o.out)
+            self.o.pack = True
+            with self.assertRaisesRegex(bake.BakeError, 'close the game'):
+                bake.bake(self.o)
+        self.assertEqual(bake.read_report(self.o.out), rep, 'nothing changed')
+
+    def test_no_room_to_pack(self):
+        class Usage:
+            free = 1000
+        with mock.patch.object(bake.shutil, 'disk_usage', lambda p: Usage):
+            with self.assertRaisesRegex(bake.BakeError, 'GB free'):
+                bake.pack(self.o.out)
+        self.assertEqual(bake.read_report(self.o.out)['files'], self.loose['files'])
 
     def test_rebake_replaces_a_loose_bake(self):
         self.o.pack = True

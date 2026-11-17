@@ -26,7 +26,7 @@ UMBER, UMBER_HI, OK, BAD, WARN = '#5e4532', '#71533c', '#8fa66b', '#d0614a', '#d
 
 EXPLAIN = {
     'download': 'Umbra publishes a bake made for G.A.M.M.A. as it ships. When it fits your mod list and these '
-                'ticks, it is downloaded (about 4.7 GB) instead of baked here, which saves the minutes of baking. '
+                'ticks, it is downloaded (about 3.5 GB) instead of baked here, which saves the minutes of baking. '
                 'When it does not fit, or the download fails, it is baked here as usual.',
     'models': "Every character and mutant model your mod list loads, rebuilt so each body part can be cut off "
               "cleanly. They look exactly the same as the originals.",
@@ -59,7 +59,7 @@ LABEL = {
     'experimental_props': 'Game breaks crates and stools itself (experimental)',
 }
 # the bake's state -> the style of its headline
-STATE_STYLE = {'ok': 'Good.TLabel', 'stale': 'BoldWarn.TLabel', 'order': 'BoldWarn.TLabel',
+STATE_STYLE = {'ok': 'Good.TLabel', 'stale': 'BoldWarn.TLabel', 'order': 'BoldWarn.TLabel', 'unused': 'BoldWarn.TLabel',
                'broken': 'BoldBad.TLabel', 'none': 'Bold.TLabel', 'busy': 'Bold.TLabel', 'off': 'Bold.TLabel'}
 # kid mode for particles, the short line beside its Apply now / Undo buttons
 KID_STATE = {'ok': "On: gory particles use Umbra Effects' particle shaders.",
@@ -410,9 +410,10 @@ class App:
         self.b_bake = typeface.Button(act, text='Bake', style='Primary.TButton', command=self.bake)
         self.b_check = typeface.Button(act, text='Check if my bake is up to date', command=self.check)
         self.b_remove = typeface.Button(act, text='Remove bake', command=self.remove)
+        self.b_repair = typeface.Button(act, text='Repair', command=self.repair, state='disabled')
         self.b_cancel = typeface.Button(act, text='Cancel', command=self.cancel, state='disabled')
         self.b_props_only = typeface.Button(act, text='Cut props only', command=self.bake_props)
-        for i, b in enumerate((self.b_bake, self.b_check, self.b_remove, self.b_cancel)):
+        for i, b in enumerate((self.b_bake, self.b_check, self.b_remove, self.b_repair, self.b_cancel)):
             b.grid(row=0, column=i, padx=(0, PAD))
         self.b_props_only.grid(row=0, column=6, sticky='e')
         self.progress = ttk.Progressbar(act, mode='determinate', maximum=1000)
@@ -569,6 +570,8 @@ class App:
             os.path.exists(os.path.join(out, self.tools.bake.REPORT)) or (
                 self.tools.fracture is not None and os.path.exists(os.path.join(out, self.tools.fracture.REPORT))))
         self.b_remove.state(['!disabled'] if idle and has_bake else ['disabled'])
+        self.b_repair.state(['!disabled'] if idle and self.tools is not None and getattr(self, '_repair', None)
+                            else ['disabled'])
         props_ok = ready and self.tools.fracture is not None
         self.b_props_only.state(['!disabled'] if props_ok else ['disabled'])
         self.b_cancel.state(['!disabled'] if self.job is not None else ['disabled'])
@@ -671,6 +674,11 @@ class App:
             return
         bad = core.problems(self.tools, self.paths())
         warn = core.warnings(self.tools, self.paths()) if not bad else []
+        # what Repair fixes (it is quick to find; the button is on only when there is something)
+        self._repair = core.repair_needed(self.tools, self.paths())
+        if self._repair and not bad:
+            warn = warn + ['Press "%s" to fix: ' % self.repair_label() + ' '.join(self._repair)]
+        self.b_repair.configure(text=self.repair_label())
         self.set_problems('\n'.join(bad + warn), 'Bad.TLabel' if bad else 'Warn.TLabel')
         for w in warn:
             if w not in self._warned:
@@ -872,6 +880,39 @@ class App:
             return
         self.start_job('remove', self.paths(), self.choices())
 
+    def repair_label(self):
+        """"Install into MO2" when that is the fix, else "Repair"."""
+        fix = getattr(self, '_repair', None) or []
+        return 'Install into MO2' if fix and 'not installed in MO2' in fix[0] else 'Repair'
+
+    def repair(self):
+        """Umbra Gore & Effects set up in MO2 with its bake where the game loads it (setup_core.repair)."""
+        if self.busy or self.tools is None:
+            return
+        fix = core.repair_needed(self.tools, self.paths())
+        if not fix:
+            messagebox.showinfo('Umbra Effects Setup', 'Nothing to repair: Umbra Gore & Effects is set up in MO2 and its '
+                                                        'bake is where the game loads it.')
+            return
+        if not messagebox.askyesno('Umbra Effects Setup', '%s:\n\n- %s\n\nA bake is moved only when it fits your mod '
+                                                          'list; one that no longer fits is removed (bake again '
+                                                          'after). Go ahead?' % (self.repair_label(), '\n- '.join(fix)),
+                                   icon='question'):
+            return
+        tick = True
+        # the tick goes into the profile's modlist.txt, which MO2 rewrites when it closes
+        while any('tick' in f for f in fix) and core.mo2_running():
+            ans = messagebox.askyesnocancel(
+                'Umbra Effects Setup', 'Mod Organizer 2 is open. Setup can tick Umbra Gore & Effects in your profile only '
+                'while MO2 is closed (MO2 rewrites its mod list when it closes).\n\nClose MO2, then press Yes.\n'
+                'No: go ahead without ticking it (you tick it in MO2).', icon='warning')
+            if ans is None:
+                return
+            if ans is False:
+                tick = False
+                break
+        self.start_job('repair', self.paths(), self.choices(), extra={'tick': tick})
+
     def kidfx_apply(self):
         """Kid mode for particles on again, at once (no bake)."""
         if self.busy or self.tools is None or core.kidfx_for(self.tools, self.paths()) is None:
@@ -893,17 +934,18 @@ class App:
             return
         self.start_job('kidfx_revert', self.paths(), self.choices())
 
-    def start_job(self, action, paths, choices):
+    def start_job(self, action, paths, choices, extra=None):
         self.busy = action
         self.with_props = action == 'bake' and choices.props and self.tools.fracture is not None
         self.with_particles = action == 'bake' and choices.kid_particles and \
             core.kidfx_for(self.tools, paths) is not None
         self.say({'bake': 'Baking for profile "%s"...' % paths.profile, 'remove': 'Removing the bake...',
+                  'repair': 'Repairing: putting Umbra Gore & Effects and its bake where the game loads them...',
                   'props': 'Cutting props...',
                   'kidfx_apply': "Kid mode for particles: pointing gory effects at Umbra Effects' particle shaders...",
                   'kidfx_revert': "Kid mode for particles: setting every effect back to the game's own shaders..."}[action])
         try:
-            self.job = core.Job(self.tools, action, paths, choices).start()
+            self.job = core.Job(self.tools, action, paths, choices, extra=extra).start()
         except Exception as e:  # noqa: BLE001
             self.busy = None
             self.job = None
@@ -932,7 +974,7 @@ class App:
                 if f > 0.08 and ev.get('stage') == 'bake':
                     left = ', about %s left' % core.human_seconds(elapsed * (1 - f) / f)
                 count = (' %d / %d' % (ev['done'], ev['total'])) if ev.get('total', 0) > 1 else ''
-                if ev.get('task') == 'download' and ev.get('stage') == 'download':
+                if ev.get('stage') in ('download', 'pack'):
                     count = ''                  # bytes: the message says them
                 self.l_progress.configure(text='%s%s (%s)%s' % (stage, count, ev.get('msg', ''), left))
                 if ev.get('stage') == 'install' and ev.get('done', 0) == 0:
@@ -976,6 +1018,25 @@ class App:
                 text += '\n\nStart the game through MO2 as usual.'
                 if not self.closing:
                     messagebox.showinfo('Umbra Effects Setup', text)
+            elif action == 'repair':
+                lines = ev.get('lines') or [ev.get('msg', 'Done.')]
+                done = ev.get('summary') or {}
+                there = done.get('loaded')
+                if not self.closing and there and not done.get('this_is_loaded') and core.setup_program_in(there):
+                    # the next step (Bake) happens in the copy the game loads: open Setup there
+                    if messagebox.askyesno('Umbra Effects Setup', '\n\n'.join(lines) + '\n\nOpen Umbra Effects Setup from '
+                                           '"%s" now, to bake there? (This window closes.)' % os.path.basename(there)):
+                        try:
+                            core.open_setup_in(there)
+                        except Exception as e:  # noqa: BLE001
+                            messagebox.showerror('Umbra Effects Setup', core.friendly(e))
+                        else:
+                            self.closing = True
+                            self.root.after(300, self.root.destroy)
+                            return
+                elif not self.closing:
+                    messagebox.showinfo('Umbra Effects Setup', '\n\n'.join(lines))
+                self.paths_changed()
             elif action in ('kidfx_apply', 'kidfx_revert'):
                 # what a later bake does follows what was just chosen (as last_choices does)
                 self.v['kid_particles'].set(action == 'kidfx_apply')

@@ -4,6 +4,48 @@ What changed in each version of Umbra Gore & Effects, newest first. Up to 1.7.1 
 called Zone Gore Overhaul (ZGO). The player's guide is [README.md](README.md).
 
 
+## 1.8.3
+
+- **Co-op: cuts, stumps and gibs on a partner's screen.** A player whose bake the game isn't
+  using saw the host's gibs as random props or meat, and no cuts or stumps, without a word why.
+  Now the game log says why (`[ZGO] ... body bake ... is not in use: ...`: unticked in MO2,
+  missing, unreadable, or the option "Use baked models" off), the handshake tells the other
+  players that this player has no bake, and Umbra Effects Setup's check says "The bake is up to
+  date, but the game doesn't use it" with the reason. Fix the reason and the cuts show.
+- **Umbra Effects Setup sets the mod up in MO2, and bakes only where the game looks.** Run from
+  the unpacked zip before the mod was installed in MO2, or from a copy MO2 doesn't load, it used
+  to bake there, and the game never saw that bake. Now it won't bake or download there. Started
+  from the unpacked zip, its **Install into MO2** button copies the mod into MO2's mods folder as
+  "Umbra Gore & Effects", ticks it in your profile at the top of the load order (under xrRazom),
+  moves a bake already made there along, and opens Setup from the installed copy to bake. The
+  same button, **Repair** otherwise (`--repair`), ticks an installed copy that isn't ticked,
+  moves a bake that still fits your mod list into the copy the game loads, removes bakes no copy
+  the game loads uses, and clears what a cut-off download left. It ticks only while Mod
+  Organizer 2 is closed (MO2 rewrites its mod list when it closes) and asks you to close it
+  first. Baked files end up only in the mod folder the game loads.
+- Baking here after the ready-made bake didn't fit no longer leaves the report it compared in a
+  temporary folder inside the mod.
+- Bodies you walk away from and come back to keep their cuts and stump caps (they were shown
+  whole again once the game had unloaded them).
+- In co-op, the host's gibs fly the same way on every screen, and the pieces match when they are
+  sent again to a player who joins later.
+- **Smaller, faster ready-made bake.** It now comes already packed: about 3.5 GB to download
+  instead of 4.7 GB, and 4,900 files instead of 84,000, with no packing step afterwards. Three
+  parts download at once, and each is unpacked as soon as it is in; on a fast connection the
+  G.A.M.M.A. bake is in place in about a minute and a half. A part that arrives damaged is
+  fetched once more, an up-to-date bake is not downloaded again, and a download cut off by a
+  crash no longer leaves a temporary folder in the mod for the game to read.
+- **Faster game start:** the mod's own 4,455 textures are now in one archive,
+  `db/mods/zgo_static.db0`, instead of loose files. If you install by hand over an older
+  version, delete the old `gamedata/textures/zgo` folder and the `wm_blood_zgo_*` files in
+  `gamedata/textures/wm` first: loose copies would win over the archive and keep the start slow.
+- The cut shader that hides the body inside the model is only used on DirectX 10 and 11, as
+  wounds already did. One part of the mod failing on a level change, save or load no longer
+  stops the others.
+- For Umbra's installer: `--adopt-dates --yes` records this computer's file dates in a
+  ready-made bake that another program downloaded.
+
+
 ## 1.8.2
 
 - **Much faster game start.** The bake's small parts (stump caps, limb pieces and gibs: about

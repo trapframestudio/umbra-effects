@@ -1,0 +1,8 @@
+--[[
+Umbra Gore & Effects game bed only (dev/gamebed; never shipped). At the main menu the game runs
+no on_game_start, only dxml's gather of the modxml_ scripts: this hands the main menu to the
+driver, so the co-op client can join the host from there.
+--]]
+function on_xml_read()
+	RegisterScriptCallback("main_menu_on_init", function(menu) zz_zgo_gamebed.on_menu(menu) end)
+end

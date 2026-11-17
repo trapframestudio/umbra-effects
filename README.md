@@ -87,7 +87,7 @@ models: drag Umbra Gore & Effects below it in MO2.
 Press **Bake**. With "Download a ready-made bake when one fits" ticked (the default), Umbra
 Effects Setup first looks on Umbra's public download server for a bake made for G.A.M.M.A.'s
 own mod list. If it fits your mod list and your bake settings, it downloads it
-(about 4.7 GB) instead of baking. Otherwise, or if the download fails, it bakes on your
+(about 3.5 GB) instead of baking. Otherwise, or if the download fails, it bakes on your
 computer: about 3 minutes for G.A.M.M.A., with a progress bar. **Cancel** leaves everything as
 it was; nothing in the mod's folder changes until the bake is complete.
 
@@ -132,7 +132,9 @@ stalker), and distant NPCs lose the models' built-in level of detail. In testing
 noticeable FPS loss in a crowded base.
 
 **Co-op:** every player runs Umbra Effects Setup for their own mod list. A player without a
-bake just sees fewer cuts on corpses; Umbra Effects tells them so when they join.
+bake in use (none, or "Use baked models" off) misses many cuts on bodies, with their severed
+limbs and stump caps, and sees meat gibs; Umbra Effects tells them so when they join, and the
+game log's `[ZGO]` lines say why the bake is not used.
 
 ### Experimental ways of drawing a cut
 
@@ -533,6 +535,17 @@ co-op; leave it off there.
   the game reads each one through MO2 at every start (the log's `Init FileSystem` line says how
   long that took). Press "Check if my bake is up to date" in Umbra Effects Setup; if it says the
   bake needs packing, press **Bake** (or run `--pack --yes`).
+- **Cuts, stumps or gibs don't show (a co-op partner sees props or meat instead):** run
+  "Check if my bake is up to date" in Umbra Effects Setup on that computer. "The bake is up to
+  date, but the game doesn't use it" names the reason: Umbra Gore & Effects unticked in MO2, a
+  copy outside MO2's mods folder, or the MCM option "Use baked models" off. The game log's
+  `[ZGO]` lines say the same (`body bake ... is not in use`).
+- **You baked before installing the mod in MO2** (Setup run from the unpacked zip), **or in
+  another copy than the one MO2 loads:** the game never sees that bake. Close MO2, start Umbra
+  Effects Setup from that copy, choose MO2's folder and profile, and press **Install into MO2**
+  (or **Repair**): it installs the copy into MO2 and ticks it if MO2 has none, and moves the bake
+  into the copy the game loads (or removes it if it no longer fits your mod list), then offers to
+  open Setup from the installed copy. Setup won't bake anywhere else.
 - **The game crashed while loading:** before you start it again, copy
   `appdata\logs\xray_<name>.log` from the game's folder somewhere safe: the next start
   overwrites it, and the end of that log says why it crashed.

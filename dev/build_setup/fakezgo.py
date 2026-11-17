@@ -258,11 +258,12 @@ def _path_forms(path):
     return sorted(forms, key=lambda f: -len(f[1]))
 
 
-def publish_bake(out, bucket, mo2, anomaly, caches, profile, zgo_folder, volume_files=3):
+def publish_bake(out, bucket, mo2, anomaly, caches, profile, zgo_folder, volume_files=3, index=True):
     """Pack the bake in out the way Umbra's dev/pack_build.py does into bucket (a folder laid
     out like the bucket, see tools/zgo_setup/prebaked.py): this machine's paths and the
     profile and folder names become @@UMBRA_*@@ tokens, a report volume, volumes, the
-    manifest and umbra-effects/index.json. Returns (manifest, its index entry)."""
+    manifest and umbra-effects/index.json (index=False: not that). A bake with its parts in
+    archives goes up as format 2, LZMA volumes. Returns (manifest, its index entry)."""
     import hashlib
     import re
     import zipfile
@@ -314,21 +315,23 @@ def publish_bake(out, bucket, mo2, anomaly, caches, profile, zgo_folder, volume_
     fp = rep['inputs']['fingerprint']
     rest = [r for r in data if r not in reports]
     vols = [reports] + [rest[i:i + volume_files] for i in range(0, len(rest), volume_files)]
+    packed = any(bake.is_archive(r) for r in rest)
+    method = zipfile.ZIP_LZMA if packed else zipfile.ZIP_DEFLATED
     d = os.path.join(bucket, 'umbra-effects', fp)
     os.makedirs(d, exist_ok=True)
     objs = []
     for v in vols:
         tmp = os.path.join(d, 'volume.tmp')
-        with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as z:
+        with zipfile.ZipFile(tmp, 'w', method) as z:
             for rel in v:
-                z.writestr(zipfile.ZipInfo(rel, (2020, 1, 1, 0, 0, 0)), data[rel], zipfile.ZIP_DEFLATED)
+                z.writestr(zipfile.ZipInfo(rel, (2020, 1, 1, 0, 0, 0)), data[rel], method)
         with open(tmp, 'rb') as f:
             sha = hashlib.sha256(f.read()).hexdigest()
         os.replace(tmp, os.path.join(d, sha + '.zip'))
         objs.append({'path': 'umbra-effects/%s/%s.zip' % (fp, sha), 'sha256': sha,
                      'size': os.path.getsize(os.path.join(d, sha + '.zip')), 'files': len(v),
                      'bytes': sum(len(data[r]) for r in v)})
-    man = {'format': 1, 'kind': 'umbra-effects-bake', 'fingerprint': fp, 'baker': rep['inputs'].get('baker', 0),
+    man = {'format': 2 if packed else 1, 'kind': 'umbra-effects-bake', 'fingerprint': fp, 'baker': rep['inputs'].get('baker', 0),
            'zgo': rep['inputs'].get('zgo', ''), 'made': rep.get('time', ''), 'models': rep.get('baked', 0),
            'files': len(data), 'bytes': sum(len(x) for x in data.values()), 'relocate': sorted(relocate),
            'report': objs[0], 'volumes': objs[1:]}
@@ -337,9 +340,10 @@ def publish_bake(out, bucket, mo2, anomaly, caches, profile, zgo_folder, volume_
     with open(os.path.join(d, sha + '.json'), 'wb') as f:
         f.write(blob)
     entry = {'path': 'umbra-effects/%s/%s.json' % (fp, sha), 'sha256': sha, 'size': len(blob), 'fingerprint': fp,
-             'baker': man['baker'], 'zgo': man['zgo'], 'made': man['made'], 'models': man['models'],
+             'format': man['format'], 'baker': man['baker'], 'zgo': man['zgo'], 'made': man['made'], 'models': man['models'],
              'download': sum(o['size'] for o in objs[1:]), 'bytes': man['bytes']}
-    write_index(bucket, [entry])
+    if index:
+        write_index(bucket, [entry])
     return man, entry
 
 

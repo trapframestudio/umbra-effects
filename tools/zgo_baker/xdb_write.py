@@ -31,6 +31,7 @@ the tests), at about 70% of the input: the tables are small.
 """
 import os
 import struct
+import time
 import zlib
 
 import xdb
@@ -242,11 +243,38 @@ def archive_name(rel):
     return rel[len('gamedata/'):].replace('/', '\\')
 
 
-def write_archive(dest, files, on_file=None, stop=None):
+DATA_MAX = 0x7FFFFFFF - 8   # the engine skips the data chunk with a signed 32-bit seek (LocatorAPI.cpp)
+
+
+def replace(src, dst, tries=20):
+    """os.replace, retried for a few seconds on Windows when a virus scanner holds the new file."""
+    for n in range(tries):
+        try:
+            return os.replace(src, dst)
+        except PermissionError:
+            if os.name != 'nt' or n + 1 == tries:
+                raise
+            time.sleep(0.25)
+
+
+def write_archive(dest, files, on_file=None, stop=None, consume=False):
     """Write one archive at dest from files: [(rel under gamedata/, source path)].
-    Written to dest + '.part', then renamed. Returns its size."""
+    Written to dest + '.part', then renamed; nothing is left behind when it stops or fails.
+    consume: delete each source once it is in (the bake's own temporary copies: the disk then
+    never holds both). Returns its size, or None when stop() said so."""
     tmp = dest + '.part'
     os.makedirs(os.path.dirname(dest) or '.', exist_ok=True)
+    try:
+        return _write_archive(dest, tmp, files, on_file, stop, consume)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _write_archive(dest, tmp, files, on_file, stop, consume):
     hdr = HEADER.encode('latin-1')
     table = bytearray()
     dirs = set()
@@ -269,9 +297,11 @@ def write_archive(dest, files, on_file=None, stop=None):
             with open(src, 'rb') as f:
                 b = f.read()
             off = out.tell()
-            if off + len(b) > 0xFFFFFFFF:
-                raise BadArchive('archive over 4 GB')
+            if off + len(b) - data_at > DATA_MAX:
+                raise BadArchive('archive over 2 GB')
             out.write(b)
+            if consume:
+                os.remove(src)
             name = archive_name(rel).encode('latin-1')
             crc = zlib.crc32(b) & 0xFFFFFFFF
             table += struct.pack('<HIII', 16 + len(name), len(b), len(b), crc) + name + struct.pack('<I', off)
@@ -286,12 +316,14 @@ def write_archive(dest, files, on_file=None, stop=None):
         size = out.tell()
         out.flush()
         os.fsync(out.fileno())
-    os.replace(tmp, dest)
+    replace(tmp, dest)
     return size
 
 
-def plan_archives(files, limit=LIMIT):
-    """Split [(rel, source, size)] (in order) into lists for archives of at most limit bytes."""
+def plan_archives(files, limit=None):
+    """Split [(rel, source, size)] (in order) into lists for archives of at most limit bytes
+    (LIMIT when not given, read when called)."""
+    limit = LIMIT if limit is None else limit
     groups, cur, cur_size = [], [], 0
     for rel, src, size in files:
         if cur and cur_size + size > limit:

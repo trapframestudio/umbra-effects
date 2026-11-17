@@ -225,11 +225,12 @@ for _, n in ipairs(SHAPED) do SHAPED_SET[n] = true end
 -- is bone b of o gone from view? (hidden, and not held by a physics element)
 -- On a baked model a hidden section is dropped by the renderer, but a part
 -- hidden before the ragdoll existed has no element: the joint above it
--- pinches (counted as a failure).
+-- pinches (counted as a failure). o._wears_unbaked: this body wears another
+-- model than the bake's (another mod's file wins), so it is judged un-baked.
 function VISIBLY_GONE(o, b)
 	if not o._hidden[b] then return false end
 	local sh = o:get_physics_shell()
-	if BAKED then
+	if BAKED and not o._wears_unbaked then
 		if SHAPED_SET[b] and sh and not sh.el[b] then return false, "pinched" end
 		return true
 	end

@@ -23,6 +23,8 @@ Treat every field below as a contract. A change bumps the file's `version`.
 
 The library API that the setup GUI calls is documented in [bake-api.md](bake-api.md).
 
+Not a bake output, but the same archive format: the mod's own textures ship in `db/mods/zgo_static.db0`, described in [static.md](static.md).
+
 ## Rules that hold for every output
 
 - **The default bake leaves the models as they were.** Splitting into sections is all a default bake does to a model. With the default options, every baked model is byte-identical to a 1.6 bake (`tests/baker/test_bake.py` checks this). Caps, pieces and sites are separate files that nothing loads until the runtime asks for them. Only the experimental flags add sub-meshes (K_s, D_s) to the models, and those sub-meshes come after the model's own.

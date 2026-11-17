@@ -779,11 +779,11 @@ end
 
 local function on_line(t)
 	if t[2] == "w" then
-		if #t < 5 then return end
+		if #t < 5 then U.dbg("Y|w line dropped: %s fields", #t) return end
 		local id = tonumber(t[3])
-		if not id then return end
+		if not id then U.dbg("Y|w line dropped: body id %s", tostring(t[3])) return end
 		local entries = t[5] == "-" and {} or decode(t[5])
-		if #entries == 0 and t[5] ~= "-" then return end     -- (not a line the host sends)
+		if #entries == 0 and t[5] ~= "-" then U.dbg("Y|w line dropped: wounds of id %s unreadable", id) return end     -- (not a line the host sends)
 		local st = npcs[id]
 		if not st or st.s ~= t[4] then
 			if st then forget(id) end
@@ -791,20 +791,24 @@ local function on_line(t)
 			npcs[id] = st
 		end
 		st.raw, st.t = entries, time_global()
-		resolve_raw(id, st)
+		if not resolve_raw(id, st) then
+			U.dbg("Y|w: wounds of id %s (%s) kept for later: the body is not here or has no baked wound sites", id, t[4])
+		end
 		st.dirty = true
 	elseif t[2] == "g" then
-		if #t < 11 then return end
+		if #t < 11 then U.dbg("Y|g line dropped: %s fields", #t) return end
 		local pos = U.v3(tonumber(t[4]) or 0, tonumber(t[5]) or 0, tonumber(t[6]) or 0)
 		local dir = U.v3(tonumber(t[7]) or 0, tonumber(t[8]) or 1, tonumber(t[9]) or 0)
 		local n, seed = U.clamp(tonumber(t[10]) or 1, 1, 6), tonumber(t[11])
 		local obj = U.resolve(t[3])
+		if not obj then U.dbg("Y|g: body %s is not here: its chunks are meat models", tostring(t[3])) end
 		-- (1.7: section and bind point follow; this machine's own nearest site of it)
 		local sec, idx = t[12], nil
 		local bx, by, bz = tonumber(t[13]), tonumber(t[14]), tonumber(t[15])
 		if obj and sec and bx and by and bz then
 			local oks, site, dist = pcall(zgo_bake.nearest_site, obj, sec, { x = bx / 1000, y = by / 1000, z = bz / 1000 })
-			if oks and site and dist and dist <= 0.08 then idx = site.index end
+			if oks and site and dist and dist <= 0.08 then idx = site.index
+			else U.dbg("Y|g: no baked wound site of %s near the host's on body %s: gibs instead of its chunk", sec, tostring(t[3])) end
 		end
 		local ok, err = pcall(zgo_debris.spawn_chunks, obj, idx and sec or nil, idx, pos, dir, n, seed)
 		if not ok then U.log("wound chunks failed: %s", tostring(err)) end

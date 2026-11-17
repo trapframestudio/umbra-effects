@@ -11,12 +11,38 @@ arg = { S .. "/../gamedata/scripts", role }
 -- what this machine baked (the generated scripts only count when their file exists)
 local BODY = os.getenv("ZGO_HS_BODY")
 local PROPS = os.getenv("ZGO_HS_PROPS")
+-- with a body bake: its index has models ("models", the default), lists none
+-- ("empty") or is not there ("none"); ZGO_HS_BAKED_OFF=1: MCM "Use baked models" off
+local INDEX = os.getenv("ZGO_HS_INDEX") or "models"
+local BAKED_OFF = os.getenv("ZGO_HS_BAKED_OFF") == "1"
+-- a body bake counts only while it is in use here; partners are told "-" otherwise
+local IN_USE = BODY ~= nil and INDEX == "models" and not BAKED_OFF
+local MY_BODY = IN_USE and BODY or "-"
+local WHY   -- the reason the log gives (nil: nothing to say)
+if BODY and not IN_USE then
+	WHY = (BAKED_OFF and "\"Use baked models\" is off on this machine")
+		or (INDEX == "none" and "the game finds no zgo_bake_index.script") or "zgo_bake_index.script lists no models"
+end
 
 dofile(S .. "/zgo_harness.lua")
 math.randomseed(seed)
 if BODY then
 	FS_FILES["$game_scripts$|zgo_bake_inputs.script"] = true
 	rawset(_G, "zgo_bake_inputs", { fingerprint = BODY, bake_id = "local-" .. seed })
+	if INDEX ~= "none" then
+		FS_FILES["$game_scripts$|zgo_bake_index.script"] = true
+		rawset(_G, "zgo_bake_index", { bake_id = "local-" .. seed,
+			models = INDEX == "empty" and {} or { ["actors\\stalker_neutral\\stalker_neutral_1"] = { bip01_head = true } } })
+	else
+		-- (ZGO_BAKED=1 gave the harness an index)
+		FS_FILES["$game_scripts$|zgo_bake_index.script"] = nil
+		rawset(_G, "zgo_bake_index", nil)
+	end
+	zgo_bake.reset()
+end
+if BAKED_OFF then
+	local base = zgo_util.setting
+	zgo_util.setting = function(k) if k == "dismember/baked_models" then return false end return base(k) end
 end
 if PROPS then
 	FS_FILES["$game_scripts$|zgo_props_fracture_index.script"] = true
@@ -30,6 +56,16 @@ local fails = 0
 local function check(ok, msg) if not ok then fails = fails + 1 print("  FAIL " .. msg) end return ok end
 local function section(t) print(("\n== %s"):format(t)) end
 local function logs(pat) local n = 0 for _, l in ipairs(LOG) do if l:find(pat, 1, true) then n = n + 1 end end return n end
+-- the handshake's own notices (the bake check, zgo_setup_notice, has another caption)
+local function hs_news() local n = 0 for _, e in ipairs(NEWS) do if e.caption:find("(co-op)", 1, true) then n = n + 1 end end return n end
+-- the local line that says why a body bake is not in use (once)
+local function check_why()
+	if WHY then
+		check(logs("co-op handshake: this machine's body bake " .. BODY .. " is not in use: " .. WHY) == 1, "the log says once why the bake is not in use: " .. WHY)
+	else
+		check(logs("is not in use") == 0, "nothing said about a bake that is in use")
+	end
+end
 local function lines(list, kind)
 	local out = {}
 	for _, b in ipairs(list) do for l in b:gmatch("[^\n]+") do if l:sub(1, #kind + 1) == kind .. "|" then out[#out + 1] = l end end end
@@ -74,7 +110,7 @@ if role == "sp" then
 	check(#lines(SENT, "V") == 0, "no V line without co-op peers")
 	local m = H.mine()
 	check(m.version == VERSION, "version")
-	check(m.body == (BODY or "-") and m.props == (PROPS or "-"), "bakes: " .. m.body .. " " .. m.props)
+	check(m.body == MY_BODY and m.props == (PROPS or "-"), "bakes: " .. m.body .. " " .. m.props)
 	print(("  this machine: ZGO %s, body bake %s, props bake %s"):format(m.version, m.body, m.props))
 
 	section("Comparing")
@@ -97,6 +133,13 @@ if role == "sp" then
 		print(("  notice (%s): %s"):format(l == 1 and "en" or "ru", l == 1 and t or (#c .. " bytes in cp1251")))
 	end
 
+	-- no bake in use here: the notice says what goes missing and where to look
+	for l = 1, 2 do
+		local t = H.notice_text({ { "body_none_here" } }, l)
+		check(not H.to_cp1251(t):find("?", 1, true), "the no-bake notice converts to Windows-1251 without loss (" .. l .. ")")
+		if l == 1 then check(t:find("Use baked models", 1, true) and t:find("[ZGO]", 1, true), "it names the option and the log lines") end
+	end
+
 	section("The older protocols are only noted in the log")
 	-- (the harness's xrRazom mock exists only in co-op roles)
 
@@ -112,11 +155,16 @@ if role == "sp" then
 		{ "host", "ZGO_HS_BODY=fp1 ZGO_HS_PROPS=pp1" },
 		{ "client", "ZGO_HS_BODY=fp1 ZGO_HS_PROPS=pp1" },
 		{ "client", "ZGO_HS_PROPS=pp1" },
+		-- a bake that is not in use counts as none, and the log says why
+		{ "host", "ZGO_HS_BODY=fp1 ZGO_HS_PROPS=pp1 ZGO_HS_INDEX=none" },
+		{ "client", "ZGO_HS_BODY=fp1 ZGO_HS_PROPS=pp1 ZGO_HS_INDEX=none" },
+		{ "client", "ZGO_HS_BODY=fp1 ZGO_HS_PROPS=pp1 ZGO_HS_INDEX=empty" },
+		{ "client", "ZGO_HS_BODY=fp1 ZGO_HS_PROPS=pp1 ZGO_HS_BAKED_OFF=1" },
 	}) do
 		local out, last = role_run(case[1], case[2])
 		local ok = last:find("OK", 1, true) ~= nil
 		check(ok, case[1] .. " (" .. case[2] .. ") failed:\n" .. out)
-		print(("  %-6s %-34s %s"):format(case[1], case[2], ok and "ok" or "FAILED"))
+		print(("  %-6s %-58s %s"):format(case[1], case[2], ok and "ok" or "FAILED"))
 	end
 
 	section("Errors")
@@ -129,7 +177,7 @@ elseif role == "host" then
 	run(200)
 	local v = lines(SENT, "V")
 	check(#v == 1, "one V line at start, got " .. #v)
-	local want = ("V|h|%s|%s|%s"):format(VERSION, BODY or "-", PROPS or "-")
+	local want = ("V|h|%s|%s|%s"):format(VERSION, MY_BODY, PROPS or "-")
 	check(v[1] == want, ("the line is %s, got %s"):format(want, tostring(v[1])))
 	run(10000)
 	check(#lines(SENT, "V") == 1, "nothing more within 30 s")
@@ -145,7 +193,7 @@ elseif role == "host" then
 	XrrPeerCount = 1
 
 	section("Host: a client's answer is logged, once, play goes on")
-	DISPATCH(zgo_sync.EVT_UP, ("V|c|%s|%s|%s"):format(VERSION, BODY or "-", PROPS or "-"), "2")
+	DISPATCH(zgo_sync.EVT_UP, ("V|c|%s|%s|%s"):format(VERSION, MY_BODY, PROPS or "-"), "2")
 	run(50)
 	check(logs("differs from this host") == 0, "the same values: nothing logged")
 	DISPATCH(zgo_sync.EVT_UP, "V|c|1.6.9|-|-", "3")
@@ -153,7 +201,8 @@ elseif role == "host" then
 	DISPATCH(zgo_sync.EVT_UP, "V|c", "4")
 	run(50)
 	check(logs("co-op player 3 differs from this host: Umbra Effects 1.6.9") == 1, "a different player is logged once")
-	check(#NEWS == 0, "the host shows no notice")
+	check(hs_news() == 0, "the host shows no notice")
+	check_why()
 	-- the older protocols are noted once in the log, nothing else happens
 	DISPATCH("zgo:sync2", "W|x")
 	DISPATCH("zgo:up2", "H|x")
@@ -163,36 +212,37 @@ elseif role == "host" then
 
 else
 	section("Client: compares with the host, says so once, answers")
-	local me = ("%s|%s|%s"):format(VERSION, BODY or "-", PROPS or "-")
+	local me = ("%s|%s|%s"):format(VERSION, MY_BODY, PROPS or "-")
 	-- the same as this machine: no notice
 	DISPATCH(zgo_sync.EVT, "V|h|" .. me)
 	run(50)
 	check(#lines(UP, "V") == 1 and lines(UP, "V")[1] == "V|c|" .. me, "the client answers with its own values")
-	check(#NEWS == 0 and logs("differs from the host") == 0, "the same values: no notice")
+	check(hs_news() == 0 and logs("differs from the host") == 0, "the same values: no notice")
 	-- a host on another version and bake: one notice, in the log too
 	DISPATCH(zgo_sync.EVT, "V|h|1.7.1|fp9|pp1")
 	run(50)
 	DISPATCH(zgo_sync.EVT, "V|h|1.7.1|fp9|pp1")
 	run(50)
-	check(#NEWS == 1, "one notice for one difference, got " .. #NEWS)
+	check(hs_news() == 1, "one notice for one difference, got " .. hs_news())
 	check(logs("this machine differs from the host: Umbra Effects " .. VERSION .. " (host 1.7.1)") == 1, "logged once")
 	local t = H.last_shown() or ""
 	check(t:find("1.7.1", 1, true), "the notice names the host's version")
-	if BODY then check(t:find("differ from the host's", 1, true), "the notice says the bakes differ")
-	else check(t:find("you don't", 1, true), "the notice says this machine has no bake") end
+	if MY_BODY ~= "-" then check(t:find("differ from the host's", 1, true), "the notice says the bakes differ")
+	else check(t:find("none are in use on your computer", 1, true), "the notice says this machine has no bake in use") end
 	check(NEWS[1] and not NEWS[1].msg:find("[\128-\255]") or true, "news text")
 	-- rubbish is ignored
 	DISPATCH(zgo_sync.EVT, "V|h|1.7.0")
 	DISPATCH(zgo_sync.EVT, "V|x|1|2|3")
 	run(50)
-	check(#NEWS == 1, "short or unknown V lines are ignored")
+	check(hs_news() == 1, "short or unknown V lines are ignored")
 	-- ZGO switched off on this machine: lines are not handled at all
 	local old = zgo_util.setting
 	zgo_util.setting = function(k) if k == "general/enable" then return false end return old(k) end
 	DISPATCH(zgo_sync.EVT, "V|h|2.0.0|x|y")
 	run(50)
 	zgo_util.setting = old
-	check(#NEWS == 1, "nothing while ZGO is switched off here")
+	check(hs_news() == 1, "nothing while ZGO is switched off here")
+	check_why()
 	check(#lines(SENT, "V") == 0, "a client never announces")
 	for _, l in ipairs(LOG) do if l:find("error") then fails = fails + 1 print("  ERR " .. l) end end
 	print(fails == 0 and "HANDSHAKE CLIENT OK" or "HANDSHAKE CLIENT FAILED")

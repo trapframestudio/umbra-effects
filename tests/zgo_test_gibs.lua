@@ -196,4 +196,70 @@ assert(D.spawn_gibs(head, VV(0, 1, 0), 2, npc, 5) == nil and #gib_atts() == 0, "
 OVR["dismember/gibs"] = nil
 assert(errs() == 0)
 
+------------------------------------------------------------------------
+section("Co-op: a client given the host's pieces throws them the same way, and remembers them")
+-- where every gib of the last burst is after a while in the air
+local function flight()
+	local out = {}
+	for _, it in ipairs(zgo_debris.list()) do
+		out[#out + 1] = ("%s@%.4f,%.4f,%.4f"):format(tostring(next(it.mats) or it.kind), it.body.a.x, it.body.a.y, it.body.a.z)
+	end
+	table.sort(out)
+	return table.concat(out, " ")
+end
+local function burst_pieces()
+	local out = {}
+	for _, a in ipairs(gib_atts()) do out[#out + 1] = shown_piece(a) end
+	table.sort(out)
+	return table.concat(out, ",")
+end
+local function lines(kind)
+	local out = {}
+	for _, b in ipairs(SENT) do
+		for l in (b .. "\n"):gmatch("([^\n]*)\n") do if l:sub(1, #kind) == kind then out[#out + 1] = l end end
+	end
+	return out
+end
+-- a fresh body (nothing thrown from it yet) on a fresh module, then the
+-- same lines on another fresh module (a client: no choosing, its own memory)
+local npc5 = NEW_NPC(401, "stalker", VV(2, 0, 2))
+npc5._alive, npc5.health = false, 0
+local function fresh_debris()
+	zgo_debris.reset()
+	for name in pairs(LEVEL_ATT) do LEVEL_ATT[name] = nil end
+	rawset(_G, "zgo_debris", nil)   -- (loaded again on the next use: empty memory)
+end
+fresh_debris()
+SENT = {}
+-- host: a head burst (G), then a wound's chunk burst on the same body (Y|g:
+-- every machine chooses those itself, from the pieces already thrown)
+U.defer(zgo_dismember.spawn_gibs, npc5:bone_position("bip01_head"), VV(0, 1, 0), 2, npc5)
+frame(0)
+zgo_sync.flush()
+run(300)
+local host_flight = flight()
+local g = lines("G|")[1]
+assert(g, "a G line went out")
+for name in pairs(LEVEL_ATT) do LEVEL_ATT[name] = nil end
+zgo_debris.reset()
+local p = npc5:bone_position("bip01_spine1")
+zgo_debris.spawn_chunks(npc5, nil, nil, p, VV(0, 1, 0), 2, 777)
+local host_chunks = burst_pieces()
+-- client
+fresh_debris()
+DISPATCH(zgo_sync.EVT, g)
+frame(0)
+run(300)
+local client_flight = flight()
+print("  host   " .. host_flight .. "\n  client " .. client_flight)
+assert(host_flight ~= "" and client_flight == host_flight, "the host's pieces fly the same way on the client")
+for name in pairs(LEVEL_ATT) do LEVEL_ATT[name] = nil end
+zgo_debris.reset()
+DISPATCH(zgo_sync.EVT, ("Y|g|401|%.3f|%.3f|%.3f|0|1|0|2|777"):format(p.x, p.y, p.z))
+frame(0)
+local client_chunks = burst_pieces()
+print(("  then a chunk burst: host pieces %s, client %s"):format(host_chunks, client_chunks))
+assert(host_chunks ~= "" and client_chunks == host_chunks, "the same pieces after the G line")
+assert(errs() == 0)
+
 print("\nALL GIBS TESTS PASSED")

@@ -63,12 +63,16 @@ zip); `docs/PLAN.md` is the roadmap; `docs/discovery/` holds the engine research
 The dev container: `dev/setup.sh` makes the distrobox `zgo-dev`; `dev/run.sh <cmd>` runs a
 command in it from the repo root.
 
-    dev/run.sh dev/test-all.sh                       # core Lua matrix: 70 runs
+    dev/run.sh dev/test-all.sh                       # core Lua matrix: 76 runs (5 of them mixed-bake co-op, 1 respawn)
     dev/run.sh bash -c 'cd tests && luajit zgo_test_world.lua 1'    # the other Lua suites
     dev/run.sh python3 tests/baker/test_bake.py      # also test_geometry.py, test_xdb_write.py (the bake's archives)
     dev/run.sh python3 dev/build_setup/test_setup.py
     python3 tests/kidfx/test_particles_xr.py          # particles.xr <-> loose .pe/.pg; kid mode's colour rule
     dev/run.sh make -C native test
+    python3 dev/gamebed/gamebed.py run                # the real game, headless: cuts, caps, gibs, respawn (dev/gamebed/README.md)
+    python3 dev/gamebed/gamebed.py coop               # host + client over xrRazom LAN on 127.0.0.1
+
+The game bed runs on the host (not in the container) and only reads the MO2 install.
 
 Always use timeouts: a baker test run once hung for 10 hours. The host's Python (Fedora 45) has no
 numpy, so the baker and Setup suites only run in the container (`build.sh`'s last step, which runs
@@ -76,10 +80,8 @@ the setup tests on the host, fails for that reason only).
 
 Known stale failures as of 1.8.0 (they fail on the original 1.7.0 files too; the dev tree was
 rebuilt after a loss and some tests weren't updated):
-- `settings`: the kid-mode lane at line 170, which is 10 of test-all's 70 runs;
+- `settings`: the kid-mode lane at line 170, which is 10 of test-all's 76 runs;
 - `world`, `wounds`, `cuts`, `setup`, `props`, `probe`;
-- `handshake`: the host run gets the "not baked yet" notice (the harness has no bake), where it
-  expects no notice;
 - `kidfx` and `native`: files missing (`native/` lacks `src/zgo_pe.c` and `include/`);
 - baker: `test_damage_mesh`, `test_progress_report_manifest_remove`;
 - `test_setup.py`: 4 tests (`TestBakeAndCheck` 1, `TestKidfx` 1, `TestLuaReader` 2). Run it in

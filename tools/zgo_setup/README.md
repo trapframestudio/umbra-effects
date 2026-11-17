@@ -11,7 +11,8 @@ and about 7.2 GB (most of it the limb pieces, which you can untick).
 **Ready-made bakes.** Umbra publishes the bake it made for G.A.M.M.A. as it ships.
 With "Download a ready-made bake when one fits" ticked (the default), Bake first
 compares that bake with your mod list and your ticks; when it fits, it downloads it
-(about 4.7 GB) and puts it in place instead of baking, checking every file. When
+(about 3.5 GB, its small parts already packed into archives) and puts it in place
+instead of baking, checking every file as it arrives. When
 it does not fit, or the download fails, it bakes on your computer as before. A
 download that was cut off carries on where it stopped the next time. The work
 files go to the baker's work folder (`--cache`), and are removed once the bake is in.
@@ -60,11 +61,25 @@ Keep the program in this folder: it runs the baker that came with this Umbra Eff
   a mod that loads after Umbra Effects replaces baked models: drag Umbra Gore & Effects below it in MO2.
 - **Your bake**: whether the bake still matches your mod list, and if not,
   why (a mod was added, removed, reordered or updated; Umbra Effects was updated; the
-  game changed) and what to do.
+  game changed) and what to do. It also says when a bake that is right won't be used:
+  Umbra Gore & Effects is unticked in MO2, the folder isn't one of MO2's mods, or the
+  MCM option "Use baked models" is off.
 - **Bake** (with a progress bar and **Cancel**: nothing in the Umbra Effects folder
   changes until the bake is complete), **Check if my bake is up to date**,
   **Remove bake** (also removes the copies of other mods' particle effects;
-  Umbra Effects' own particle shader changes stay), **Cut props only**.
+  Umbra Effects' own particle shader changes stay), **Repair**, **Cut props only**.
+- Setup bakes only into the copy of Umbra Gore & Effects the game loads (in MO2's mods
+  folder, ticked in the profile), and only when it was started from that copy. Started from
+  the unpacked zip before the mod was installed in MO2, or from a copy MO2 doesn't load, it
+  says so and **Bake** stays off. **Install into MO2** (or **Repair**, when the mod is installed)
+  fixes that: it installs the copy into MO2 as "Umbra Gore & Effects" when MO2 has none and
+  ticks it in the profile (on top of the load order, under xrRazom; only while MO2 is closed,
+  since MO2 rewrites its mod list when it closes: it asks you to close it), ticks an installed
+  copy that isn't ticked, moves a bake that still fits your mod list into the copy the game
+  loads, removes bakes no copy the game loads uses (unticked copies, the unpacked zip), and
+  clears what a cut-off download left. Then it offers to open Setup from the installed copy. A
+  bake made for another version of Umbra Effects than the one MO2 loads stays where it is until
+  that version is installed through MO2. The old mod list is kept as `modlist.txt.zgo-bak`.
 - The **Log** tab shows everything that happened; **Save log...** for bug
   reports. It is also written to `%LOCALAPPDATA%\zgo_setup\zgo_setup.log`
   (Windows) or `~/.cache/zgo_setup/zgo_setup.log` (Linux).
@@ -80,9 +95,18 @@ should be run again (MCM: Umbra Gore & Effects, Baked models).
     zgo-setup-linux --list-prebaked    list Umbra's ready-made bakes (nothing is downloaded)
     zgo-setup-linux --pack --yes       pack a bake made before 1.8.2 into archives (Bake does that too)
     zgo-setup-linux --remove --yes     remove the bake
+    zgo-setup-linux --repair --yes     install this copy into MO2 and tick it (MO2 closed); move its bake where
+                                       the game loads it; remove bakes nobody loads
     zgo-setup-linux --kid-particles-apply --yes    kid mode for particles on (no bake)
     zgo-setup-linux --kid-particles-revert --yes   undo: the game's own particle shaders
     zgo-setup-linux --selftest         check that the program works on this computer
+    zgo-setup-linux --adopt-dates --yes  record this computer's file dates in a ready-made bake another
+                                       program put in place (Umbra's installer runs it after its download)
+
+`--check`'s last line is `RESULT body=<state> props=<state> kid=<state> pack=needed|ok`. The
+body states: `ok`, `order` (fits, but a mod loading after Umbra Effects hides some baked
+models), `unused` (the bake is right, but the game doesn't load it: the folder isn't a ticked
+mod of the profile, or the MCM option "Use baked models" is off), `stale`, `none`.
 
 Options: `--mo2 DIR --profile NAME --game DIR --jobs N`, `--no-caps`,
 `--no-pieces`, `--no-wounds`, `--no-props`, `--no-kid-particles`,

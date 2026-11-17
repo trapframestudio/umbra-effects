@@ -13,6 +13,10 @@ that must exist (the engine R_ASSERTs), particles that must exist.
                                         # save/load, id reuse, late blast waves, particle lifetime
     luajit zgo_test_mp.lua host && luajit zgo_test_mp.lua client
                                         # co-op: the client replays the host's wire and must match
+    luajit zgo_test_mp_mixed.lua [seed] # co-op, baked host, client without a bake in use:
+                                        # nothing half shown, why said once, no retries
+    luajit zgo_test_respawn.lua         # a cut body offline and back (net_destroy; the dead get no
+                                        # net_spawn): the cut and its cap come back, nothing stale stays
     luajit zgo_test_settings.lua [seed] # every option complete (texts, ranges, presets), co-op
                                         # authority, performance limits, kid mode (runs as a host)
 

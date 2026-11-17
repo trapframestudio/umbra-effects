@@ -11,6 +11,9 @@
 /gamedata/meshes/zgo/props/fracture/
 /gamedata/scripts/zgo_props_fracture_index.script
 /zgo_fracture_report.json
+# The textures' archive: dev/package.py and dev/deploy.py build it from gamedata/textures at
+# package and deploy time (in a temporary folder or the mod folder); never kept in the repo
+/db/mods/zgo_static.db0
 # native/ build output (the shipped DLL is bin/zgo_native.dll)
 /native/build/
 __pycache__/

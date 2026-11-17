@@ -385,16 +385,25 @@ no_errs("save / load")
 ------------------------------------------------------------------------
 section("Off-shader cuts fall back to hiding bones when they can't be used")
 -- the game wears another model than the bake's (another mod's file wins)
+-- (it is cut like an un-baked body: at once, before its ragdoll exists;
+-- hidden on the ragdoll its part would stay on screen)
 LOG = {}
 CUTS_MODELS[SV] = { n = 20 }
 B.reset()
 local m = body(true, false)
+m._wears_unbaked = true
 cut(m, "bip01_r_thigh")
-assert(D.shown(m, "bip01_r_thigh") == "waiting" and overrides(m) == 0, "another model: bones, after the ragdoll")
+assert(D.shown(m, "bip01_r_thigh") == "bones" and overrides(m) == 0, "another model: bones, at once")
 frames(3)
 assert(m._hidden.bip01_r_thigh)
 assert(logged("the game loaded 20 sub-meshes, the bake has 16"), "said once in the log")
+local m2 = body(true, true)
+m2._wears_unbaked = true
+cut(m2, "bip01_l_thigh")
+assert(D.shown(m2, "bip01_l_thigh") == nil and not m2._hidden.bip01_l_thigh, "another model's ragdoll: not cut")
+OBJ[m2:id()] = nil   -- (gone: the checks below put the baked model back on every body)
 CHECK_CUTS("another model")
+OBJ[m:id()] = nil   -- (gone: the checks below put the baked model back on every body)
 CUTS_MODELS[SV] = select(3, bake())
 B.reset()
 -- set_shader raises: bones for the rest of the level, nothing left half done
@@ -531,9 +540,13 @@ assert(logged(CAP.bip01_l_hand .. ".ogf is missing"))
 FS_FILES["$game_meshes$|" .. CAP.bip01_l_hand .. ".ogf"] = true
 CUTS_MODELS[SV] = { n = 30 }
 B.reset()
-local ob = body(true, true)
+local ob = body(true, false)   -- (another model is cut before its ragdoll exists)
+ob._wears_unbaked = true
 cut(ob, "bip01_r_forearm")
 assert(cap_for(ob, "bip01_r_forearm").kind == "meat", "another model: meat")
+frames(3)
+CHECK_CUTS("another model, meat cap")
+OBJ[ob:id()] = nil   -- (gone: the checks below put the baked model back on every body)
 CUTS_MODELS[SV] = select(3, bake())
 B.reset()
 -- caps off, kid mode
@@ -631,8 +644,11 @@ FS_FILES["$game_meshes$|" .. PIECE.bip01_l_forearm .. ".ogf"] = true
 CUTS_MODELS[SV] = { n = 21 }
 B.reset()
 clear_level()
-cut(body(true, true), "bip01_r_forearm")
+local ab = body(true, false)   -- (another model is cut before its ragdoll exists)
+ab._wears_unbaked = true
+cut(ab, "bip01_r_forearm")
 assert(limbs()[1].model == SV, "another model: the whole model")
+OBJ[ab:id()] = nil   -- (gone: the checks below put the baked model back on every body)
 CUTS_MODELS[SV] = select(3, bake())
 B.reset()
 OVR["dismember/baked_pieces"] = nil
