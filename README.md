@@ -22,6 +22,32 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
+There are two ways: let Umbra Effects Setup install it into MO2, or install the zip through MO2
+yourself. Either way, disable Painter of the Zone (step 2 of the second way).
+
+**Umbra Effects Setup installs it (the easy way)**
+
+1. Close Mod Organizer 2. Setup ticks the mod in your profile's mod list, and MO2 rewrites that
+   list from memory when it closes.
+2. Unzip `Umbra-Gore-and-Effects-<version>.zip` anywhere, your Downloads folder for example.
+3. In the unzipped `Umbra Gore & Effects` folder, open `tools/zgo_setup` and start Umbra Effects
+   Setup: `Umbra Effects Setup.exe` on Windows, `zgo-setup.sh` or `zgo-setup-linux` on Linux
+   (see "Starting it" below).
+4. Choose your MO2 folder and the profile you play with, then press **Install into MO2**. Setup
+   copies the mod into MO2's mods folder as **Umbra Gore & Effects** and ticks it in that
+   profile, at the bottom of MO2's left pane just above xrRazom, where it wins over the mods it
+   has to (see step 3 below). Then it offers to open Umbra Effects Setup from the installed copy.
+5. In that window, press **Bake**. On a standard G.A.M.M.A. it downloads the ready-made bake
+   (about 3.5 GB); otherwise it bakes for your mod list in a few minutes (see "Baked models"
+   below).
+6. Start MO2 and disable "Painter of the Zone" and "Painter of the Zone - xrRazom Patch" (step 2
+   below). You can delete the unzipped folder.
+
+If MO2 is still open, Setup asks you to close it first; or let it install without ticking and
+tick Umbra Gore & Effects in MO2 yourself (press F5 there first if it isn't listed).
+
+**Through MO2**
+
 1. In MO2, install the zip as a new mod ("Install a new mod from an archive") and name it
    **Umbra Gore & Effects**.
 2. Disable "Painter of the Zone" and "Painter of the Zone - xrRazom Patch". If either stays on,
@@ -30,13 +56,19 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
    name, and MO2 installs it as a new mod. Your MCM settings carry over; your old bake stays in
    the old folder, so run Umbra Effects Setup again (step 4).
 3. Enable Umbra Gore & Effects. In MO2's left pane a mod lower in the list wins over the ones
-   above it. Keep Umbra Gore & Effects above Screen Space Shaders, and below every mod that
-   ships character models. (The second part only matters for baked models; Umbra Effects Setup
-   names such mods.)
-4. Recommended: run Umbra Effects Setup once (see "Baked models" below). It rebuilds the body
-   models of your mod list so that limbs come off corpses too and wounds have somewhere to
-   open. Run it again after changing mods with character models; the game reminds you.
+   above it. Put Umbra Gore & Effects at the bottom, just above xrRazom: below Screen Space
+   Shaders (Umbra Effects' blood decal shader is Screen Space Shaders' own with blood pools
+   added, so Umbra Effects' copy has to win) and below every mod that ships character models
+   (the baked models have to win; Umbra Effects Setup names such mods).
+4. Recommended: run Umbra Effects Setup once from the installed mod's folder (see "Baked
+   models" below). It rebuilds the body models of your mod list so that limbs come off corpses
+   too and wounds have somewhere to open. Run it again after changing mods with character
+   models; the game reminds you.
 5. Co-op: see "Co-op (xrRazom)" below.
+
+Setup only bakes into the copy of Umbra Gore & Effects the game loads. Started from anywhere
+else (the unzipped folder, an unticked copy), it says so and offers **Install into MO2** or
+**Repair** instead of baking.
 
 **Updating.** Install the new zip under the same name. If you pick Replace in MO2, the old
 folder is deleted, and your bake with it. Then load a save (the game checks the bake) or press
@@ -531,6 +563,9 @@ co-op; leave it off there.
 
 - **"Umbra Gore & Effects is paused" on screen:** Painter of the Zone or its xrRazom patch is
   enabled. Disable it in MO2.
+- **Co-op: the host crashes loading a save with a partner connected** ("attempt to call a nil
+  value" at the end of the load): fixed in 1.8.4. Severed limbs and gibs lying around outlived
+  the load. Update everyone in the session to 1.8.4.
 - **The game takes minutes to start:** a bake made before 1.8.2 is about 79,000 loose files, and
   the game reads each one through MO2 at every start (the log's `Init FileSystem` line says how
   long that took). Press "Check if my bake is up to date" in Umbra Effects Setup; if it says the

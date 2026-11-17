@@ -206,7 +206,9 @@ jobs:
           {
             echo "Umbra Gore & Effects $VERSION: blood, gore, dismemberment and explosions for S.T.A.L.K.E.R. G.A.M.M.A. (Anomaly), in single player and xrRazom co-op."
             echo
-            echo "Install \`Umbra-Gore-and-Effects-$VERSION.zip\` with Mod Organizer 2 as a mod named \"Umbra Gore & Effects\", then run Umbra Effects Setup from its folder (\`tools/zgo_setup\`) to bake the body models for your mod list. README.md in the zip has the details; CHANGELOG.md lists what changed."
+            echo "**Install:** close Mod Organizer 2, unzip \`Umbra-Gore-and-Effects-$VERSION.zip\` anywhere and start Umbra Effects Setup from \`Umbra Gore & Effects/tools/zgo_setup\` (\`Umbra Effects Setup.exe\` on Windows, \`zgo-setup.sh\` on Linux). Choose your MO2 folder and profile and press **Install into MO2**: it installs and ticks the mod, then opens Setup from the installed copy, where **Bake** downloads the ready-made bake when it fits your mod list (or bakes it). Or install the zip with Mod Organizer 2 as a mod named \"Umbra Gore & Effects\" and run Umbra Effects Setup from its folder. Either way, disable Painter of the Zone and its xrRazom patch."
+            echo
+            echo "**Updating:** install the new zip through Mod Organizer 2 under the same name, then run Umbra Effects Setup from the mod's folder and press **Check if my bake is up to date**. README.md in the zip has the details; CHANGELOG.md lists what changed."
             echo
             echo "Checksums (\`SHA256SUMS.txt\`):"
             echo

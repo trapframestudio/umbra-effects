@@ -36,6 +36,11 @@ Proton, next to MO2.
 Keep the program in this folder: it runs the baker that came with this Umbra Effects
 (`tools/zgo_baker`), so it always matches the installed version.
 
+Not installed yet? Close Mod Organizer 2, start Setup from `tools/zgo_setup` in the unzipped
+zip, choose your MO2 folder and profile, and press **Install into MO2**. It copies the mod into
+MO2's mods folder as "Umbra Gore & Effects", ticks it in the profile (just above xrRazom at the
+bottom of MO2's left pane), and offers to open Setup from the installed copy to bake.
+
 ## The window
 
 - **Your game**: the MO2 folder, the profile you play with, the game folder
